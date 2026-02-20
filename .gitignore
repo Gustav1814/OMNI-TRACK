@@ -1,0 +1,65 @@
+# ============================================================
+# OmniTrack AI — Git Ignore
+# ============================================================
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Node / Frontend
+node_modules/
+frontend/dist/
+frontend/build/
+.vite/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# AI Models (large files — download at runtime)
+*.pt
+*.pth
+*.onnx
+*.engine
+*.weights
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Exports
+exports/
+
+# Alembic
+alembic/versions/*.py
+!alembic/versions/.gitkeep
+
+# Docker
+docker-compose.override.yml
+
+# Misc
+*.bak
+*.tmp
+.cache/
