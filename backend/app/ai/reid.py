@@ -1,6 +1,7 @@
 """
 OmniTrack AI — Torchreid Re-Identification Module
 Global person Re-ID using osnet_x1_0 backbone.
+One shared gallery across ALL cameras: same person on Cam 1 and Cam 2 gets the same global_id.
 Extracts 512-d feature embeddings, L2 normalized for cosine similarity.
 """
 
@@ -27,7 +28,8 @@ except ImportError:
 class PersonReID:
     """
     Person Re-Identification using Torchreid.
-    Extracts 512-d embeddings from cropped person images.
+    One GLOBAL gallery shared by all cameras: add_to_gallery / search_gallery
+    so the same person across cameras gets the same global_id.
     """
 
     EMBEDDING_DIM = 512
@@ -37,6 +39,8 @@ class PersonReID:
         self.device = self._resolve_device(device)
         self.model = None
         self.transform = self._build_transform()
+        # Single gallery for ALL cameras (global Re-ID)
+        self._gallery: List[Tuple[str, np.ndarray]] = []
         self._load_model()
 
     def _resolve_device(self, device: str) -> str:
@@ -103,6 +107,23 @@ class PersonReID:
     def compute_similarity(self, emb1: np.ndarray, emb2: np.ndarray) -> float:
         """Cosine similarity between two embeddings."""
         return float(np.dot(emb1, emb2))
+
+    def add_to_gallery(self, global_id: str, embedding: np.ndarray) -> None:
+        """Add a person to the global gallery (shared across all cameras)."""
+        self._gallery.append((global_id, embedding.astype(np.float32)))
+
+    def search_gallery(
+        self,
+        query: np.ndarray,
+        top_k: int = 1,
+        threshold: float = 0.6,
+    ) -> List[Dict]:
+        """
+        Search the GLOBAL gallery (all cameras). Returns matches so the same
+        person seen on different cameras gets the same global_id.
+        """
+        matches = self.find_matches(query, self._gallery, threshold=threshold, top_k=top_k)
+        return [{"id": m["global_id"], "similarity": m["similarity"]} for m in matches]
 
     def find_matches(
         self,

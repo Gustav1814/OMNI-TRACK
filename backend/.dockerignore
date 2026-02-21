@@ -1,0 +1,24 @@
+# OmniTrack AI — Backend Docker ignore
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+.env
+.venv
+venv
+env
+*.egg-info
+.eggs
+dist
+build
+.git
+.gitignore
+*.md
+.pytest_cache
+.coverage
+htmlcov
+exports
+*.pt
+*.onnx
+*.pth

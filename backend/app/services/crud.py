@@ -9,7 +9,7 @@ WHY THIS EXISTS:
 """
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, func, and_, desc
+from sqlalchemy import select, delete, func, and_, desc, text
 from sqlalchemy.orm import selectinload
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone, timedelta
@@ -255,9 +255,39 @@ class EmbeddingService:
         result = await db.execute(
             select(Embedding)
             .where(Embedding.global_id == global_id)
-            .order_by(Embedding.created_at.desc())
+            .order_by(Embedding.timestamp.desc())
         )
         return result.scalars().all()
+
+    @staticmethod
+    async def search_similar(
+        db: AsyncSession,
+        query_vector: list,
+        top_k: int = 10,
+        threshold: Optional[float] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Cosine similarity search (proposal: sub-100ms retrieval, IVFFlat/HNSW).
+        Returns list of dicts with id, camera_id, track_id, global_id, confidence, timestamp, distance.
+        """
+        try:
+            # pgvector cosine distance operator <=>; ordered by distance ascending
+            qv = "[" + ",".join(str(float(x)) for x in query_vector) + "]"
+            stmt = text(
+                "SELECT id, camera_id, track_id, global_id, confidence, timestamp, "
+                "(vector <=> :qv::vector) AS distance FROM embeddings "
+                "ORDER BY vector <=> :qv::vector LIMIT :k"
+            )
+            result = await db.execute(stmt, {"qv": qv, "k": top_k})
+            rows = result.mappings().all()
+            out = [dict(r) for r in rows]
+            if threshold is not None:
+                # cosine distance 0 = identical; filter by max distance
+                out = [r for r in out if r.get("distance") is not None and r["distance"] <= threshold]
+            return out
+        except Exception as e:
+            logger.warning(f"pgvector search_similar failed: {e}")
+            return []
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -324,7 +354,7 @@ class AuditService:
         limit: int = 100,
         event_type: Optional[str] = None,
     ) -> List[AuditLog]:
-        query = select(AuditLog).order_by(AuditLog.created_at.desc())
+        query = select(AuditLog).order_by(AuditLog.timestamp.desc())
         if event_type:
             query = query.where(AuditLog.event_type == event_type)
         query = query.limit(limit)

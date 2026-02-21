@@ -1,14 +1,18 @@
 """
 OmniTrack AI — Analytics Routers
 Combined router for: synopsis, shelf, fire, crowd, checkout, emotion, audit, vibe.
+Audit endpoints use real DB and SHA-256 chain verification (proposal: Decoupled Security Pipeline).
 """
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone, timedelta
 import random
+from app.database import get_db
 from app.models.user import User
 from app.security.dependencies import get_current_user
+from app.services.crud import AuditService
 from app.schemas.schemas import (
     SynopsisResponse, ShelfEngagement, FireAlert, CrowdStatus,
     CheckoutMetrics, EmotionResult, EmotionZoneAggregation,
@@ -183,25 +187,39 @@ audit_router = APIRouter(prefix="/api/audit", tags=["Security Audit"])
 
 
 @audit_router.get("/logs", response_model=List[AuditEntry])
-async def get_audit_logs(limit: int = 50, current_user: User = Depends(get_current_user)):
-    now = datetime.now(timezone.utc)
-    events = ["LOGIN", "DETECTION_START", "CONFIG_CHANGE", "EXPORT", "USER_CREATE", "CAMERA_ADD"]
+async def get_audit_logs(
+    limit: int = 50,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return tamper-evident audit log from DB (SHA-256 chain)."""
+    logs = await AuditService.get_logs(db, limit=limit)
     return [
         AuditEntry(
-            id=i, event_type=random.choice(events), user_id=1,
-            description=f"Audit event #{i}",
-            current_hash=f"{'a' * 60}{i:04d}",
-            previous_hash=f"{'a' * 60}{i - 1:04d}" if i > 1 else None,
-            timestamp=now - timedelta(minutes=i * 15),
-            is_valid=True,
+            id=e.id,
+            event_type=e.event_type,
+            user_id=e.user_id,
+            description=e.description,
+            current_hash=e.current_hash,
+            previous_hash=e.previous_hash,
+            timestamp=e.timestamp,
         )
-        for i in range(1, min(limit + 1, 20))
+        for e in logs
     ]
 
 
 @audit_router.get("/verify", response_model=AuditChainStatus)
-async def verify_chain(current_user: User = Depends(get_current_user)):
-    return AuditChainStatus(valid=True, broken_at=None, total=150)
+async def verify_chain(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Verify integrity of the entire audit chain (100% tamper detection per proposal)."""
+    result = await AuditService.verify_integrity(db)
+    return AuditChainStatus(
+        valid=result["valid"],
+        broken_at=result.get("broken_at"),
+        total=result["total"],
+    )
 
 
 # --- Store Vibe Router ---

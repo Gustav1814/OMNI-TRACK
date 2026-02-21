@@ -11,6 +11,7 @@ __pycache__/
 venv/
 env/
 .venv/
+.venv312/
 *.egg-info/
 dist/
 build/
@@ -33,9 +34,10 @@ frontend/build/
 *.engine
 *.weights
 
-# IDE
+# IDE / Editor
 .vscode/
 .idea/
+.cursor/
 *.swp
 *.swo
 *~
@@ -49,8 +51,9 @@ desktop.ini
 *.log
 logs/
 
-# Exports
+# Exports & storage
 exports/
+backend/storage/
 
 # Alembic
 alembic/versions/*.py

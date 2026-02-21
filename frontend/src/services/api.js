@@ -55,12 +55,26 @@ export const camerasAPI = {
     delete: (id) => api.delete(`/cameras/${id}`),
 };
 
-// --- Detection ---
+// --- Detection (wired to pipeline: real YOLO + ByteTrack on camera feeds) ---
 export const detectionAPI = {
-    start: (cameraId) => api.post(`/detection/start/${cameraId}`),
+    start: (cameraId, params = {}) =>
+        api.post(`/detection/start/${cameraId}`, null, { params: { source: params.source ?? '0', stream_type: params.stream_type ?? 'webcam', zone: params.zone ?? 'default' } }),
     stop: (cameraId) => api.post(`/detection/stop/${cameraId}`),
     status: () => api.get('/detection/status'),
     results: (cameraId) => api.get(`/detection/results/${cameraId}`),
+    recordingStart: (cameraId) => api.post(`/detection/recording/start/${cameraId}`),
+    recordingStop: (cameraId) => api.post(`/detection/recording/stop/${cameraId}`),
+    recordingStatus: () => api.get('/detection/recording/status'),
+};
+
+// --- Pipeline (multi-camera processing: add cameras, start/stop, real results) ---
+export const pipelineAPI = {
+    status: () => api.get('/pipeline/status'),
+    start: () => api.post('/pipeline/start'),
+    stop: () => api.post('/pipeline/stop'),
+    addCamera: (cameraId, source, streamType = 'webcam', zone = 'default') =>
+        api.post('/pipeline/cameras/add', null, { params: { camera_id: cameraId, source, stream_type: streamType, zone } }),
+    results: (cameraId) => api.get('/pipeline/results', { params: cameraId != null ? { camera_id: cameraId } : {} }),
 };
 
 // --- Re-ID ---
@@ -118,5 +132,22 @@ export const demographicsAPI = {
 export const peakHoursAPI = {
     today: () => api.get('/peak-hours/today'),
 };
+
+// --- Footage (CCTV storage: list, upload, serve for playback) ---
+export const footageAPI = {
+    list: (cameraId) => api.get('/footage/list', { params: cameraId != null ? { camera_id: cameraId } : {} }),
+    upload: (file, cameraId = 1) => {
+        const form = new FormData();
+        form.append('file', file);
+        return api.post(`/footage/upload?camera_id=${cameraId}`, form, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+        });
+    },
+    /** URL to stream a stored clip (append ?token= for auth). Use same origin so proxy works. */
+    serveUrl: (filename) => `${api.defaults.baseURL || '/api'}/footage/serve/${encodeURIComponent(filename)}`,
+};
+
+/** Base URL for API (for stream URLs that need token in query). */
+export const API_BASE = api.defaults.baseURL || '/api';
 
 export default api;

@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     # --- Export ---
     EXPORT_DIR: str = "exports"              # Where CSV/JSON exports are saved
 
+    # --- CCTV Footage storage ---
+    FOOTAGE_DIR: str = "storage/footage"      # Where uploaded/recorded clips are stored
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

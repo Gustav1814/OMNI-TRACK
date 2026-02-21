@@ -1,0 +1,84 @@
+# OmniTrack AI — Full Stack (Industry-Standard Prototype)
+# Run: docker compose up -d
+# Dashboard: http://localhost (via nginx) or http://localhost:5173 (frontend dev)
+# API: http://localhost:8000 | Docs: http://localhost:8000/docs
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: omnitrack-db
+    environment:
+      POSTGRES_USER: omnitrack
+      POSTGRES_PASSWORD: omnitrack_secret
+      POSTGRES_DB: omnitrack_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - omnitrack_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U omnitrack -d omnitrack_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: omnitrack-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: omnitrack-api
+    environment:
+      DATABASE_URL: postgresql+asyncpg://omnitrack:omnitrack_secret@postgres:5432/omnitrack_db
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-this-in-production}
+      CORS_ORIGINS: '["http://localhost","http://localhost:80","http://localhost:5173","http://frontend"]'
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: /api
+    container_name: omnitrack-dashboard
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+  # Optional: single entrypoint reverse proxy (production-style)
+  nginx:
+    image: nginx:alpine
+    container_name: omnitrack-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - backend
+      - frontend
+    profiles:
+      - with-nginx
+
+volumes:
+  omnitrack_pgdata:

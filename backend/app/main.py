@@ -23,13 +23,14 @@ import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from loguru import logger
 import sys
 import time
 from datetime import datetime, timezone
 
 # Database
+from sqlalchemy import text
 from app.database import engine, Base, get_db
 
 # Middleware
@@ -46,10 +47,26 @@ from app.services.pipeline import ProcessingPipeline
 from app.services.export import ExportService
 
 # Routers
-from app.routers import auth, cameras, detection, reid, analytics
+from app.routers import auth, cameras, detection, reid, footage
+from app.routers.analytics import (
+    synopsis_router,
+    shelf_router,
+    fire_router,
+    crowd_router,
+    checkout_router,
+    emotion_router,
+    audit_router,
+    vibe_router,
+    demographics_router,
+    peak_hours_router,
+    dashboard_router,
+)
 
 # Config
 from app.config import settings
+from app.security.adversarial_eval import get_robustness_status
+from app.security.dependencies import get_current_user
+from app.models.user import User
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -92,11 +109,12 @@ async def lifespan(app: FastAPI):
     logger.info("  OmniTrack AI — Starting Up")
     logger.info("═" * 60)
 
-    # 1. Create database tables
+    # 1. Ensure pgvector extension, then create database tables
     try:
         async with engine.begin() as conn:
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
             await conn.run_sync(Base.metadata.create_all)
-        logger.info("✅ Database tables ready")
+        logger.info("✅ Database tables ready (pgvector enabled)")
     except Exception as e:
         logger.error(f"❌ Database error: {e}")
         logger.warning("   → Running without database (using mock data)")
@@ -175,16 +193,36 @@ app.add_middleware(RateLimitMiddleware, cache=cache)
 # REGISTER ROUTERS
 # ═══════════════════════════════════════════════════════════════
 
-app.include_router(auth.router,       prefix="/api/auth",       tags=["Authentication"])
-app.include_router(cameras.router,    prefix="/api/cameras",    tags=["Cameras"])
-app.include_router(detection.router,  prefix="/api/detection",  tags=["Detection"])
-app.include_router(reid.router,       prefix="/api/reid",       tags=["Re-Identification"])
-app.include_router(analytics.router,  prefix="/api/analytics",  tags=["Analytics"])
+app.include_router(auth.router)
+app.include_router(cameras.router)
+app.include_router(detection.router)
+app.include_router(reid.router)
+app.include_router(footage.router)
+# Analytics sub-routers (each has its own prefix in analytics.py)
+app.include_router(synopsis_router)
+app.include_router(shelf_router)
+app.include_router(fire_router)
+app.include_router(crowd_router)
+app.include_router(checkout_router)
+app.include_router(emotion_router)
+app.include_router(audit_router)
+app.include_router(vibe_router)
+app.include_router(demographics_router)
+app.include_router(peak_hours_router)
+app.include_router(dashboard_router)
 
 
 # ═══════════════════════════════════════════════════════════════
 # CORE ENDPOINTS
 # ═══════════════════════════════════════════════════════════════
+
+@app.get("/api/security/robustness", tags=["System"])
+async def security_robustness():
+    """
+    Adversarial robustness status (proposal: ART, FGSM, PGD, documented resilience).
+    """
+    return get_robustness_status()
+
 
 @app.get("/api/health", tags=["System"])
 async def health_check():
@@ -196,7 +234,7 @@ async def health_check():
     db_status = "healthy"
     try:
         async with engine.connect() as conn:
-            await conn.execute("SELECT 1")
+            await conn.execute(text("SELECT 1"))
     except Exception:
         db_status = "unhealthy"
 
@@ -288,6 +326,33 @@ async def get_latest_results(camera_id: int = None):
     if not results:
         return {"message": "No results yet — pipeline may not be running"}
     return results
+
+
+# ═══════════════════════════════════════════════════════════════
+# LIVE MJPEG STREAM — CCTV with detection overlay (for dashboard)
+# ═══════════════════════════════════════════════════════════════
+
+@app.get("/api/stream/camera/{camera_id}/live", tags=["Stream"])
+async def stream_camera_live(
+    camera_id: int,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Live MJPEG stream of one camera with detection/tracking overlay.
+    Use in dashboard: <img src="/api/stream/camera/1/live?token=JWT" /> or Bearer header.
+    """
+    async def generate():
+        while True:
+            jpeg = pipeline.get_latest_annotated_jpeg(camera_id)
+            if jpeg:
+                yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpeg + b"\r\n"
+            await asyncio.sleep(1 / max(pipeline.processing_fps, 1))
+
+    return StreamingResponse(
+        generate(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+        headers={"Cache-Control": "no-store, no-cache", "Pragma": "no-cache"},
+    )
 
 
 # ═══════════════════════════════════════════════════════════════

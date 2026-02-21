@@ -31,6 +31,7 @@ WHAT YOU NEED:
 import asyncio
 import time
 import numpy as np
+import cv2
 from typing import Dict, List, Optional, Any, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -51,6 +52,8 @@ from app.ai.store_vibe import StoreVibeEngine
 
 # Stream Manager
 from app.services.stream_manager import StreamManager, StreamConfig, StreamType
+from app.config import settings
+from pathlib import Path
 
 
 class PipelineState(str, Enum):
@@ -196,6 +199,11 @@ class ProcessingPipeline:
         self._results_buffer: Dict[int, CameraResult] = {}
         self._callbacks: List[Callable] = []  # Real-time result callbacks
         self._lock = asyncio.Lock()
+        # Latest annotated frame (JPEG bytes) per camera for live MJPEG stream
+        self._latest_annotated_jpeg: Dict[int, bytes] = {}
+        self._jpeg_lock = threading.Lock()
+        # Per-camera recording: camera_id -> (VideoWriter, output_path)
+        self._recorders: Dict[int, tuple] = {}
 
         logger.info(f"Pipeline initialized | device={device} | modules: "
                      f"emotion={enable_emotions} fire={enable_fire} "
@@ -255,9 +263,60 @@ class ProcessingPipeline:
 
     def remove_camera(self, camera_id: int):
         """Remove a camera from processing."""
+        self._stop_recording_impl(camera_id)
         self.stream_manager.remove_camera(camera_id)
         self._frame_counts.pop(camera_id, None)
         self._results_buffer.pop(camera_id, None)
+
+    def _stop_recording_impl(self, camera_id: int) -> Optional[str]:
+        """Stop recording for a camera; return saved file path or None."""
+        rec = self._recorders.pop(camera_id, None)
+        if not rec:
+            return None
+        writer, path = rec
+        try:
+            writer.release()
+        except Exception:
+            pass
+        return str(path)
+
+    def start_recording(self, camera_id: int) -> Dict[str, Any]:
+        """
+        Start recording this camera's annotated feed to storage/footage.
+        Requires the camera to be active and pipeline running.
+        """
+        if camera_id in self._recorders:
+            return {"recording": True, "message": f"Camera {camera_id} already recording"}
+        stats = self.stream_manager.get_stats(camera_id)
+        w, h = (stats.resolution if stats and stats.resolution[0] else (1280, 720))[:2]
+        if w <= 0 or h <= 0:
+            w, h = 1280, 720
+        footage_dir = Path(settings.FOOTAGE_DIR)
+        footage_dir.mkdir(parents=True, exist_ok=True)
+        out_path = footage_dir / f"camera_{camera_id}_{int(time.time())}.mp4"
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(str(out_path), fourcc, max(1, self.processing_fps), (int(w), int(h)))
+        if not writer.isOpened():
+            logger.error(f"Failed to create recorder for camera {camera_id}")
+            return {"recording": False, "error": "Failed to create video file"}
+        self._recorders[camera_id] = (writer, out_path)
+        logger.info(f"Recording started for camera {camera_id} -> {out_path}")
+        return {"recording": True, "path": str(out_path), "camera_id": camera_id}
+
+    def stop_recording(self, camera_id: int) -> Dict[str, Any]:
+        """Stop recording and save the clip to footage storage."""
+        path = self._stop_recording_impl(camera_id)
+        if path:
+            logger.info(f"Recording stopped for camera {camera_id} -> {path}")
+            return {"recording": False, "saved": path, "camera_id": camera_id}
+        return {"recording": False, "message": f"Camera {camera_id} was not recording"}
+
+    def get_recording_status(self) -> Dict[str, Any]:
+        """Return which cameras are currently recording."""
+        return {
+            "recording_cameras": list(self._recorders.keys()),
+            "recording": list(self._recorders.keys()),
+        }
 
     # ─────────────────────────────────────────────────────────────
     # CALLBACKS (for WebSocket push, DB persistence, etc.)
@@ -317,21 +376,19 @@ class ProcessingPipeline:
             except asyncio.CancelledError:
                 pass
 
+        for cid in list(self._recorders.keys()):
+            self._stop_recording_impl(cid)
         self.stream_manager.stop_all()
         self.state = PipelineState.IDLE
         logger.info("Pipeline stopped")
 
     async def _processing_loop(self):
         """
-        Main loop: processes ALL cameras each tick, synchronized.
-        
-        Each tick:
-          1. Grab latest frame from each camera
-          2. Run detection + tracking on all frames
-          3. Update global Re-ID gallery
-          4. Run analytics modules
-          5. Calculate Store Vibe Score
-          6. Fire callbacks (WebSocket, DB save)
+        Single loop for ALL cameras — not independent. Each tick:
+          1. Grab latest frame from EVERY camera
+          2. Detection + tracking per camera
+          3. GLOBAL Re-ID: one shared gallery; same person on Cam 1 and Cam 2 gets same global_id
+          4. Analytics, Store Vibe, callbacks
         """
         interval = 1.0 / max(self.processing_fps, 1)
 
@@ -565,10 +622,73 @@ class ProcessingPipeline:
         for r in results.values():
             r.processing_time_ms = total_ms / len(results)
 
+        # Draw detections on frames and store JPEGs for live stream (dashboard/CCTV)
+        for cam_id, (frame, _) in frames.items():
+            r = results.get(cam_id)
+            if r and frame is not None:
+                try:
+                    vis = self._draw_annotations(frame.copy(), r)
+                    _, jpeg = cv2.imencode(".jpg", vis)
+                    with self._jpeg_lock:
+                        self._latest_annotated_jpeg[cam_id] = jpeg.tobytes()
+                    # Write to recorder if this camera is recording
+                    rec = self._recorders.get(cam_id)
+                    if rec:
+                        writer, _ = rec
+                        if writer.isOpened():
+                            writer.write(vis)
+                except Exception as e:
+                    logger.debug(f"Annotation draw error cam {cam_id}: {e}")
+
         # Store in buffer for API access
         self._results_buffer = results
 
         return results
+
+    def _draw_annotations(self, frame: np.ndarray, result: "CameraResult") -> np.ndarray:
+        """Draw detection bboxes, track IDs and labels on frame for live CCTV view."""
+        h, w = frame.shape[:2]
+        for det in result.detections:
+            if hasattr(det, "x"):
+                x, y, bw, bh = int(det.x), int(det.y), int(det.w), int(det.h)
+                conf = getattr(det, "confidence", 0)
+                track_id = getattr(det, "track_id", None)
+            else:
+                bbox = det.get("bbox", det.get("box", []))
+                if len(bbox) < 4:
+                    continue
+                x, y, bw, bh = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+                conf = det.get("confidence", 0)
+                track_id = det.get("track_id", "")
+            x, y = max(0, x), max(0, y)
+            label = f"#{track_id} {conf:.0%}" if track_id else f"{conf:.0%}"
+            cv2.rectangle(frame, (x, y), (x + bw, y + bh), (0, 255, 0), 2)
+            cv2.putText(
+                frame, label, (x, max(20, y - 5)),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA
+            )
+        for match in result.reid_matches:
+            bbox = match.get("bbox", [])
+            if len(bbox) < 4:
+                continue
+            x, y, bw, bh = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+            gid = match.get("global_id", "")
+            if gid:
+                cv2.putText(
+                    frame, str(gid), (x, min(h - 5, y + bh + 18)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 200, 0), 1, cv2.LINE_AA
+                )
+        if result.fire_alerts:
+            cv2.putText(
+                frame, "FIRE ALERT", (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2, cv2.LINE_AA
+            )
+        return frame
+
+    def get_latest_annotated_jpeg(self, camera_id: int) -> Optional[bytes]:
+        """Get latest annotated frame as JPEG bytes for MJPEG stream."""
+        with self._jpeg_lock:
+            return self._latest_annotated_jpeg.get(camera_id)
 
     # ─────────────────────────────────────────────────────────────
     # STATUS & METRICS
@@ -611,6 +731,7 @@ class ProcessingPipeline:
                 "fire_alert": self.global_state.fire_alert_active,
                 "vibe_score": round(self.global_state.vibe_score, 1),
             },
+            "reid_scope": "global",
             "processing": {
                 "target_fps": self.processing_fps,
                 "frame_counts": self._frame_counts,

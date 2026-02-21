@@ -1,9 +1,9 @@
 # ============================================================
-# OmniTrack AI — Python Dependencies (Proposal-compliant)
+# OmniTrack AI — Python 3.14 only (reduced stack)
 # ============================================================
-# Full project standard: Emotion recognition uses DeepFace/FER (proposal).
-# For full install use Python 3.11 or 3.12. TensorFlow has no wheel for 3.14.
-# See README "Project standard (dependencies)" and requirements-py314.txt if using 3.14.
+# Use this ONLY if you must run on Python 3.14. TensorFlow has no 3.14 wheel,
+# so DeepFace cannot be installed — emotion runs in fallback mode (not full standard).
+# For full proposal standard: use Python 3.11 or 3.12 and requirements.txt.
 
 # --- Core Framework ---
 fastapi>=0.115.0
@@ -23,14 +23,12 @@ greenlet>=3.0.0
 python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
 pycryptodome>=3.21.0
-# Adversarial robustness (proposal): pip install adversarial-robustness-toolbox[torch]
 
-# --- AI / Computer Vision ---
+# --- AI / Computer Vision (no deepface on 3.14) ---
 ultralytics>=8.3.0
 torch>=2.1.0
 torchvision>=0.16.0
 torchreid>=0.2.5
-deepface>=0.0.90
 opencv-python-headless>=4.10.0
 numpy>=1.24.0
 scipy>=1.11.0
