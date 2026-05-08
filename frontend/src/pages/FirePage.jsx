@@ -1,80 +1,119 @@
 /**
- * OmniTrack AI — Fire & Smoke Detection Page
+ * OmniTrack AI — Fire & Smoke (live)
+ * Polls /api/fire/alerts and /api/fire/status; highlights active WS alerts.
  */
-import React from 'react';
-import { Flame, Shield, AlertTriangle, CheckCircle } from 'lucide-react';
 
-const alerts = [
-    { id: 1, type: 'smoke', confidence: 0.94, camera: 'Warehouse Cam', zone: 'Warehouse', time: '2h ago', status: 'resolved' },
-    { id: 2, type: 'fire', confidence: 0.97, camera: 'Kitchen Cam', zone: 'Kitchen', time: '5h ago', status: 'false_alarm' },
-    { id: 3, type: 'smoke', confidence: 0.78, camera: 'Loading Dock', zone: 'Loading Dock', time: '1d ago', status: 'resolved' },
-    { id: 4, type: 'fire', confidence: 0.89, camera: 'Storage A', zone: 'Storage', time: '2d ago', status: 'resolved' },
-];
+import React, { useState } from 'react';
+import { motion } from 'framer-motion';
+import { Flame, AlertTriangle, ShieldAlert } from 'lucide-react';
+import { fireAPI } from '../services/api';
+import useLivePoll from '../hooks/useLivePoll';
+import useWebSocket from '../hooks/useWebSocket';
 
 export default function FirePage() {
+    const { data: alerts } = useLivePoll(() => fireAPI.alerts(), { intervalMs: 5000 });
+    const { data: status } = useLivePoll(() => fireAPI.status(), { intervalMs: 10000 });
+
+    const [live, setLive] = useState([]);
+    useWebSocket('/ws/live', {
+        onType: {
+            fire_alert: (d) => setLive((prev) => [{ ...d, ts: Date.now() }, ...prev].slice(0, 20)),
+        },
+    });
+
+    const list = Array.isArray(alerts) ? alerts : [];
+    const recent = list.slice(0, 20);
+    const critical = live[0] || null;
+
     return (
-        <div>
+        <div className="page-scroll">
             <div className="page-header">
-                <h2 className="page-title">Fire & Smoke Detection</h2>
-                <p className="page-description">Real-time hazard monitoring with custom YOLOv8 fire/smoke model</p>
+                <div>
+                    <h1 className="page-title">Fire & Smoke Detection</h1>
+                    <p className="page-subtitle">
+                        {status?.model_loaded ? 'Custom-trained YOLO model active' : 'Model not loaded — running in safe mode'}
+                        {status?.is_fire_specific === false && ' · generic model: alerts suppressed'}
+                    </p>
+                </div>
             </div>
 
-            <div className="alert-banner success" style={{ marginBottom: 20 }}>
-                <CheckCircle size={18} /> All clear — No active fire or smoke alerts
-            </div>
-
-            <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-                {[
-                    { label: 'Active Alerts', value: '0', icon: Flame, color: '#10b981' },
-                    { label: 'Total Today', value: '2', icon: AlertTriangle, color: '#f59e0b' },
-                    { label: 'Cameras Monitored', value: '6', icon: Shield, color: '#6366f1' },
-                    { label: 'False Alarm Rate', value: '12%', icon: CheckCircle, color: '#06b6d4' },
-                ].map((s, i) => {
-                    const Icon = s.icon;
-                    return (
-                        <div key={i} className="stat-card animate-in">
-                            <div className="stat-card-header">
-                                <span className="stat-card-label">{s.label}</span>
-                                <div className="stat-card-icon" style={{ background: `${s.color}15`, color: s.color }}><Icon size={16} /></div>
-                            </div>
-                            <div className="stat-card-value" style={{ color: s.color }}>{s.value}</div>
+            {critical && (
+                <div className="fire-banner">
+                    <div className="fire-banner-icon"><AlertTriangle size={22} /></div>
+                    <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 700 }}>
+                            ACTIVE {critical.alert_type?.toUpperCase() || 'FIRE'} ALERT
                         </div>
-                    );
-                })}
+                        <div style={{ fontSize: 12, opacity: 0.85 }}>
+                            Camera {critical.camera_id} · {critical.zone || 'unknown'} ·
+                            {' '}confidence {Math.round((critical.confidence || 0) * 100)}%
+                        </div>
+                    </div>
+                    <button className="btn btn-secondary btn-xs" onClick={() => setLive([])}>Dismiss</button>
+                </div>
+            )}
+
+            <div className="stats-grid">
+                <Stat icon={Flame} label="Alerts Today" value={list.length} accent={list.length ? 'rose' : 'indigo'} />
+                <Stat icon={ShieldAlert} label="Model Loaded" value={status?.model_loaded ? 'yes' : 'no'} accent="amber" />
+                <Stat icon={ShieldAlert} label="Fire-Specific" value={status?.is_fire_specific ? 'yes' : 'no'} accent="cyan" />
+                <Stat icon={Flame} label="Live (last 5 min)" value={live.length} accent="gold" />
             </div>
 
-            <div className="card animate-in">
+            <div className="card">
                 <div className="card-header">
-                    <span className="card-title">Alert History</span>
-                    <span className="badge badge-neutral">{alerts.length} total</span>
+                    <h3 className="card-title">Recent Alerts</h3>
+                    <div className="card-subtitle">
+                        {recent.length
+                            ? `${recent.length} of ${list.length} alerts`
+                            : 'No alerts — safe.'}
+                    </div>
                 </div>
-                <div className="card-body">
-                    <table className="data-table">
-                        <thead><tr><th>Type</th><th>Confidence</th><th>Camera</th><th>Zone</th><th>Time</th><th>Status</th></tr></thead>
-                        <tbody>
-                            {alerts.map((a) => (
-                                <tr key={a.id}>
-                                    <td>
-                                        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                            <Flame size={14} style={{ color: a.type === 'fire' ? '#f43f5e' : '#f59e0b' }} />
-                                            <span style={{ fontWeight: 600, textTransform: 'capitalize' }}>{a.type}</span>
-                                        </span>
-                                    </td>
-                                    <td><span className="badge badge-warning">{(a.confidence * 100).toFixed(0)}%</span></td>
-                                    <td>{a.camera}</td>
-                                    <td>{a.zone}</td>
-                                    <td style={{ color: 'var(--text-muted)' }}>{a.time}</td>
-                                    <td>
-                                        <span className={`badge ${a.status === 'resolved' ? 'badge-success' : a.status === 'false_alarm' ? 'badge-neutral' : 'badge-danger'}`}>
-                                            {a.status.replace('_', ' ')}
-                                        </span>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
+
+                {recent.length === 0 ? (
+                    <div className="page-empty-hint page-empty-hint--left">
+                        No fire/smoke alerts in the recent history.
+                    </div>
+                ) : (
+                    <div style={{ display: 'grid', gap: 8 }}>
+                        {recent.map((a, i) => (
+                            <motion.div
+                                key={i}
+                                className="card"
+                                style={{
+                                    padding: 12,
+                                    borderColor: 'rgba(244,63,94,0.3)',
+                                    background: 'rgba(244,63,94,0.06)',
+                                }}
+                                whileHover={{ x: 3 }}
+                            >
+                                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                                    <Flame size={18} color="#f43f5e" />
+                                    <strong>{String(a.alert_type || 'fire').toUpperCase()}</strong>
+                                    <span className="pill pill-danger">Cam {a.camera_id}</span>
+                                    <span className="pill">{a.zone || '—'}</span>
+                                    <span className="pill pill-warn">
+                                        {Math.round((a.confidence || 0) * 100)}%
+                                    </span>
+                                    <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>
+                                        {a.timestamp ? new Date(a.timestamp).toLocaleString() : ''}
+                                    </span>
+                                </div>
+                            </motion.div>
+                        ))}
+                    </div>
+                )}
             </div>
         </div>
+    );
+}
+
+function Stat({ icon: Icon, label, value, accent = 'indigo' }) {
+    return (
+        <motion.div className="stat-card" whileHover={{ y: -2 }}>
+            <div className={`stat-icon stat-icon-${accent}`}><Icon size={18} /></div>
+            <div className="stat-label">{label}</div>
+            <div className="stat-value">{value}</div>
+        </motion.div>
     );
 }

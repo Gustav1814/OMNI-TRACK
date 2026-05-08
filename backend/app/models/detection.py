@@ -14,6 +14,7 @@ class Detection(Base):
     camera_id = Column(Integer, ForeignKey("cameras.id"), nullable=False, index=True)
     timestamp = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     track_id = Column(Integer, nullable=True, index=True)
+    global_id = Column(String(100), nullable=True, index=True)  # Cross-camera Re-ID (e.g. PERSON-00042)
     bbox_x = Column(Float, nullable=False)
     bbox_y = Column(Float, nullable=False)
     bbox_w = Column(Float, nullable=False)

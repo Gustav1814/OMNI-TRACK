@@ -5,6 +5,9 @@ FROM python:3.11-slim as builder
 
 WORKDIR /build
 
+# So pip --user console_scripts land on PATH during install (silences "not on PATH" warnings)
+ENV PATH=/root/.local/bin:$PATH
+
 # Build dependencies (some packages need compile)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
@@ -12,6 +15,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
+# CPU-only PyTorch first (avoids ~900MB+ CUDA/cuDNN wheels in typical Linux containers).
+RUN pip install --no-cache-dir --user \
+    torch torchvision \
+    --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir --user -r requirements.txt
 
 # ---------------------------------------------------------------------------
@@ -24,12 +31,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy installed packages from builder
-COPY --from=builder /root/.local /root/.local
-ENV PATH=/root/.local/bin:$PATH
+# Real home so user-site-packages resolve correctly for the non-root user
+RUN groupadd -r omnitrack && useradd -r -g omnitrack -m -d /home/omnitrack omnitrack
 
-# Non-root user for security
-RUN groupadd -r omnitrack && useradd -r -g omnitrack omnitrack
+# Copy deps into omnitrack-owned tree (/root is not readable by non-root)
+COPY --from=builder --chown=omnitrack:omnitrack /root/.local /home/omnitrack/.local
+
+ENV PATH=/home/omnitrack/.local/bin:$PATH
 
 COPY --chown=omnitrack:omnitrack app/ ./app/
 COPY --chown=omnitrack:omnitrack alembic.ini ./
@@ -44,6 +52,6 @@ EXPOSE 8000
 
 # Health check (python -c to avoid relying on curl in slim image)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')" || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')" || exit 1
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

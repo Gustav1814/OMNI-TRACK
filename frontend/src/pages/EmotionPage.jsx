@@ -1,120 +1,142 @@
 /**
- * OmniTrack AI — Emotion Recognition Page
+ * OmniTrack AI — Emotion Recognition (live)
+ * Polls /api/emotion/current + /api/emotion/store-sentiment.
  */
+
 import React from 'react';
+import { motion } from 'framer-motion';
+import { SmilePlus, Heart, Meh, Frown } from 'lucide-react';
 import {
-    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-    PieChart, Pie, Cell, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
+    PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend,
 } from 'recharts';
-import { SmilePlus, Frown, Meh } from 'lucide-react';
+import { emotionAPI } from '../services/api';
+import useLivePoll from '../hooks/useLivePoll';
 
-const zoneEmotions = [
-    { zone: 'Entrance', happy: 42, neutral: 30, sad: 8, surprise: 12, angry: 8, sentiment: 0.62 },
-    { zone: 'Main Floor', happy: 35, neutral: 38, sad: 10, surprise: 10, angry: 7, sentiment: 0.48 },
-    { zone: 'Electronics', happy: 48, neutral: 25, sad: 5, surprise: 18, angry: 4, sentiment: 0.72 },
-    { zone: 'Food Court', happy: 52, neutral: 28, sad: 6, surprise: 8, angry: 6, sentiment: 0.68 },
-    { zone: 'Checkout', happy: 28, neutral: 35, sad: 15, surprise: 8, angry: 14, sentiment: 0.22 },
-];
-
-const pieData = [
-    { name: 'Happy', value: 42, color: '#10b981' },
-    { name: 'Neutral', value: 31, color: '#64748b' },
-    { name: 'Surprise', value: 11, color: '#f59e0b' },
-    { name: 'Sad', value: 9, color: '#3b82f6' },
-    { name: 'Angry', value: 7, color: '#f43f5e' },
-];
-
-const radarData = [
-    { emotion: 'Happy', A: 72 },
-    { emotion: 'Neutral', A: 48 },
-    { emotion: 'Surprise', A: 35 },
-    { emotion: 'Sad', A: 18 },
-    { emotion: 'Angry', A: 12 },
-    { emotion: 'Fear', A: 8 },
-];
-
-const tooltipStyle = { contentStyle: { background: '#1e293b', border: '1px solid rgba(148,163,184,0.15)', borderRadius: '8px', fontSize: '12px', color: '#f1f5f9' } };
+const EMOTION_COLOR = {
+    happy: '#10b981',
+    neutral: '#64748b',
+    surprise: '#fbbf24',
+    sad: '#3b82f6',
+    angry: '#f43f5e',
+    fear: '#a855f7',
+    disgust: '#84cc16',
+};
 
 export default function EmotionPage() {
+    const { data: current } = useLivePoll(() => emotionAPI.current(), { intervalMs: 4000 });
+    const { data: sentiment } = useLivePoll(() => emotionAPI.sentiment(), { intervalMs: 10000 });
+
+    const zones = Array.isArray(current) ? current : [];
+    const sentimentScore = Number(sentiment?.sentiment_score ?? 0);
+
+    const totalDist = zones.reduce((acc, z) => {
+        const dist = z.emotion_distribution || {};
+        Object.entries(dist).forEach(([k, v]) => { acc[k] = (acc[k] || 0) + v; });
+        return acc;
+    }, {});
+    const totalSamples = zones.reduce((a, z) => a + (z.sample_count || 0), 0) || 1;
+    const pieData = Object.entries(totalDist).map(([name, value]) => ({
+        name,
+        value: (value / totalSamples) * 100,
+    }));
+
+    const label = sentimentScore > 0.3 ? 'Positive'
+        : sentimentScore < -0.3 ? 'Negative' : 'Neutral';
+    const Icon = sentimentScore > 0.3 ? Heart : sentimentScore < -0.3 ? Frown : Meh;
+
     return (
-        <div>
+        <div className="page-scroll">
             <div className="page-header">
-                <h2 className="page-title">Emotion Recognition</h2>
-                <p className="page-description">DeepFace/FER-based facial emotion & sentiment analysis across zones</p>
+                <div>
+                    <h1 className="page-title">Emotion Recognition</h1>
+                    <p className="page-subtitle">DeepFace + FER · aggregated sentiment per zone</p>
+                </div>
             </div>
 
-            <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-                {[
-                    { label: 'Overall Sentiment', value: '+0.54', color: '#10b981' },
-                    { label: 'Dominant Emotion', value: 'Happy', color: '#6366f1' },
-                    { label: 'Faces Analyzed', value: '342', color: '#06b6d4' },
-                    { label: 'Zones Covered', value: '5', color: '#f59e0b' },
-                ].map((s, i) => (
-                    <div key={i} className="stat-card animate-in">
-                        <span className="stat-card-label">{s.label}</span>
-                        <div className="stat-card-value" style={{ color: s.color, fontSize: s.label === 'Dominant Emotion' ? 20 : 28 }}>{s.value}</div>
-                    </div>
-                ))}
+            <div className="stats-grid">
+                <Stat
+                    icon={Icon}
+                    label="Store Sentiment"
+                    value={label}
+                    accent={sentimentScore > 0 ? 'emerald' : sentimentScore < 0 ? 'rose' : 'amber'}
+                />
+                <Stat icon={SmilePlus} label="Sentiment Score" value={sentimentScore.toFixed(2)} accent="indigo" />
+                <Stat icon={SmilePlus} label="Zones Sampled" value={zones.length} accent="cyan" />
+                <Stat icon={SmilePlus} label="Total Samples" value={totalSamples === 1 ? 0 : totalSamples} accent="gold" />
             </div>
 
             <div className="two-col">
-                <div className="chart-card animate-in">
-                    <div className="chart-card-title">Emotion Distribution</div>
-                    <ResponsiveContainer width="100%" height={260}>
-                        <PieChart>
-                            <Pie data={pieData} cx="50%" cy="50%" innerRadius={60} outerRadius={90} paddingAngle={3} dataKey="value">
-                                {pieData.map((e, i) => <Cell key={i} fill={e.color} />)}
-                            </Pie>
-                            <Tooltip {...tooltipStyle} />
-                        </PieChart>
-                    </ResponsiveContainer>
-                    <div style={{ display: 'flex', justifyContent: 'center', gap: 14, flexWrap: 'wrap', marginTop: 8 }}>
-                        {pieData.map((e, i) => (
-                            <span key={i} style={{ fontSize: 11, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                                <span style={{ width: 8, height: 8, borderRadius: 2, background: e.color, display: 'inline-block' }} /> {e.name} {e.value}%
-                            </span>
+                <div className="card">
+                    <div className="card-header">
+                        <h3 className="card-title">Emotion Mix (all zones)</h3>
+                        <div className="card-subtitle">% of aggregated samples</div>
+                    </div>
+                    {pieData.length === 0 ? (
+                        <div className="page-empty-hint">
+                            No emotion samples yet.
+                        </div>
+                    ) : (
+                        <div style={{ height: 300 }}>
+                            <ResponsiveContainer>
+                                <PieChart>
+                                    <Pie
+                                        data={pieData} dataKey="value" nameKey="name"
+                                        cx="50%" cy="50%" outerRadius={90} innerRadius={50}
+                                        paddingAngle={2}
+                                    >
+                                        {pieData.map((entry) => (
+                                            <Cell key={entry.name} fill={EMOTION_COLOR[entry.name] || '#64748b'} />
+                                        ))}
+                                    </Pie>
+                                    <Tooltip contentStyle={{ background: '#111', border: '1px solid #222' }} />
+                                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                                </PieChart>
+                            </ResponsiveContainer>
+                        </div>
+                    )}
+                </div>
+
+                <div className="card">
+                    <div className="card-header">
+                        <h3 className="card-title">Per-Zone</h3>
+                    </div>
+                    <div style={{ display: 'grid', gap: 6, maxHeight: 300, overflow: 'auto' }}>
+                        {zones.length === 0 && (
+                            <div style={{ color: 'var(--text-muted)', padding: 12 }}>No zones.</div>
+                        )}
+                        {zones.map((z) => (
+                            <div key={z.zone} style={{
+                                padding: '10px 12px',
+                                background: 'var(--bg-glass)',
+                                border: '1px solid var(--border)', borderRadius: 10,
+                            }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                                    <strong>{z.zone}</strong>
+                                    <span
+                                        className="pill"
+                                        style={{ color: EMOTION_COLOR[z.dominant_emotion] || '#64748b' }}
+                                    >
+                                        {z.dominant_emotion}
+                                    </span>
+                                </div>
+                                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                                    {z.sample_count} samples · sentiment {Number(z.sentiment_score || 0).toFixed(2)}
+                                </div>
+                            </div>
                         ))}
                     </div>
                 </div>
-
-                <div className="chart-card animate-in">
-                    <div className="chart-card-title">Emotion Radar</div>
-                    <ResponsiveContainer width="100%" height={300}>
-                        <RadarChart data={radarData}>
-                            <PolarGrid stroke="rgba(148,163,184,0.15)" />
-                            <PolarAngleAxis dataKey="emotion" tick={{ fontSize: 11, fill: '#94a3b8' }} />
-                            <PolarRadiusAxis tick={{ fontSize: 10, fill: '#64748b' }} />
-                            <Radar name="Intensity" dataKey="A" stroke="#6366f1" fill="#6366f1" fillOpacity={0.2} strokeWidth={2} />
-                        </RadarChart>
-                    </ResponsiveContainer>
-                </div>
-            </div>
-
-            <div className="card animate-in">
-                <div className="card-header"><span className="card-title">Zone-Level Sentiment</span></div>
-                <div className="card-body">
-                    <table className="data-table">
-                        <thead><tr><th>Zone</th><th>Happy</th><th>Neutral</th><th>Sad</th><th>Surprise</th><th>Angry</th><th>Sentiment</th></tr></thead>
-                        <tbody>
-                            {zoneEmotions.map((z) => (
-                                <tr key={z.zone}>
-                                    <td style={{ fontWeight: 600 }}>{z.zone}</td>
-                                    <td style={{ color: '#10b981' }}>{z.happy}%</td>
-                                    <td style={{ color: '#64748b' }}>{z.neutral}%</td>
-                                    <td style={{ color: '#3b82f6' }}>{z.sad}%</td>
-                                    <td style={{ color: '#f59e0b' }}>{z.surprise}%</td>
-                                    <td style={{ color: '#f43f5e' }}>{z.angry}%</td>
-                                    <td>
-                                        <span className={`badge ${z.sentiment > 0.5 ? 'badge-success' : z.sentiment > 0.2 ? 'badge-warning' : 'badge-danger'}`}>
-                                            {z.sentiment > 0 ? '+' : ''}{z.sentiment.toFixed(2)}
-                                        </span>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
             </div>
         </div>
+    );
+}
+
+function Stat({ icon: Icon, label, value, accent = 'indigo' }) {
+    return (
+        <motion.div className="stat-card" whileHover={{ y: -2 }}>
+            <div className={`stat-icon stat-icon-${accent}`}><Icon size={18} /></div>
+            <div className="stat-label">{label}</div>
+            <div className="stat-value">{value}</div>
+        </motion.div>
     );
 }

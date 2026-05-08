@@ -111,6 +111,76 @@ class StoreVibeEngine:
             "timestamp": snapshot.timestamp,
         }
 
+    def calculate(
+        self,
+        sentiment_score: float = 0.0,
+        crowd_count: int = 0,
+        max_capacity: Optional[int] = None,
+        engagement_score: float = 0.0,
+        foot_traffic: int = 0,
+    ) -> Dict[str, Any]:
+        """
+        Pipeline-friendly wrapper.
+        - sentiment_score: -1..+1 from emotion aggregator
+        - crowd_count: current occupancy across all cameras
+        - max_capacity: optional per-call capacity override (else uses store_capacity)
+        - engagement_score: already-normalized 0..100 score from shelf analytics aggregate
+        - foot_traffic: visitor count this tick (used against capacity)
+        """
+        cap = max_capacity if max_capacity is not None else self.store_capacity
+        sentiment_normalized = (max(-1.0, min(1.0, sentiment_score)) + 1) / 2 * 100
+        occupancy_ratio = min(crowd_count / max(cap, 1), 1.0)
+        energy = occupancy_ratio * 100
+        engagement = max(0.0, min(100.0, float(engagement_score)))
+        traffic = min(foot_traffic / max(cap, 1) * 100, 100)
+
+        overall = (
+            self.weights["sentiment"] * sentiment_normalized +
+            self.weights["energy"] * energy +
+            self.weights["engagement"] * engagement +
+            self.weights["foot_traffic"] * traffic
+        )
+        overall = round(max(0, min(100, overall)), 1)
+        label = self._get_label(overall)
+
+        snapshot = VibeSnapshot(
+            overall_score=overall,
+            sentiment_score=round(sentiment_normalized, 1),
+            energy_score=round(energy, 1),
+            engagement_score=round(engagement, 1),
+            foot_traffic_score=round(traffic, 1),
+            label=label,
+            timestamp=time.time(),
+        )
+        self.history.append(snapshot)
+        if len(self.history) > 500:
+            self.history = self.history[-250:]
+
+        return {
+            "overall_score": snapshot.overall_score,
+            "sentiment_score": snapshot.sentiment_score,
+            "energy_score": snapshot.energy_score,
+            "engagement_score": snapshot.engagement_score,
+            "foot_traffic_score": snapshot.foot_traffic_score,
+            "vibe_label": label,
+            "timestamp": snapshot.timestamp,
+        }
+
+    def get_current(self) -> Optional[Dict[str, Any]]:
+        """Latest snapshot as a plain dict (for the vibe router)."""
+        if not self.history:
+            return None
+        s = self.history[-1]
+        return {
+            "overall_score": s.overall_score,
+            "sentiment_score": s.sentiment_score,
+            "energy_score": s.energy_score,
+            "engagement_score": s.engagement_score,
+            "foot_traffic_score": s.foot_traffic_score,
+            "vibe_label": s.label,
+            "timestamp": s.timestamp,
+        }
+
     def _get_label(self, score: float) -> str:
         for (low, high), label in self.VIBE_LABELS.items():
             if low <= score < high:

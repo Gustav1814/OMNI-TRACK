@@ -1,375 +1,477 @@
-/**
- * OmniTrack AI — Dashboard Overview Page
- * Fetches overview from API with loading and error states.
- */
-
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useMemo, useState } from 'react';
+import { motion } from 'framer-motion';
 import {
-    BarChart, Bar, PieChart, Pie, Cell,
-    XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart
-} from 'recharts';
-import { Camera, Users, Scan, Flame, ShoppingCart, Clock, Loader2, AlertCircle, Video, Film, Upload, RefreshCw } from 'lucide-react';
-import { dashboardAPI, detectionAPI, footageAPI, API_BASE } from '../services/api';
+    Activity, Users, Flame, Camera, Zap, ShieldCheck, Clock3,
+    TrendingUp, PlayCircle, StopCircle, RefreshCw, AlertTriangle,
+} from 'lucide-react';
+import {
+    Chart as ChartJS,
+    CategoryScale,
+    LinearScale,
+    PointElement,
+    LineElement,
+    Tooltip,
+    Filler,
+    Legend,
+} from 'chart.js';
+import { Line } from 'react-chartjs-2';
+import {
+    dashboardAPI, systemAPI, pipelineAPI, detectionAPI, fireAPI, vibeAPI,
+} from '../services/api';
+import useLivePoll from '../hooks/useLivePoll';
+import useWebSocket from '../hooks/useWebSocket';
+import CameraStream from '../components/CameraStream';
 
-function formatWaitTime(seconds) {
-    if (seconds == null || isNaN(seconds)) return '—';
-    const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    return s > 0 ? `${m}m ${s}s` : `${m}m`;
-}
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler, Legend);
 
-function formatPeakHour(hour) {
-    if (hour == null) return '—';
-    if (hour === 0) return '12 AM';
-    if (hour < 12) return `${hour} AM`;
-    if (hour === 12) return '12 PM';
-    return `${hour - 12} PM`;
-}
-
-const trafficData = Array.from({ length: 13 }, (_, i) => ({
-    hour: `${i + 9}:00`,
-    visitors: Math.floor(30 + Math.random() * 80 + (i > 3 && i < 9 ? 40 : 0)),
-    avgDwell: Math.floor(200 + Math.random() * 400),
-}));
-
-const zoneData = [
-    { name: 'Electronics', value: 28 },
-    { name: 'Groceries', value: 22 },
-    { name: 'Clothing', value: 18 },
-    { name: 'Home', value: 15 },
-    { name: 'Other', value: 17 },
-];
-const COLORS = ['#6366f1', '#06b6d4', '#10b981', '#f59e0b', '#8b5cf6'];
-
-const emotionData = [
-    { emotion: 'Happy', count: 42, fill: '#10b981' },
-    { emotion: 'Neutral', count: 35, fill: '#64748b' },
-    { emotion: 'Surprised', count: 12, fill: '#f59e0b' },
-    { emotion: 'Sad', count: 6, fill: '#3b82f6' },
-    { emotion: 'Angry', count: 5, fill: '#f43f5e' },
-];
-
-const chartTooltipStyle = {
-    contentStyle: {
-        background: '#1e293b',
-        border: '1px solid rgba(148,163,184,0.15)',
-        borderRadius: '8px',
-        fontSize: '12px',
-        color: '#f1f5f9',
-    },
+const ACCENT_BY_KEY = {
+    violet: { rgb: '167,139,250' },
+    cyan: { rgb: '34,211,238' },
+    amber: { rgb: '251,191,36' },
+    rose: { rgb: '251,113,133' },
+    emerald: { rgb: '52,211,153' },
+    sky: { rgb: '56,189,248' },
 };
 
-export default function DashboardPage() {
-    const [overview, setOverview] = useState(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
-    const [detectionStatus, setDetectionStatus] = useState(null);
-    const [footageList, setFootageList] = useState([]);
-    const [uploading, setUploading] = useState(false);
-    const [uploadCamId, setUploadCamId] = useState(1);
-    const token = useMemo(() => typeof localStorage !== 'undefined' ? localStorage.getItem('omnitrack_token') : null, []);
+function KPI({
+    icon: Icon, label, value, suffix, trend, accent = 'violet', progress = 0, tag = 'Live',
+}) {
+    const rgb = ACCENT_BY_KEY[accent]?.rgb || ACCENT_BY_KEY.violet.rgb;
+    const [tilt, setTilt] = useState({ x: 0, y: 0 });
+    const onMove = (e) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const x = ((e.clientX - rect.left) / rect.width - 0.5) * 16;
+        const y = ((e.clientY - rect.top) / rect.height - 0.5) * -12;
+        setTilt({ x, y });
+    };
+    return (
+        <motion.div
+            className={`stat-card stat-card-${accent}`}
+            transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+            onMouseMove={onMove}
+            onMouseLeave={() => setTilt({ x: 0, y: 0 })}
+        >
+            <div
+                className="stat-card-inner"
+                style={{ transform: `perspective(900px) rotateY(${tilt.x}deg) rotateX(${tilt.y}deg)` }}
+            >
+                <div className="stat-card-orb" aria-hidden />
+                <div className="stat-card-top">
+                    <div className={`stat-icon stat-icon-${accent}`}><Icon size={20} /></div>
+                    <div className={`stat-chip stat-chip-${accent}`}>{tag}</div>
+                </div>
+                <div className="stat-card-mid">
+                    <div className="stat-label">{label}</div>
+                    <div className="stat-value">
+                        {value}{suffix ? <span className="stat-suffix">{suffix}</span> : null}
+                    </div>
+                </div>
+                <div className="stat-card-foot">
+                    <div className="stat-trend-pill">
+                        <TrendingUp size={11} />
+                        {trend != null ? `${trend >= 0 ? '+' : ''}${trend}%` : 'live'}
+                    </div>
+                    <div className="stat-progress">
+                        <span style={{
+                            width: `${Math.max(8, Math.min(100, progress))}%`,
+                            background: `linear-gradient(90deg, rgba(${rgb},0.95), rgba(${rgb},0.45))`,
+                        }}
+                        />
+                    </div>
+                </div>
+            </div>
+        </motion.div>
+    );
+}
 
-    const refreshFootage = useCallback(() => {
-        footageAPI.list().then((r) => setFootageList(r.data || [])).catch(() => setFootageList([]));
-    }, []);
-    const handleFootageUpload = (e) => {
-        const file = e.target?.files?.[0];
-        if (!file) return;
-        setUploading(true);
-        footageAPI.upload(file, uploadCamId)
-            .then(() => { refreshFootage(); e.target.value = ''; })
-            .catch(() => {})
-            .finally(() => setUploading(false));
+export default function DashboardPage() {
+    const { data: overview, refresh: refreshOverview } = useLivePoll(
+        () => dashboardAPI.overview(), { intervalMs: 5000 }
+    );
+    const { data: health } = useLivePoll(() => systemAPI.health(), { intervalMs: 10000 });
+    const { data: pipelineStatus, refresh: refreshPipeline } = useLivePoll(
+        () => pipelineAPI.status(), { intervalMs: 4000 }
+    );
+    const { data: detStatus } = useLivePoll(() => detectionAPI.status(), { intervalMs: 3000 });
+    const { data: fireAlerts } = useLivePoll(() => fireAPI.alerts(), { intervalMs: 8000 });
+    const { data: vibeTrend } = useLivePoll(() => vibeAPI.trend(24), { intervalMs: 60000 });
+
+    const [events, setEvents] = useState([]);
+    const [activeFire, setActiveFire] = useState(null);
+    const [liveVibe, setLiveVibe] = useState(null);
+    const { status: wsStatus } = useWebSocket('/ws/live', {
+        onEvent: (evt) => {
+            setEvents((prev) => [evt, ...prev].slice(0, 30));
+            if (evt.type === 'fire_alert') setActiveFire(evt.data);
+            if (evt.type === 'vibe_update') setLiveVibe(evt.data);
+        },
+    });
+
+    const [busy, setBusy] = useState(false);
+    const vibe = overview?.store_vibe || {};
+    const vibeScore = liveVibe?.overall_score ?? vibe.overall_score ?? 0;
+    const vibeLabel = liveVibe?.label ?? vibe.vibe_label ?? '—';
+
+    const activeCameras = useMemo(() => {
+        const ids = detStatus?.active_cameras;
+        if (Array.isArray(ids)) return ids;
+        if (pipelineStatus?.cameras) {
+            return Object.keys(pipelineStatus.cameras?.zones || {}).map((n) => Number(n));
+        }
+        return [];
+    }, [detStatus, pipelineStatus]);
+
+    const cameraStats = detStatus?.camera_stats || {};
+    const cameraZones = pipelineStatus?.cameras?.zones || {};
+
+    const trendData = Array.isArray(vibeTrend) ? vibeTrend.slice(0, 36).map((v, i) => ({
+        t: typeof v.hour === 'string' ? v.hour.slice(11, 16) : `T-${i}`,
+        score: Number(v.score) || 0,
+    })).reverse() : [];
+
+    const occupancySeries = trendData.map((d) => Math.max(0, Math.min(100, d.score - 8)));
+
+    const chartData = {
+        labels: trendData.map((_, i) => {
+            const h = trendData.length - i;
+            return `${h}h`;
+        }),
+        datasets: [
+            {
+                label: 'Energy',
+                data: trendData.map((d) => d.score),
+                borderColor: 'rgba(124,62,237,0.9)',
+                backgroundColor: (ctx) => {
+                    const chart = ctx.chart;
+                    const { ctx: canvas, chartArea } = chart;
+                    if (!chartArea) return 'rgba(124,62,237,0.25)';
+                    const gradient = canvas.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+                    gradient.addColorStop(0, 'rgba(124,62,237,0.35)');
+                    gradient.addColorStop(1, 'rgba(124,62,237,0.02)');
+                    return gradient;
+                },
+                fill: true,
+                tension: 0.45,
+                pointRadius: 0,
+                pointHoverRadius: 4,
+                pointHoverBackgroundColor: 'rgba(167,139,250,1)',
+                pointHoverBorderColor: '#000',
+                pointHoverBorderWidth: 2,
+                borderWidth: 2.2,
+            },
+            {
+                label: 'Engagement',
+                data: occupancySeries,
+                borderColor: 'rgba(34,211,238,0.7)',
+                backgroundColor: (ctx) => {
+                    const chart = ctx.chart;
+                    const { ctx: canvas, chartArea } = chart;
+                    if (!chartArea) return 'rgba(34,211,238,0.12)';
+                    const gradient = canvas.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+                    gradient.addColorStop(0, 'rgba(34,211,238,0.18)');
+                    gradient.addColorStop(1, 'rgba(34,211,238,0.01)');
+                    return gradient;
+                },
+                fill: true,
+                tension: 0.42,
+                pointRadius: 0,
+                pointHoverRadius: 4,
+                pointHoverBackgroundColor: 'rgba(34,211,238,0.95)',
+                pointHoverBorderColor: '#000',
+                pointHoverBorderWidth: 2,
+                borderWidth: 1.8,
+            },
+        ],
     };
 
-    useEffect(() => {
-        let cancelled = false;
-        setError(null);
-        dashboardAPI.overview()
-            .then((res) => {
-                if (!cancelled) setOverview(res.data);
-            })
-            .catch((err) => {
-                if (!cancelled) setError(err.response?.data?.detail || err.message || 'Failed to load dashboard');
-            })
-            .finally(() => {
-                if (!cancelled) setLoading(false);
-            });
-        return () => { cancelled = true; };
-    }, []);
+    const chartOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { intersect: false, mode: 'index' },
+        plugins: {
+            legend: {
+                display: false,
+            },
+            tooltip: {
+                backgroundColor: 'rgba(10,10,20,0.95)',
+                borderColor: 'rgba(255,255,255,0.1)',
+                borderWidth: 1,
+                titleColor: 'rgba(255,255,255,0.9)',
+                bodyColor: 'rgba(255,255,255,0.78)',
+                padding: 10,
+                cornerRadius: 8,
+                displayColors: false,
+            },
+        },
+        scales: {
+            x: {
+                grid: { color: 'rgba(255,255,255,0.03)' },
+                ticks: { color: 'rgba(255,255,255,0.2)', maxTicksLimit: 10, font: { size: 9 } },
+                border: { color: 'rgba(255,255,255,0.06)' },
+            },
+            y: {
+                min: 0,
+                max: 100,
+                grid: { color: 'rgba(255,255,255,0.03)' },
+                ticks: { color: 'rgba(255,255,255,0.2)', stepSize: 20, font: { size: 9 } },
+                border: { color: 'rgba(255,255,255,0.06)' },
+            },
+        },
+    };
 
-    useEffect(() => {
-        detectionAPI.status().then((r) => setDetectionStatus(r.data)).catch(() => setDetectionStatus(null));
-    }, []);
-    useEffect(() => {
-        refreshFootage();
-    }, [refreshFootage]);
+    const togglePipeline = async () => {
+        setBusy(true);
+        try {
+            if (pipelineStatus?.state === 'running') await pipelineAPI.stop();
+            else await pipelineAPI.start();
+            await Promise.all([refreshPipeline(), refreshOverview()]);
+        } finally {
+            setBusy(false);
+        }
+    };
 
-    if (loading) {
-        return (
-            <div className="page-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 360 }}>
-                <div style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>
-                    <Loader2 size={40} className="animate-spin" style={{ margin: '0 auto 12px', display: 'block' }} />
-                    <span>Loading dashboard…</span>
-                </div>
-            </div>
-        );
-    }
-
-    if (error) {
-        return (
-            <div className="page-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 360 }}>
-                <div className="chart-card" style={{ maxWidth: 420, textAlign: 'center', padding: 32 }}>
-                    <AlertCircle size={48} style={{ color: 'var(--accent-rose)', marginBottom: 16 }} />
-                    <h3 style={{ marginBottom: 8 }}>Dashboard unavailable</h3>
-                    <p style={{ color: 'var(--text-secondary)', fontSize: 14 }}>{error}</p>
-                </div>
-            </div>
-        );
-    }
-
-    const o = overview;
-    const vibe = o?.store_vibe || {};
-    const stats = [
-        { label: 'Active Cameras', value: `${o?.active_cameras ?? 0} / ${o?.total_cameras ?? 0}`, icon: Camera, color: '#6366f1' },
-        { label: 'Current Occupancy', value: String(o?.current_occupancy ?? 0), icon: Users, color: '#06b6d4' },
-        { label: 'Detections Today', value: (o?.total_detections_today ?? 0).toLocaleString(), icon: Scan, color: '#10b981' },
-        { label: 'Fire Alerts', value: String(o?.fire_alerts_today ?? 0), icon: Flame, color: '#f43f5e' },
-        { label: 'Avg Wait Time', value: formatWaitTime(o?.avg_checkout_wait), icon: ShoppingCart, color: '#f59e0b' },
-        { label: 'Peak Hour', value: formatPeakHour(o?.peak_hour_today), icon: Clock, color: '#8b5cf6' },
-    ];
-
-    const vibeBars = [
-        { label: 'Sentiment', value: Math.round(vibe.sentiment_score ?? 0), color: '#6366f1' },
-        { label: 'Energy', value: Math.round(vibe.energy_score ?? 0), color: '#06b6d4' },
-        { label: 'Engagement', value: Math.round(vibe.engagement_score ?? 0), color: '#10b981' },
-        { label: 'Foot Traffic', value: Math.round(vibe.foot_traffic_score ?? 0), color: '#f59e0b' },
-    ];
+    const liveViewers = health?.components?.websocket?.active_connections ?? 0;
 
     return (
-        <div>
-            {/* Stat Cards */}
-            <div className="stats-grid">
-                {stats.map((s, i) => {
-                    const Icon = s.icon;
-                    return (
-                        <div key={i} className="stat-card animate-in">
-                            <div className="stat-card-header">
-                                <span className="stat-card-label">{s.label}</span>
-                                <div className="stat-card-icon" style={{ background: `${s.color}15`, color: s.color }}>
-                                    <Icon size={18} />
-                                </div>
-                            </div>
-                            <div className="stat-card-value">{s.value}</div>
-                            {o?.top_zone && s.label === 'Peak Hour' && (
-                                <div className="stat-card-change positive">Top zone: {o.top_zone}</div>
-                            )}
-                        </div>
-                    );
-                })}
+        <div className="page-scroll dashboard-shell">
+
+            <div className="dashboard-hero">
+                <div className="dashboard-hero-lead">
+                    <p className="dashboard-kicker"><span className="kicker-dash">—</span> Live Retail Intelligence</p>
+                    <h1 className="page-title dashboard-hero-title">
+                        Command <span className="hero-center-gradient">Center</span>
+                    </h1>
+                    <p className="page-subtitle">Real-time view across store videos and active feeds</p>
+                </div>
+                <div className="hero-kpis">
+                    <div className="hero-kpi-box">
+                        <div className="hero-kpi-value hero-kpi-cyan">{liveViewers}</div>
+                        <div className="hero-kpi-label">Live<br/>Viewers</div>
+                    </div>
+                    <div className="hero-kpi-box">
+                        <div className="hero-kpi-value hero-kpi-emerald">{Number(vibeScore || 0).toFixed(0)}</div>
+                        <div className="hero-kpi-label">Store<br/>Vibe</div>
+                    </div>
+                    <div className="hero-kpi-box">
+                        <div className="hero-kpi-value hero-kpi-amber">{Number(overview?.avg_checkout_wait ?? 0).toFixed(1)}s</div>
+                        <div className="hero-kpi-label">Avg<br/>Wait</div>
+                    </div>
+                </div>
             </div>
 
-            {/* Vibe Score + Traffic Chart */}
-            <div className="two-col">
-                <div className="chart-card animate-in">
-                    <div className="chart-card-title">Store Vibe Score</div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 30, padding: '10px 0' }}>
-                        <div className="vibe-meter">
-                            <div className="vibe-meter-ring">
-                                <div className="vibe-meter-inner">
-                                    <div className="vibe-score-value">{Math.round(vibe.overall_score ?? 0)}</div>
-                                    <div className="vibe-score-label">{vibe.vibe_label || '—'}</div>
-                                </div>
+            {activeFire && (
+                <div className="fire-banner">
+                    <div className="fire-banner-icon"><AlertTriangle size={22} /></div>
+                    <div className="fire-banner-content">
+                        <div className="fire-banner-title">{activeFire.alert_type?.toUpperCase() || 'FIRE'} DETECTED</div>
+                        <div className="fire-banner-meta">
+                            Camera {activeFire.camera_id} · {activeFire.zone || 'unknown zone'} ·
+                            confidence {Math.round((activeFire.confidence || 0) * 100)}%
+                        </div>
+                    </div>
+                    <button className="btn btn-secondary btn-xs" onClick={() => setActiveFire(null)} type="button">Dismiss</button>
+                </div>
+            )}
+
+            <div className="stats-grid dashboard-stats">
+                <KPI
+                    icon={Camera}
+                    label="Active Feeds"
+                    value={overview?.active_cameras ?? activeCameras.length ?? 0}
+                    suffix={`/${overview?.total_cameras ?? pipelineStatus?.cameras?.total ?? 0}`}
+                    accent="violet"
+                    progress={((overview?.active_cameras ?? activeCameras.length ?? 0) / Math.max(1, overview?.total_cameras ?? pipelineStatus?.cameras?.total ?? 1)) * 100}
+                    tag={`${overview?.active_cameras ?? activeCameras.length ?? 0}/${overview?.total_cameras ?? pipelineStatus?.cameras?.total ?? 0}`}
+                />
+                <KPI
+                    icon={Users}
+                    label="Current Occupancy"
+                    value={overview?.current_occupancy ?? 0}
+                    accent="cyan"
+                    progress={Math.min(100, Number(overview?.current_occupancy ?? 0))}
+                    tag="Live"
+                />
+                <KPI
+                    icon={Zap}
+                    label="Detections Today"
+                    value={(overview?.total_detections_today ?? 0).toLocaleString?.() ?? 0}
+                    accent="amber"
+                    progress={Math.min(100, Number((overview?.total_detections_today ?? 0) / 20))}
+                    tag="Today"
+                />
+                <KPI
+                    icon={Activity}
+                    label="Store Vibe"
+                    value={Number(vibeScore).toFixed(0)}
+                    suffix=""
+                    accent="emerald"
+                    progress={Number(vibeScore) || 0}
+                    tag="Steady"
+                />
+                <KPI
+                    icon={Flame}
+                    label="Fire Alerts Today"
+                    value={overview?.fire_alerts_today ?? (fireAlerts?.length || 0)}
+                    accent="rose"
+                    progress={Math.min(100, Number((overview?.fire_alerts_today ?? (fireAlerts?.length || 0)) * 22))}
+                    tag="Alerts"
+                />
+                <KPI
+                    icon={Clock3}
+                    label="Queue Wait"
+                    value={Number(overview?.avg_checkout_wait ?? 0).toFixed(1)}
+                    suffix="s"
+                    accent="sky"
+                    progress={Math.min(100, Number(overview?.avg_checkout_wait ?? 0) * 4)}
+                    tag="Avg"
+                />
+            </div>
+
+            <div className="two-col dashboard-main-grid">
+                <div className="card dashboard-panel dashboard-panel-chart">
+                    <div className="card-header">
+                        <div>
+                            <h3 className="card-title">Store<br/>Pulse</h3>
+                            <div className="card-subtitle chart-legend-inline">
+                                <span>—</span>
+                                <span className="legend-energy">■ Energy</span>
+                                <span className="legend-engagement">■ Engagement</span>
                             </div>
                         </div>
-                        <div style={{ flex: 1 }}>
-                            {vibeBars.map((m) => (
-                                <div key={m.label} style={{ marginBottom: 12 }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
-                                        <span style={{ color: 'var(--text-secondary)' }}>{m.label}</span>
-                                        <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{m.value}%</span>
-                                    </div>
-                                    <div className="progress-bar">
-                                        <div className="progress-bar-fill" style={{ width: `${Math.min(100, m.value)}%`, background: m.color }} />
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
+                        <div className="card-subtitle">Rolling<br/>24h</div>
+                    </div>
+                    <div className="chart-sublabel">24h Trend</div>
+                    <div style={{ height: 310 }}>
+                        {trendData.length > 0 ? (
+                            <Line data={chartData} options={chartOptions} />
+                        ) : (
+                            <div style={{
+                                height: '100%', display: 'grid', placeItems: 'center',
+                                color: 'var(--text-muted)', fontSize: 13,
+                            }}
+                            >
+                                No trend yet. Start session and let it run for a few minutes.
+                            </div>
+                        )}
                     </div>
                 </div>
 
-                <div className="chart-card animate-in">
-                    <div className="chart-card-title">Foot Traffic Today</div>
-                    <ResponsiveContainer width="100%" height={240}>
-                        <AreaChart data={trafficData}>
-                            <defs>
-                                <linearGradient id="colorVisitors" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
-                                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-                                </linearGradient>
-                            </defs>
-                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
-                            <XAxis dataKey="hour" tick={{ fontSize: 11, fill: '#64748b' }} />
-                            <YAxis tick={{ fontSize: 11, fill: '#64748b' }} />
-                            <Tooltip {...chartTooltipStyle} />
-                            <Area type="monotone" dataKey="visitors" stroke="#6366f1" fillOpacity={1} fill="url(#colorVisitors)" strokeWidth={2} />
-                        </AreaChart>
-                    </ResponsiveContainer>
+                <div className="card dashboard-panel dashboard-panel-health">
+                    <div className="card-header">
+                        <h3 className="card-title">Operational Health</h3>
+                        <div className="health-status-pill">
+                            <span className="health-status-dot" />
+                            All systems
+                        </div>
+                    </div>
+                    <div style={{ display: 'grid', gap: 10 }}>
+                        <HealthRow label="Session state" value={pipelineStatus?.state || 'idle'} ok={pipelineStatus?.state === 'running'} />
+                        <HealthRow label="Database" value={health?.components?.database || '—'} ok={health?.components?.database === 'healthy'} />
+                        <HealthRow label="Cache" value={health?.components?.redis?.status || health?.components?.redis || '—'} />
+                        <HealthRow label="Live viewers" value={health?.components?.websocket?.active_connections ?? 0} />
+                        <HealthRow label="Re-ID gallery" value={`${pipelineStatus?.ai_modules?.reid?.gallery_size ?? 0} embeddings`} />
+                        <HealthRow
+                            label="Frames processed (all feeds)"
+                            value={pipelineStatus?.frame_counts ? Object.values(pipelineStatus.frame_counts).reduce((a, b) => a + b, 0) : 0}
+                        />
+                        <div className="health-empty-box">
+                            {activeCameras.length > 0 ? `${activeCameras.length} active feed(s) running` : <><span>No active feeds running</span><br/><span>Upload a video → Start Session</span></>}
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            {/* Store cameras — live computer vision (same as deployed in-store) */}
-            <div className="chart-card animate-in" style={{ marginBottom: 24 }}>
-                <div className="chart-card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Video size={20} />
-                    Store cameras — live computer vision
+            <div className="card dashboard-section dashboard-panel">
+                <div className="card-header">
+                    <h3 className="card-title">Live Feeds</h3>
+                    <div className="card-subtitle">
+                        {activeCameras.length
+                            ? `${activeCameras.length} active video stream${activeCameras.length > 1 ? 's' : ''}`
+                            : 'No feeds running - add a video on the Video Feeds page'}
+                    </div>
                 </div>
-                <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12 }}>
-                    All store feeds with real-time detection, tracking & Re-ID — as when deployed. Use Person Detection to add cameras (from footage or live).
-                </p>
-                {detectionStatus?.active_cameras?.length > 1 && (
-                    <p style={{ fontSize: 11, color: 'var(--accent-primary)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ fontWeight: 600 }}>Global Re-ID:</span> One identity across all cameras — same person on different feeds gets the same ID.
-                    </p>
-                )}
-                {detectionStatus?.active_cameras?.length > 0 ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
-                        {detectionStatus.active_cameras.map((camId) => (
-                            <div key={camId} style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border)', background: '#0f172a' }}>
-                                <div style={{ padding: '6px 10px', background: 'var(--bg-secondary)', fontSize: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <span style={{ fontWeight: 600 }}>Camera {camId}</span>
-                                    <span style={{ color: 'var(--accent-rose)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor' }} /> LIVE · CV
-                                    </span>
-                                </div>
-                                <div style={{ aspectRatio: '16/9', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 180 }}>
-                                    {token ? (
-                                        <img
-                                            src={`${API_BASE}/stream/camera/${camId}/live?token=${encodeURIComponent(token)}`}
-                                            alt={`Camera ${camId} live`}
-                                            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                                        />
-                                    ) : (
-                                        <span style={{ color: 'var(--text-muted)' }}>Log in to view stream</span>
-                                    )}
-                                </div>
-                            </div>
-                        ))}
+                {activeCameras.length > 0 ? (
+                    <div className="camera-grid">
+                        {activeCameras.map((id) => {
+                            const s = cameraStats[id] || cameraStats[String(id)] || {};
+                            return (
+                                <CameraStream
+                                    key={id}
+                                    cameraId={id}
+                                    label={`Camera ${id}`}
+                                    zone={cameraZones[id] || cameraZones[String(id)]}
+                                    fps={s.fps ?? s.fps_actual}
+                                    connected={s.connected !== false}
+                                />
+                            );
+                        })}
                     </div>
                 ) : (
-                    <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-secondary)', fontSize: 14 }}>
-                        <Camera size={40} style={{ opacity: 0.4, marginBottom: 8 }} />
-                        <p>No store cameras live. On <strong>Person Detection</strong>: add your downloaded CCTV as store cameras, then start — they appear here with full CV.</p>
+                    <div className="dashboard-empty-note">
+                        No active feeds yet. Upload a store video first, then press Start Session.
                     </div>
                 )}
             </div>
 
-            {/* Stored footage — play recorded clips */}
-            <div className="chart-card animate-in" style={{ marginBottom: 24 }}>
-                <div className="chart-card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Film size={20} />
-                    Stored CCTV Footage
+            <div className="card dashboard-section dashboard-panel">
+                <div className="card-header">
+                    <h3 className="card-title">Live Activity Stream</h3>
+                    <div className="card-subtitle">Real-time highlights from detections, safety, and shopper movement</div>
                 </div>
-                <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12 }}>
-                    <strong>Prototype:</strong> Download store CCTV (one video per camera), upload here, then run them as live store cameras on Person Detection — full CV on each feed.
-                </p>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-                    <button type="button" onClick={refreshFootage} className="btn" style={{ fontSize: 12, padding: '6px 10px', display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <RefreshCw size={14} /> Refresh list
-                    </button>
-                    <label style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Camera ID</label>
-                    <input
-                        type="number"
-                        min={1}
-                        value={uploadCamId}
-                        onChange={(e) => setUploadCamId(Number(e.target.value) || 1)}
-                        style={{ width: 72, padding: '6px 8px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)' }}
-                    />
-                    <input
-                        type="file"
-                        accept=".mp4,.avi,.mkv,.webm,.mov"
-                        style={{ display: 'none' }}
-                        id="footage-upload"
-                        onChange={handleFootageUpload}
-                    />
-                    <button
-                        type="button"
-                        className="btn btn-primary"
-                        style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-                        onClick={() => document.getElementById('footage-upload')?.click()}
-                        disabled={uploading}
-                    >
-                        {uploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
-                        Upload clip
-                    </button>
-                </div>
-                {footageList.length > 0 ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
-                        {footageList.map((item) => (
-                            <div key={item.filename} style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', background: 'var(--bg-secondary)' }}>
-                                <div style={{ aspectRatio: '16/9', background: '#000' }}>
-                                    <video
-                                        controls
-                                        style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                                        src={token ? `${footageAPI.serveUrl(item.filename)}?token=${encodeURIComponent(token)}` : undefined}
-                                        preload="metadata"
-                                    >
-                                        Your browser does not support video.
-                                    </video>
-                                </div>
-                                <div style={{ padding: 8, fontSize: 12 }}>
-                                    <div style={{ fontWeight: 500 }}>{item.filename}</div>
-                                    <div style={{ color: 'var(--text-secondary)' }}>
-                                        {item.camera_id != null && `Cam ${item.camera_id} · `}
-                                        {(item.size_bytes / 1024 / 1024).toFixed(2)} MB
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
+                {events.length === 0 ? (
+                    <div className="dashboard-empty-note">
+                        Waiting for live events...
                     </div>
                 ) : (
-                    <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-secondary)', fontSize: 14 }}>
-                        No stored clips yet. Use the Detection page to record or upload footage.
-                    </div>
-                )}
-            </div>
-
-            {/* Zone Distribution + Emotions */}
-            <div className="two-col">
-                <div className="chart-card animate-in">
-                    <div className="chart-card-title">Zone Distribution</div>
-                    <ResponsiveContainer width="100%" height={240}>
-                        <PieChart>
-                            <Pie data={zoneData} cx="50%" cy="50%" innerRadius={65} outerRadius={95} paddingAngle={3} dataKey="value">
-                                {zoneData.map((_, i) => <Cell key={i} fill={COLORS[i]} />)}
-                            </Pie>
-                            <Tooltip {...chartTooltipStyle} />
-                        </PieChart>
-                    </ResponsiveContainer>
-                    <div style={{ display: 'flex', justifyContent: 'center', gap: 16, flexWrap: 'wrap' }}>
-                        {zoneData.map((z, i) => (
-                            <span key={i} style={{ fontSize: 11, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                                <span style={{ width: 8, height: 8, borderRadius: 2, background: COLORS[i], display: 'inline-block' }} /> {z.name}
-                            </span>
+                    <ul className="event-list">
+                        {events.map((e, i) => (
+                            <li key={i}>
+                                <span className={`pill ${pillForEvent(e.type)}`}>{eventLabel(e.type)}</span>
+                                <code className="event-payload">
+                                    {JSON.stringify(e.data)}
+                                </code>
+                                <span className="event-time">
+                                    {new Date(e.timestamp).toLocaleTimeString()}
+                                </span>
+                            </li>
                         ))}
-                    </div>
-                </div>
-
-                <div className="chart-card animate-in">
-                    <div className="chart-card-title">Customer Emotions</div>
-                    <ResponsiveContainer width="100%" height={260}>
-                        <BarChart data={emotionData} layout="vertical">
-                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
-                            <XAxis type="number" tick={{ fontSize: 11, fill: '#64748b' }} />
-                            <YAxis dataKey="emotion" type="category" tick={{ fontSize: 12, fill: '#94a3b8' }} width={80} />
-                            <Tooltip {...chartTooltipStyle} />
-                            <Bar dataKey="count" radius={[0, 4, 4, 0]} barSize={18}>
-                                {emotionData.map((e, i) => <Cell key={i} fill={e.fill} />)}
-                            </Bar>
-                        </BarChart>
-                    </ResponsiveContainer>
-                </div>
+                    </ul>
+                )}
             </div>
         </div>
     );
+}
+
+function HealthRow({ label, value, ok }) {
+    const statusClass = ok === true ? 'ok' : ok === false ? 'warn' : 'idle';
+    return (
+        <div className="health-row">
+            <span className="health-row-label">
+                <i className={`health-dot ${statusClass}`} />
+                {label}
+            </span>
+            <span className={`health-row-value ${statusClass}`}>{String(value)}</span>
+        </div>
+    );
+}
+
+function pillForEvent(type) {
+    switch (type) {
+        case 'fire_alert': return 'pill-danger';
+        case 'crowd_alert': return 'pill-warn';
+        case 'reid_match': return 'pill-info';
+        case 'vibe_update': return 'pill-success';
+        default: return '';
+    }
+}
+
+function eventLabel(type) {
+    switch (type) {
+        case 'fire_alert': return 'Safety alert';
+        case 'crowd_alert': return 'Crowd alert';
+        case 'reid_match': return 'Cross-feed match';
+        case 'vibe_update': return 'Pulse update';
+        case 'detection_update': return 'Detection update';
+        default: return 'Live event';
+    }
 }

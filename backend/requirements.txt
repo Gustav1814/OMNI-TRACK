@@ -27,6 +27,7 @@ pycryptodome>=3.21.0
 
 # --- AI / Computer Vision ---
 ultralytics>=8.3.0
+lap>=0.5.12
 torch>=2.1.0
 torchvision>=0.16.0
 torchreid>=0.2.5

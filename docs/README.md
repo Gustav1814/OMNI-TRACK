@@ -11,6 +11,17 @@
 
 ---
 
+## Backend: FastAPI
+
+The **API is built with [FastAPI](https://fastapi.tiangolo.com/)**:
+
+- **Entry point:** `backend/app/main.py` — `app = FastAPI(...)`, lifespan, middleware, routers.
+- **Routers (all under `/api/...`):** `app/routers/auth.py`, `cameras.py`, `detection.py`, `reid.py`, `footage.py`, and `analytics.py` (synopsis, shelf, fire, crowd, checkout, emotion, audit, vibe, demographics, peak-hours, dashboard). Each uses `APIRouter(prefix="/api/...")`.
+- **Core routes in main.py:** `/api/health`, `/api/pipeline/*`, `/api/stream/camera/{id}/live`, `/api/export/*`, WebSocket `/ws/live`, `/ws/camera/{id}`.
+- **Run:** `uvicorn app.main:app --reload --host 0.0.0.0 --port 8000` (serves the FastAPI app). Interactive docs: http://localhost:8000/docs .
+
+---
+
 ## Quick Start
 
 ### Option A: Docker (recommended)
@@ -25,6 +36,8 @@ docker compose up -d
 - **API Docs:** http://localhost:8000/docs  
 
 Default DB user/pass: `omnitrack` / `omnitrack_secret`. Create a user via `/api/auth/register` then log in at the dashboard.
+
+**Production deployment:** Use the same stack; set `JWT_SECRET_KEY`, `AES_SECRET_KEY`, and `DATABASE_URL` in the environment. For reverse proxy and TLS, run with the `with-nginx` profile: `docker compose --profile with-nginx up -d`. For live store feeds, configure camera sources as RTSP URLs when adding cameras.
 
 ### Option B: Local development
 
@@ -154,7 +167,7 @@ Copy `backend/.env.example` to `backend/.env` and adjust.
 |------|--------|----------|
 | Auth | `/api/auth` | `POST /login`, `POST /register`, `GET /me` |
 | Cameras | `/api/cameras` | CRUD cameras |
-| Detection | `/api/detection` | Start/stop, status, results |
+| Detection | `/api/detection` | Start/stop, status, results, recording start/stop |
 | Re-ID | `/api/reid` | Search, journey, active |
 | Dashboard | `/api/dashboard` | `GET /overview` |
 | Synopsis | `/api/synopsis` | List, generate |
@@ -167,9 +180,10 @@ Copy `backend/.env.example` to `backend/.env` and adjust.
 | Vibe | `/api/vibe` | Current, trend |
 | Demographics | `/api/demographics` | Current |
 | Peak hours | `/api/peak-hours` | Today |
-| System | `/api/health` | Health check |
+| Footage | `/api/footage` | List, upload, serve (CCTV clips) |
 | Pipeline | `/api/pipeline/*` | Status, start, stop, add camera, results |
-| Detection | `/api/detection/*` | Start/stop (wired to pipeline), status, **real** results from YOLO + ByteTrack |
+| Stream | `/api/stream/camera/{id}/live` | MJPEG live feed (auth: Bearer or `?token=`) |
+| System | `/api/health` | Health check |
 | WebSocket | `/ws/live`, `/ws/camera/{id}` | Live dashboard feed |
 
 ---
@@ -198,8 +212,22 @@ Copy `backend/.env.example` to `backend/.env` and adjust.
 | **pgvector cosine similarity** | `Embedding.vector` uses pgvector `Vector(512)`; `EmbeddingService.search_similar` for sub-100ms retrieval |
 | **Adversarial robustness (ART)** | `app.security.adversarial_eval`; optional ART for FGSM/PGD; `GET /api/security/robustness` |
 
-To run adversarial evaluation (FGSM, PGD):  
-`pip install adversarial-robustness-toolbox[torch]` then `python -m app.security.adversarial_eval`.
+**Adversarial robustness (ART):**
+
+- **Install:** `pip install adversarial-robustness-toolbox[torch]`
+- **Status:** `GET /api/security/robustness` — returns `art_available`, `last_eval`, and install hint.
+- **Run eval:** `POST /api/security/robustness/run` (optional query: `sample_size`, `eps_fgsm`, `eps_pgd`, `pgd_steps`) or CLI: `python -m app.security.adversarial_eval`
+- **FGSM / PGD:** Implemented via ART on a classifier path (documented resilience). Full YOLO detector eval would require wrapping Ultralytics to ART’s object-detection interface.
+- **Adversarial patch:** Documented; ART provides a notebook for patch attacks on YOLO: `notebooks/adversarial_patch/attack_adversarial_patch_pytorch_yolo.ipynb` in the [ART repo](https://github.com/Trusted-AI/adversarial-robustness-toolbox).
+
+### Re-ID tuning (face not visible / similar-looking people)
+
+Re-ID is **body-based** (Torchreid full-body appearance), not face-based, so it works when the person’s face is not towards the camera. For **same height and same dressing** (easy to confuse):
+
+- **`REID_SIMILARITY_THRESHOLD`** (default `0.6`): Cosine similarity above this to consider “same person”. **Raise to 0.65–0.75** when many people look similar to reduce false matches; lower if you get too many duplicate IDs for the same person.
+- **`REID_EMBEDDINGS_PER_ID`** (default `5`): Max embeddings stored per global_id for different views (front, back, side). The system stores multiple angles so when someone turns away they still match. Increase for very crowded or multi-camera layouts.
+
+The pipeline also uses **temporal consistency**: the same (camera, track) keeps the same global_id across frames to avoid flicker when pose changes, and only adds a new view to the gallery when the current crop is sufficiently different (similarity &lt; 0.92) to keep diverse poses.
 
 ### Camera feeds and detection
 
@@ -207,6 +235,41 @@ Detection is wired to the **multi-camera pipeline**: when you start detection wi
 
 - **Dashboard → Detection:** Use “Add camera & start detection”: set **Source** to `0` for default webcam, or a path like `C:/videos/test.mp4` (file), or an RTSP URL; pick **Type** (webcam/file/rtsp), then **Start detection**. The pipeline starts and the page shows live FPS and person counts per camera.
 - **API:** `POST /api/detection/start/{camera_id}?source=0&stream_type=webcam` adds the feed and starts the pipeline; `GET /api/detection/results/{camera_id}` returns the latest detections from the pipeline.
+
+### Local playback (FYP — no live cameras)
+
+For demos and FYP evaluation **without live CCTV**, the system supports **local video playback** as if they were live feeds:
+
+1. **Stored footage** — Upload clips via **Dashboard → Stored CCTV Footage** (or `POST /api/footage/upload`). On **Detection**, choose **Type: Video file** → **From stored footage** → select a clip, then **Start detection**. The backend resolves `footage:filename.mp4` to `storage/footage/filename.mp4` and runs the full pipeline (YOLO, ByteTrack, Re-ID, analytics) on that file.
+2. **Custom path** — Use **Type: Video file** → **Custom path** and enter an absolute path to a `.mp4`/`.avi` file (e.g. `C:/videos/entrance.mp4`). The same pipeline runs on that file.
+3. **Store CCTV prototype block** — The Detection page has a **Store CCTV prototype** section: use **Start all as store cameras** to run every stored clip as Camera 1, 2, 3, … in one go (same pipeline, shared Re-ID gallery).
+
+Architecture is **production-ready**: the same pipeline and APIs support RTSP/live cameras when deployed; for FYP you only switch the source to local files or `footage:...`.
+
+### Global ID and cross-camera data sharing
+
+A store has **multiple cameras** (entrance, aisles, checkout). The gap we fill: **one identity across all feeds**.
+
+1. **Per-camera tracking (local IDs)**  
+   Each camera has its own **ByteTrack** instance. So Cam 1 has track IDs 1, 2, 3… and Cam 2 has its own 1, 2, 3… Local IDs are only for “same person across frames” on that single feed.
+
+2. **Global Re-ID (shared gallery)**  
+   One **Re-ID gallery** is shared by all cameras (in-memory in the pipeline; optionally pgvector in DB for persistence). For every detected person we:
+   - Crop the bounding box and extract a **512-d embedding** (Torchreid, L2-normalized).
+   - **Search the gallery** by cosine similarity (threshold e.g. 0.6).
+   - If there is a match → assign that **global_id** (e.g. `PERSON-00042`) to this detection.
+   - If no match → create a **new global_id**, add this embedding to the gallery.
+
+3. **Same person, same ID across cameras**  
+   When the same person moves from entrance (Cam 1) to aisle (Cam 2), their embedding on Cam 2 matches the one stored from Cam 1 → they get the same `PERSON-00042`. So we “fill the gap” by **sharing identity through the single gallery**.
+
+4. **How data from each camera is combined**  
+   - **`global_state.active_tracks`**: `global_id → { camera_id, last_seen, bbox }` — last sighting per person (any camera).
+   - **`global_state.zone_occupancy`**: per-zone person count (each camera reports for its zone).
+   - **`global_state.vibe_score`**: aggregated from all cameras (sentiment, crowd, engagement).
+   - **Per-camera results**: each `CameraResult` still has `detections`, `tracks`, `reid_matches` (with `global_id`), so the dashboard can show “Cam 1: PERSON-00042 at entrance” and “Cam 2: PERSON-00042 at aisle”.
+
+So: **data from every camera is merged via the global Re-ID gallery and `global_state`**; the store is treated as one space with one set of global IDs.
 
 ---
 

@@ -1,121 +1,182 @@
 /**
- * OmniTrack AI — Re-Identification Page
+ * OmniTrack AI — Re-Identification (live)
+ * ────────────────────────────────────────
+ * • Gallery size + Re-ID model version from /api/pipeline/status.
+ * • Active persons (most recent global IDs) from /api/reid/active.
+ * • Per-person journey lookup via /api/reid/journey/{id}.
+ * • Live cross-camera match feed via WebSocket (reid_match).
  */
 
-import React from 'react';
-import { Users, Search, MapPin, Clock } from 'lucide-react';
-
-const journeySteps = [
-    { zone: 'Entrance', camera: 'Cam 1', time: '14:02:15', duration: '2m', status: 'completed' },
-    { zone: 'Main Floor', camera: 'Cam 2', time: '14:04:22', duration: '5m', status: 'completed' },
-    { zone: 'Electronics', camera: 'Cam 3', time: '14:09:45', duration: '12m', status: 'completed' },
-    { zone: 'Aisle B', camera: 'Cam 2', time: '14:21:30', duration: '3m', status: 'completed' },
-    { zone: 'Checkout', camera: 'Cam 4', time: '14:24:55', duration: '5m', status: 'active' },
-];
-
-const activePersons = Array.from({ length: 8 }, (_, i) => ({
-    id: `PERSON-${String(i + 1).padStart(4, '0')}`,
-    camera: `Cam ${(i % 4) + 1}`,
-    confidence: (0.88 + (i % 3) * 0.04).toFixed(2),
-    zone: ['Entrance', 'Main Floor', 'Electronics', 'Food Court', 'Checkout', 'Clothing', 'Aisle A', 'Sports'][i],
-    duration: `${Math.floor(Math.random() * 45 + 5)}m`,
-}));
+import React, { useMemo, useState } from 'react';
+import { motion } from 'framer-motion';
+import { Users, Search, Route, ArrowRight } from 'lucide-react';
+import { reidAPI, pipelineAPI } from '../services/api';
+import useLivePoll from '../hooks/useLivePoll';
+import useWebSocket from '../hooks/useWebSocket';
 
 export default function ReIDPage() {
+    const { data: pipe } = useLivePoll(() => pipelineAPI.status(), { intervalMs: 5000 });
+    const { data: active } = useLivePoll(() => reidAPI.active(), { intervalMs: 4000 });
+
+    const [query, setQuery] = useState('');
+    const [journey, setJourney] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(null);
+
+    // Cross-camera match WS feed
+    const [matches, setMatches] = useState([]);
+    useWebSocket('/ws/live', {
+        onType: {
+            reid_match: (d) => setMatches((prev) => [{ ...d, ts: Date.now() }, ...prev].slice(0, 40)),
+        },
+    });
+
+    const reidModule = pipe?.ai_modules?.reid || {};
+    const gallerySize = reidModule.gallery_size ?? 0;
+    const uniqueIds = reidModule.unique_identities ?? 0;
+    const modelVersion = reidModule.model || 'osnet_x1_0';
+    const threshold = reidModule.threshold ?? 0.6;
+
+    const lookup = async (e) => {
+        e?.preventDefault?.();
+        if (!query.trim()) return;
+        setLoading(true); setError(null); setJourney(null);
+        try {
+            const res = await reidAPI.journey(query.trim());
+            setJourney(res.data);
+        } catch (err) {
+            setError(err?.response?.data?.detail || err.message);
+        } finally { setLoading(false); }
+    };
+
+    const activeList = Array.isArray(active) ? active : [];
+
     return (
-        <div>
+        <div className="page-scroll">
             <div className="page-header">
-                <h2 className="page-title">Person Re-Identification</h2>
-                <p className="page-description">Cross-camera identity matching using 512-d Torchreid embeddings</p>
+                <div>
+                    <h1 className="page-title">Re-Identification</h1>
+                    <p className="page-subtitle">Torchreid {modelVersion} · cosine similarity ≥ {threshold}</p>
+                </div>
             </div>
 
-            <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-                {[
-                    { label: 'Active Tracks', value: '8', color: '#6366f1' },
-                    { label: 'Gallery Size', value: '1,247', color: '#06b6d4' },
-                    { label: 'Cross-Camera Matches', value: '34', color: '#10b981' },
-                    { label: 'Model', value: 'OSNet x1.0', color: '#f59e0b' },
-                ].map((s, i) => (
-                    <div key={i} className="stat-card animate-in">
-                        <span className="stat-card-label">{s.label}</span>
-                        <div className="stat-card-value" style={{ color: s.color }}>{s.value}</div>
-                    </div>
-                ))}
+            <div className="stats-grid">
+                <Stat icon={Users} label="Global Identities" value={uniqueIds} accent="indigo" />
+                <Stat icon={Users} label="Gallery Embeddings" value={gallerySize} accent="cyan" />
+                <Stat icon={Route} label="Live Matches (recent)" value={matches.length} accent="emerald" />
+                <Stat icon={Users} label="Active Now" value={activeList.length} accent="gold" />
             </div>
 
             <div className="two-col">
-                {/* Journey Timeline */}
-                <div className="card animate-in">
+                <div className="card">
                     <div className="card-header">
-                        <span className="card-title">Customer Journey — PERSON-0003</span>
-                        <span className="badge badge-info">Tracking</span>
+                        <h3 className="card-title">Person Journey Lookup</h3>
+                        <div className="card-subtitle">Enter a global ID (e.g. PERSON-0004)</div>
                     </div>
-                    <div className="card-body">
-                        {journeySteps.map((step, i) => (
-                            <div key={i} style={{
-                                display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 16,
-                                paddingLeft: 20, position: 'relative',
-                            }}>
-                                <div style={{
-                                    position: 'absolute', left: 0, top: 4,
-                                    width: 10, height: 10, borderRadius: '50%',
-                                    background: step.status === 'active' ? '#10b981' : '#6366f1',
-                                    boxShadow: step.status === 'active' ? '0 0 8px rgba(16,185,129,0.5)' : 'none',
-                                }} />
-                                {i < journeySteps.length - 1 && (
-                                    <div style={{
-                                        position: 'absolute', left: 4, top: 16, width: 2, height: 'calc(100% + 4px)',
-                                        background: 'var(--border)',
-                                    }} />
-                                )}
-                                <div style={{ flex: 1 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-                                        <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-primary)' }}>{step.zone}</span>
-                                        <span className={`badge ${step.status === 'active' ? 'badge-success' : 'badge-neutral'}`} style={{ fontSize: 10 }}>{step.status}</span>
-                                    </div>
-                                    <div style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', gap: 12 }}>
-                                        <span>{step.camera}</span>
-                                        <span>{step.time}</span>
-                                        <span>{step.duration}</span>
-                                    </div>
-                                </div>
+                    <form onSubmit={lookup} style={{ display: 'flex', gap: 10 }}>
+                        <input
+                            className="form-input"
+                            placeholder="PERSON-0004"
+                            value={query}
+                            onChange={(e) => setQuery(e.target.value)}
+                        />
+                        <button className="btn btn-primary" disabled={loading}>
+                            <Search size={14} /> {loading ? 'Searching…' : 'Look up'}
+                        </button>
+                    </form>
+
+                    {error && <div className="alert-banner danger" style={{ marginTop: 10 }}>{error}</div>}
+                    {journey && (
+                        <div style={{ marginTop: 16 }}>
+                            <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
+                                <span className="pill pill-info">{journey.global_id}</span>
+                                <span className="pill">
+                                    {Math.round((journey.total_duration || 0) / 60)} min total
+                                </span>
+                                <span className="pill">{journey.zones_visited} zones</span>
                             </div>
+                            <ol style={{ paddingLeft: 20, display: 'grid', gap: 6 }}>
+                                {(journey.journey_data || []).map((leg, i) => (
+                                    <li key={i} style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                                        <strong>Cam {leg.camera_id}</strong> · {leg.zone}
+                                        <ArrowRight size={12} style={{ margin: '0 6px', verticalAlign: -1 }} />
+                                        {Math.round((leg.duration || leg.dwell_time || 0))}s
+                                        <span style={{ marginLeft: 8, color: 'var(--text-muted)' }}>
+                                            {leg.timestamp && new Date(leg.timestamp).toLocaleTimeString()}
+                                        </span>
+                                    </li>
+                                ))}
+                            </ol>
+                        </div>
+                    )}
+                </div>
+
+                <div className="card">
+                    <div className="card-header">
+                        <h3 className="card-title">Active Persons</h3>
+                        <div className="card-subtitle">Most recent Re-ID activity</div>
+                    </div>
+                    <div style={{ display: 'grid', gap: 6, maxHeight: 320, overflow: 'auto' }}>
+                        {activeList.length === 0 && (
+                            <div style={{ color: 'var(--text-muted)', padding: 12 }}>No active persons.</div>
+                        )}
+                        {activeList.map((p, i) => (
+                            <button
+                                key={`${p.global_id}-${i}`}
+                                className="nav-item"
+                                style={{ justifyContent: 'space-between', padding: '8px 12px', cursor: 'pointer' }}
+                                onClick={() => { setQuery(p.global_id); lookup(); }}
+                            >
+                                <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                    <span className="pill pill-info">{p.global_id}</span>
+                                    <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                                        cam {p.camera_id}
+                                    </span>
+                                </span>
+                                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                                    {Math.round((p.confidence || 0) * 100)}%
+                                </span>
+                            </button>
                         ))}
                     </div>
                 </div>
+            </div>
 
-                {/* Active Persons */}
-                <div className="card animate-in">
-                    <div className="card-header">
-                        <span className="card-title">Active Persons in Store</span>
-                        <span className="badge badge-info">{activePersons.length} tracked</span>
-                    </div>
-                    <div className="card-body" style={{ maxHeight: 380, overflowY: 'auto' }}>
-                        <table className="data-table">
-                            <thead>
-                                <tr>
-                                    <th>ID</th>
-                                    <th>Zone</th>
-                                    <th>Camera</th>
-                                    <th>Confidence</th>
-                                    <th>Duration</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {activePersons.map((p) => (
-                                    <tr key={p.id}>
-                                        <td style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--accent-primary)' }}>{p.id}</td>
-                                        <td>{p.zone}</td>
-                                        <td>{p.camera}</td>
-                                        <td><span className="badge badge-success">{p.confidence}</span></td>
-                                        <td>{p.duration}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
+            <div className="card" style={{ marginTop: 18 }}>
+                <div className="card-header">
+                    <h3 className="card-title">Live Cross-Camera Matches</h3>
+                    <div className="card-subtitle">Streamed from the pipeline when a known person re-appears</div>
                 </div>
+                {matches.length === 0 ? (
+                    <div style={{ padding: 16, color: 'var(--text-muted)' }}>
+                        Waiting for Re-ID events…
+                    </div>
+                ) : (
+                    <ul className="event-list">
+                        {matches.map((m, i) => (
+                            <li key={i}>
+                                <span className="pill pill-info">{m.global_id}</span>
+                                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                                    cam {m.previous_camera} <ArrowRight size={12} style={{ verticalAlign: -1 }} /> cam {m.current_camera}
+                                </span>
+                                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                                    {new Date(m.ts).toLocaleTimeString()}
+                                </span>
+                            </li>
+                        ))}
+                    </ul>
+                )}
             </div>
         </div>
+    );
+}
+
+function Stat({ icon: Icon, label, value, accent }) {
+    return (
+        <motion.div className="stat-card" whileHover={{ y: -2 }}>
+            <div className={`stat-icon stat-icon-${accent}`}><Icon size={18} /></div>
+            <div className="stat-label">{label}</div>
+            <div className="stat-value">{value}</div>
+        </motion.div>
     );
 }

@@ -42,18 +42,35 @@ class CheckoutAnalytics:
     def add_lane(self, lane: CheckoutLane):
         self.lanes.append(lane)
 
-    def update(self, tracks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def update(self, *args, **kwargs) -> Dict[str, Any]:
         """
-        Update checkout analytics with current detections.
-        Returns per-lane metrics.
+        Flexible update entrypoint.
+        Supported call shapes:
+          - update(tracks)                       (legacy)
+          - update(camera_id, tracks)            (pipeline)
+          - update(camera_id, tracks, timestamp) (pipeline)
+
+        When a camera_id is passed we only consider lanes belonging to that
+        camera. Returns a camera-scoped summary dict.
         """
+        camera_id: Optional[int] = None
+        tracks: List[Dict[str, Any]] = []
+        if kwargs:
+            camera_id = kwargs.get("camera_id")
+            tracks = kwargs.get("tracks") or kwargs.get("detections") or []
+        elif len(args) == 1:
+            tracks = args[0] or []
+        elif len(args) >= 2:
+            camera_id, tracks = args[0], args[1] or []
+
         now = time.time()
         metrics = []
+        lanes = [l for l in self.lanes if camera_id is None or l.camera_id == camera_id]
 
-        for lane in self.lanes:
+        for lane in lanes:
             # Count persons in lane bbox
             persons_in_lane = self._get_persons_in_lane(tracks, lane)
-            current_ids = {t["track_id"] for t in persons_in_lane}
+            current_ids = {t.get("track_id") for t in persons_in_lane if t.get("track_id") is not None}
 
             # Track new entries
             for tid in current_ids:
@@ -98,13 +115,23 @@ class CheckoutAnalytics:
                 "total_served": len(self.completed_services[lane.lane_id]),
             })
 
-        return metrics
+        total_wait = sum(m["current_wait_estimate"] for m in metrics)
+        total_queue = sum(m["queue_length"] for m in metrics)
+        return {
+            "camera_id": camera_id,
+            "lanes": metrics,
+            "total_queue": total_queue,
+            "avg_wait": round(total_wait / len(metrics), 2) if metrics else 0.0,
+        }
 
     def _get_persons_in_lane(self, tracks: List[Dict], lane: CheckoutLane) -> List[Dict]:
         lx1, ly1, lx2, ly2 = lane.bbox
         result = []
         for t in tracks:
-            bx, by, bw, bh = t["bbox"]
+            bbox = t.get("bbox") or t.get("box") or []
+            if len(bbox) < 4:
+                continue
+            bx, by, bw, bh = bbox[0], bbox[1], bbox[2], bbox[3]
             cx, cy = bx + bw / 2, by + bh / 2
             if lx1 <= cx <= lx2 and ly1 <= cy <= ly2:
                 result.append(t)
@@ -130,3 +157,7 @@ class CheckoutAnalytics:
     def reset(self):
         self.active_queue.clear()
         self.completed_services.clear()
+
+
+# Back-compat alias — the pipeline imports `CheckoutAnalyzer`.
+CheckoutAnalyzer = CheckoutAnalytics

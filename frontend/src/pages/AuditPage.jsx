@@ -1,91 +1,141 @@
 /**
- * OmniTrack AI — Audit Log Page
+ * OmniTrack AI — Audit Log (live)
+ * Polls /api/audit/logs + /api/audit/verify (SHA-256 chain integrity).
  */
-import React from 'react';
-import { ShieldCheck, CheckCircle, AlertOctagon, Hash, Lock } from 'lucide-react';
 
-const logs = [
-    { id: 1, event: 'LOGIN', user: 'admin', desc: 'User login from 192.168.1.100', time: '14:32:10', hash: 'a3f2c8', valid: true },
-    { id: 2, event: 'CONFIG_CHANGE', user: 'admin', desc: 'Updated detection confidence threshold to 0.6', time: '14:15:45', hash: 'b1d7e5', valid: true },
-    { id: 3, event: 'DETECTION_START', user: 'operator1', desc: 'Detection started on Camera 3', time: '13:50:22', hash: 'c9a1f3', valid: true },
-    { id: 4, event: 'CAMERA_ADD', user: 'admin', desc: 'Added new camera: Loading Dock', time: '12:30:18', hash: 'd4b6a2', valid: true },
-    { id: 5, event: 'EXPORT', user: 'analyst', desc: 'Exported detection report (Jan 2026)', time: '11:45:05', hash: 'e7c3d9', valid: true },
-    { id: 6, event: 'USER_CREATE', user: 'admin', desc: 'Created new operator account: john_doe', time: '10:20:33', hash: 'f2a8b1', valid: true },
-    { id: 7, event: 'LOGIN', user: 'operator1', desc: 'User login from 192.168.1.105', time: '09:15:47', hash: 'a5d9c4', valid: true },
-    { id: 8, event: 'CONFIG_CHANGE', user: 'admin', desc: 'Enabled fire detection on Camera 5', time: '08:42:11', hash: 'b8e2f6', valid: true },
-];
-
-const eventColors = {
-    LOGIN: '#6366f1', CONFIG_CHANGE: '#f59e0b', DETECTION_START: '#10b981',
-    CAMERA_ADD: '#06b6d4', EXPORT: '#8b5cf6', USER_CREATE: '#ec4899',
-};
+import React, { useState } from 'react';
+import { motion } from 'framer-motion';
+import { ShieldCheck, ShieldAlert, RefreshCw, Link2 } from 'lucide-react';
+import { auditAPI } from '../services/api';
+import useLivePoll from '../hooks/useLivePoll';
 
 export default function AuditPage() {
+    const [limit, setLimit] = useState(50);
+    const { data: logs, refresh: refreshLogs } = useLivePoll(() => auditAPI.logs(limit), { intervalMs: 6000 });
+    const { data: chain, refresh: refreshChain } = useLivePoll(() => auditAPI.verify(), { intervalMs: 10000 });
+
+    const list = Array.isArray(logs) ? logs : [];
+    const valid = chain?.valid;
+
     return (
-        <div>
+        <div className="page-scroll">
             <div className="page-header">
-                <h2 className="page-title">Security Audit Log</h2>
-                <p className="page-description">SHA-256 hash chain with AES-256 encrypted metadata — tamper-evident audit trail</p>
+                <div>
+                    <h1 className="page-title">Audit Log</h1>
+                    <p className="page-subtitle">
+                        Tamper-evident SHA-256 hash chain · AES-256 encrypted metadata
+                    </p>
+                </div>
+                <button className="btn btn-secondary btn-xs" onClick={() => { refreshLogs(); refreshChain(); }}>
+                    <RefreshCw size={12} /> Refresh
+                </button>
             </div>
 
-            <div className="alert-banner success" style={{ marginBottom: 20 }}>
-                <CheckCircle size={18} /> Hash chain integrity verified — All 150 entries valid
+            <div className="stats-grid">
+                <motion.div className="stat-card" whileHover={{ y: -2 }}>
+                    <div className={`stat-icon stat-icon-${valid ? 'emerald' : 'rose'}`}>
+                        {valid ? <ShieldCheck size={18} /> : <ShieldAlert size={18} />}
+                    </div>
+                    <div className="stat-label">Chain Integrity</div>
+                    <div className="stat-value">{valid == null ? '—' : valid ? 'VALID' : 'BROKEN'}</div>
+                </motion.div>
+                <Stat label="Total Entries" value={chain?.total ?? list.length} accent="indigo" />
+                <Stat label="Broken At" value={chain?.broken_at ?? '—'} accent={valid === false ? 'rose' : 'cyan'} />
+                <Stat label="Shown" value={list.length} accent="amber" />
             </div>
 
-            <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-                {[
-                    { label: 'Total Entries', value: '150', icon: Hash, color: '#6366f1' },
-                    { label: 'Chain Status', value: 'Valid', icon: ShieldCheck, color: '#10b981' },
-                    { label: 'Encryption', value: 'AES-256', icon: Lock, color: '#06b6d4' },
-                    { label: 'Broken Links', value: '0', icon: AlertOctagon, color: '#f43f5e' },
-                ].map((s, i) => {
-                    const Icon = s.icon;
-                    return (
-                        <div key={i} className="stat-card animate-in">
-                            <div className="stat-card-header">
-                                <span className="stat-card-label">{s.label}</span>
-                                <div className="stat-card-icon" style={{ background: `${s.color}15`, color: s.color }}><Icon size={16} /></div>
-                            </div>
-                            <div className="stat-card-value" style={{ color: s.color, fontSize: s.label === 'Encryption' || s.label === 'Chain Status' ? 18 : 28 }}>{s.value}</div>
-                        </div>
-                    );
-                })}
-            </div>
-
-            <div className="card animate-in">
+            <div className="card">
                 <div className="card-header">
-                    <span className="card-title">Audit Trail</span>
-                    <button className="btn btn-outline" style={{ fontSize: 12 }}><ShieldCheck size={14} /> Verify Chain</button>
-                </div>
-                <div className="card-body" style={{ maxHeight: 420, overflowY: 'auto' }}>
-                    <table className="data-table">
-                        <thead><tr><th>ID</th><th>Event</th><th>User</th><th>Description</th><th>Time</th><th>Hash</th><th>Valid</th></tr></thead>
-                        <tbody>
-                            {logs.map((l) => (
-                                <tr key={l.id}>
-                                    <td style={{ fontFamily: 'monospace' }}>#{l.id}</td>
-                                    <td>
-                                        <span className="badge" style={{
-                                            background: `${eventColors[l.event]}15`,
-                                            color: eventColors[l.event],
-                                            border: `1px solid ${eventColors[l.event]}30`,
-                                        }}>
-                                            {l.event}
-                                        </span>
-                                    </td>
-                                    <td style={{ fontWeight: 500 }}>{l.user}</td>
-                                    <td>{l.desc}</td>
-                                    <td style={{ color: 'var(--text-muted)' }}>{l.time}</td>
-                                    <td><span className="hash-display">{l.hash}...</span></td>
-                                    <td>
-                                        <CheckCircle size={16} style={{ color: '#10b981' }} />
-                                    </td>
-                                </tr>
+                    <h3 className="card-title">Event Log</h3>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <span className="card-subtitle">Limit:</span>
+                        <select
+                            className="form-select"
+                            style={{ width: 100, padding: '4px 10px' }}
+                            value={limit}
+                            onChange={(e) => setLimit(Number(e.target.value))}
+                        >
+                            {[25, 50, 100, 200, 500].map((n) => (
+                                <option key={n} value={n}>{n}</option>
                             ))}
-                        </tbody>
-                    </table>
+                        </select>
+                    </div>
                 </div>
+
+                {list.length === 0 ? (
+                    <div className="page-empty-hint">
+                        No audit entries yet.
+                    </div>
+                ) : (
+                    <div style={{ display: 'grid', gap: 6, maxHeight: 560, overflow: 'auto' }}>
+                        {list.map((e) => (
+                            <div
+                                key={e.id}
+                                style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: '60px 160px 1fr auto',
+                                    gap: 10, alignItems: 'center',
+                                    padding: '10px 12px',
+                                    background: 'var(--bg-glass)',
+                                    border: '1px solid var(--border)', borderRadius: 10,
+                                }}
+                            >
+                                <span className="pill">#{e.id}</span>
+                                <span className={`pill ${pillForEventType(e.event_type)}`}>{e.event_type}</span>
+                                <div style={{ overflow: 'hidden' }}>
+                                    <div style={{ fontSize: 13, fontWeight: 500 }}>
+                                        {e.description || '—'}
+                                    </div>
+                                    <div style={{
+                                        display: 'flex', gap: 8,
+                                        fontSize: 11, color: 'var(--text-muted)',
+                                        marginTop: 2, overflow: 'hidden',
+                                    }}>
+                                        <Link2 size={11} />
+                                        <code title={e.current_hash}
+                                            style={{ whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                                            {e.current_hash?.slice(0, 16)}…
+                                        </code>
+                                        {e.previous_hash && (
+                                            <>
+                                                <span>←</span>
+                                                <code title={e.previous_hash}
+                                                    style={{ whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                                                    {e.previous_hash.slice(0, 16)}…
+                                                </code>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                                    {e.timestamp && new Date(e.timestamp).toLocaleString()}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
         </div>
     );
+}
+
+function Stat({ label, value, accent = 'indigo' }) {
+    return (
+        <motion.div className="stat-card" whileHover={{ y: -2 }}>
+            <div className={`stat-icon stat-icon-${accent}`}><ShieldCheck size={18} /></div>
+            <div className="stat-label">{label}</div>
+            <div className="stat-value">{value}</div>
+        </motion.div>
+    );
+}
+
+function pillForEventType(type) {
+    switch ((type || '').toUpperCase()) {
+        case 'LOGIN': return 'pill-success';
+        case 'LOGOUT': return 'pill-info';
+        case 'FIRE_ALERT': return 'pill-danger';
+        case 'PIPELINE_START':
+        case 'PIPELINE_STOP': return 'pill-warn';
+        default: return '';
+    }
 }

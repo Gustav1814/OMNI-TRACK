@@ -45,7 +45,47 @@ class ShelfAnalytics:
     def add_zone(self, zone: ShelfZoneConfig):
         self.zones.append(zone)
 
-    def update(self, tracks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def update(
+        self,
+        *args,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        """
+        Flexible update entrypoint.
+        Supported call shapes:
+          - update(tracks)                       (legacy)
+          - update(camera_id, tracks)            (pipeline)
+          - update(camera_id, tracks, timestamp) (pipeline)
+        Returns a camera-scoped summary dict (per-camera engagement snapshot).
+        """
+        camera_id: Optional[int] = None
+        tracks: List[Dict[str, Any]] = []
+        if kwargs:
+            camera_id = kwargs.get("camera_id")
+            tracks = kwargs.get("tracks") or kwargs.get("detections") or []
+        elif len(args) == 1:
+            tracks = args[0] or []
+        elif len(args) == 2:
+            camera_id, tracks = args[0], args[1] or []
+        elif len(args) >= 3:
+            camera_id, tracks = args[0], args[1] or []
+        engagements = self._update_tracks(tracks, camera_id=camera_id)
+        avg_engagement = (
+            sum(e.get("dwell_time", 0) for e in engagements) / len(engagements)
+            if engagements else 0.0
+        )
+        return {
+            "camera_id": camera_id,
+            "active_engagements": engagements,
+            "engagement_score": round(min(avg_engagement / 300 * 100, 100), 2),
+            "total_active": len(engagements),
+        }
+
+    def _update_tracks(
+        self,
+        tracks: List[Dict[str, Any]],
+        camera_id: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
         """
         Update shelf analytics with current track positions.
         tracks: [{"track_id": int, "bbox": [x,y,w,h], "confidence": float}, ...]
@@ -56,11 +96,18 @@ class ShelfAnalytics:
 
         engagements = []
         for track in tracks:
-            tid = track["track_id"]
-            tx, ty, tw, th = track["bbox"]
+            tid = track.get("track_id")
+            bbox = track.get("bbox") or track.get("box") or []
+            if tid is None or len(bbox) < 4:
+                continue
+            tx, ty, tw, th = bbox[0], bbox[1], bbox[2], bbox[3]
             person_center = (tx + tw / 2, ty + th / 2)
 
-            for zone in self.zones:
+            zones_for_cam = [
+                z for z in self.zones
+                if camera_id is None or z.camera_id == camera_id
+            ]
+            for zone in zones_for_cam:
                 zx1, zy1, zx2, zy2 = zone.bbox
                 key = f"{tid}_{zone.zone_id}"
 
@@ -122,3 +169,7 @@ class ShelfAnalytics:
     def reset(self):
         self.active_dwells.clear()
         self.zone_stats.clear()
+
+
+# Back-compat alias — the pipeline imports `ShelfEngagementTracker`.
+ShelfEngagementTracker = ShelfAnalytics

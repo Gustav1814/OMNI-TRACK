@@ -177,6 +177,7 @@ class DetectionService:
         db: AsyncSession,
         camera_id: int,
         detections: List[Dict[str, Any]],
+        zone: Optional[str] = None,
     ) -> int:
         """
         Batch-insert detections from a processing frame.
@@ -184,19 +185,62 @@ class DetectionService:
         """
         objects = []
         for det in detections:
+            bbox = det.get("bbox") or det.get("box") or [0.0, 0.0, 0.0, 0.0]
+            if len(bbox) < 4:
+                continue
             objects.append(Detection(
                 camera_id=camera_id,
-                bbox_x=det.get("bbox", [0])[0] if det.get("bbox") else 0,
-                bbox_y=det.get("bbox", [0, 0])[1] if det.get("bbox") else 0,
-                bbox_w=det.get("bbox", [0, 0, 0])[2] if det.get("bbox") else 0,
-                bbox_h=det.get("bbox", [0, 0, 0, 0])[3] if det.get("bbox") else 0,
-                confidence=det.get("confidence", 0),
-                class_name=det.get("class", "person"),
+                bbox_x=float(bbox[0]),
+                bbox_y=float(bbox[1]),
+                bbox_w=float(bbox[2]),
+                bbox_h=float(bbox[3]),
+                confidence=float(det.get("confidence", 0.0)),
+                class_name=str(det.get("class_name") or det.get("class") or "person"),
                 track_id=det.get("track_id"),
+                global_id=det.get("global_id"),
+                zone=det.get("zone") or zone,
             ))
+        if not objects:
+            return 0
         db.add_all(objects)
         await db.flush()
         return len(objects)
+
+    @staticmethod
+    async def create_batch_and_return(
+        db: AsyncSession,
+        camera_id: int,
+        detections: List[Dict[str, Any]],
+        zone: Optional[str] = None,
+    ) -> List["Detection"]:
+        """
+        Same as create_batch but returns the inserted Detection rows so
+        the caller can grab their IDs (used to join with Embedding rows).
+        """
+        objects = []
+        for det in detections:
+            bbox = det.get("bbox") or det.get("box") or [0.0, 0.0, 0.0, 0.0]
+            if len(bbox) < 4:
+                continue
+            objects.append(Detection(
+                camera_id=camera_id,
+                bbox_x=float(bbox[0]),
+                bbox_y=float(bbox[1]),
+                bbox_w=float(bbox[2]),
+                bbox_h=float(bbox[3]),
+                confidence=float(det.get("confidence", 0.0)),
+                class_name=str(det.get("class_name") or det.get("class") or "person"),
+                track_id=det.get("track_id"),
+                global_id=det.get("global_id"),
+                zone=det.get("zone") or zone,
+            ))
+        if not objects:
+            return []
+        db.add_all(objects)
+        await db.flush()
+        for obj in objects:
+            await db.refresh(obj)
+        return objects
 
     @staticmethod
     async def get_recent(
@@ -233,20 +277,82 @@ class EmbeddingService:
     @staticmethod
     async def store(
         db: AsyncSession,
-        detection_id: int,
+        detection_id: Optional[int],
         camera_id: int,
         embedding_vector: list,
         global_id: Optional[str] = None,
+        track_id: Optional[int] = None,
+        confidence: Optional[float] = None,
+        model_version: str = "osnet_x1_0",
     ) -> Embedding:
         emb = Embedding(
             detection_id=detection_id,
             camera_id=camera_id,
-            vector=embedding_vector,
+            track_id=track_id,
             global_id=global_id,
+            vector=list(embedding_vector),
+            confidence=confidence,
+            model_version=model_version,
         )
         db.add(emb)
         await db.flush()
         return emb
+
+    @staticmethod
+    async def store_batch(
+        db: AsyncSession,
+        rows: List[Dict[str, Any]],
+        model_version: str = "osnet_x1_0",
+    ) -> int:
+        """
+        Batch-insert embedding rows. Each row: {
+          detection_id?, camera_id, track_id?, global_id, vector: list, confidence?
+        }
+        """
+        objs = []
+        for r in rows:
+            vec = r.get("vector")
+            if not vec:
+                continue
+            objs.append(Embedding(
+                detection_id=r.get("detection_id"),
+                camera_id=int(r.get("camera_id", 0)),
+                track_id=r.get("track_id"),
+                global_id=r.get("global_id"),
+                vector=list(vec),
+                confidence=r.get("confidence"),
+                model_version=model_version,
+            ))
+        if not objs:
+            return 0
+        db.add_all(objs)
+        await db.flush()
+        return len(objs)
+
+    @staticmethod
+    async def list_recent_gallery(
+        db: AsyncSession,
+        max_rows: int = 2000,
+    ) -> List[Dict[str, Any]]:
+        """
+        Warm up the in-memory Re-ID gallery from the most recent embeddings.
+        Survives backend restart without losing cross-camera identities.
+        """
+        result = await db.execute(
+            select(Embedding)
+            .order_by(Embedding.timestamp.desc())
+            .limit(max_rows)
+        )
+        rows = result.scalars().all()
+        out = []
+        for r in rows:
+            if r.global_id and r.vector is not None:
+                out.append({
+                    "global_id": r.global_id,
+                    "vector": list(r.vector),
+                    "timestamp": r.timestamp,
+                })
+        return out
 
     @staticmethod
     async def get_by_global_id(
@@ -397,6 +503,7 @@ class AnalyticsService:
         person_count: int,
         direction_in: int = 0,
         direction_out: int = 0,
+        avg_dwell_time: float = 0.0,
     ) -> FootTraffic:
         entry = FootTraffic(
             camera_id=camera_id,
@@ -404,6 +511,7 @@ class AnalyticsService:
             person_count=person_count,
             direction_in=direction_in,
             direction_out=direction_out,
+            avg_dwell_time=avg_dwell_time,
         )
         db.add(entry)
         await db.flush()
@@ -418,14 +526,16 @@ class AnalyticsService:
         engagement_score: float,
         foot_traffic_score: float,
         label: str,
+        breakdown: Optional[Dict[str, Any]] = None,
     ) -> StoreVibeScore:
         entry = StoreVibeScore(
-            overall_score=overall_score,
-            sentiment_score=sentiment_score,
-            energy_score=energy_score,
-            engagement_score=engagement_score,
-            foot_traffic_score=foot_traffic_score,
+            overall_score=float(overall_score),
+            sentiment_score=float(sentiment_score),
+            energy_score=float(energy_score),
+            engagement_score=float(engagement_score),
+            foot_traffic_score=float(foot_traffic_score),
             vibe_label=label,
+            breakdown=breakdown,
         )
         db.add(entry)
         await db.flush()
@@ -435,17 +545,23 @@ class AnalyticsService:
     async def save_demographics(
         db: AsyncSession,
         camera_id: int,
-        zone: str,
-        age_group: str,
-        gender: str,
+        zone: Optional[str],
+        age_group: Optional[str] = None,
+        gender: Optional[str] = None,
         count: int = 1,
+        estimated_age: Optional[float] = None,
+        estimated_gender: Optional[str] = None,
+        confidence: Optional[float] = None,
     ) -> DemographicSnapshot:
         entry = DemographicSnapshot(
             camera_id=camera_id,
             zone=zone,
             age_group=age_group,
-            gender=gender,
+            gender=gender or estimated_gender,
+            estimated_age=estimated_age,
+            estimated_gender=estimated_gender or gender,
             count=count,
+            confidence=confidence,
         )
         db.add(entry)
         await db.flush()
@@ -465,6 +581,7 @@ class AnalyticsService:
         query = select(
             func.extract('hour', FootTraffic.timestamp).label('hour'),
             func.sum(FootTraffic.person_count).label('total'),
+            func.avg(FootTraffic.avg_dwell_time).label('avg_dwell'),
         ).where(
             and_(FootTraffic.timestamp >= start, FootTraffic.timestamp < end)
         )
@@ -473,7 +590,35 @@ class AnalyticsService:
         query = query.group_by('hour').order_by('hour')
 
         result = await db.execute(query)
-        return [{"hour": int(row.hour), "count": int(row.total)} for row in result.all()]
+        return [
+            {
+                "hour": int(row.hour),
+                "count": int(row.total or 0),
+                "avg_dwell_time": float(row.avg_dwell or 0.0),
+            }
+            for row in result.all()
+        ]
+
+    @staticmethod
+    async def get_busiest_zone_for_hour(
+        db: AsyncSession,
+        hour: int,
+        date: Optional[datetime] = None,
+    ) -> Optional[str]:
+        target_date = date or datetime.now(timezone.utc)
+        start = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        end = start + timedelta(days=1)
+        query = (
+            select(FootTraffic.zone, func.sum(FootTraffic.person_count).label("total"))
+            .where(and_(FootTraffic.timestamp >= start, FootTraffic.timestamp < end))
+            .where(func.extract('hour', FootTraffic.timestamp) == hour)
+            .group_by(FootTraffic.zone)
+            .order_by(desc("total"))
+            .limit(1)
+        )
+        result = await db.execute(query)
+        row = result.first()
+        return row[0] if row else None
 
     @staticmethod
     async def get_vibe_trend(
@@ -489,7 +634,7 @@ class AnalyticsService:
         return result.scalars().all()
 
     @staticmethod
-    async def save_journey(
+    async def save_journey_leg(
         db: AsyncSession,
         global_id: str,
         camera_id: int,
@@ -508,6 +653,9 @@ class AnalyticsService:
         await db.flush()
         return entry
 
+    # Back-compat alias
+    save_journey = save_journey_leg
+
     @staticmethod
     async def get_journey(
         db: AsyncSession,
@@ -519,3 +667,46 @@ class AnalyticsService:
             .order_by(CustomerJourney.entry_time.asc())
         )
         return result.scalars().all()
+
+    @staticmethod
+    async def get_demographics_breakdown(
+        db: AsyncSession,
+        hours: int = 24,
+        zone: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Aggregate demographic snapshots across the given window into
+        age/gender histograms for the current dashboard.
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=max(1, hours))
+        query = (
+            select(
+                DemographicSnapshot.age_group,
+                DemographicSnapshot.gender,
+                func.sum(DemographicSnapshot.count).label("total"),
+            )
+            .where(DemographicSnapshot.timestamp >= cutoff)
+        )
+        if zone:
+            query = query.where(DemographicSnapshot.zone == zone)
+        query = query.group_by(DemographicSnapshot.age_group, DemographicSnapshot.gender)
+        result = await db.execute(query)
+        rows = result.all()
+        age_dist: Dict[str, int] = {}
+        gender_dist: Dict[str, int] = {}
+        total = 0
+        for row in rows:
+            n = int(row.total or 0)
+            total += n
+            if row.age_group:
+                age_dist[row.age_group] = age_dist.get(row.age_group, 0) + n
+            if row.gender:
+                gender_dist[str(row.gender).lower()] = (
+                    gender_dist.get(str(row.gender).lower(), 0) + n
+                )
+        return {
+            "age_distribution": age_dist,
+            "gender_distribution": gender_dist,
+            "total_count": total,
+            "zone": zone,
+        }

@@ -1,90 +1,141 @@
 /**
- * OmniTrack AI — Crowd Density Page
+ * OmniTrack AI — Crowd Density (live)
+ * Polls /api/crowd/status and listens for WS crowd_alert events.
  */
-import React from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { UsersRound, AlertTriangle, TrendingUp } from 'lucide-react';
 
-const zoneData = [
-    { zone: 'Entrance', count: 12, max: 30, level: 'medium' },
-    { zone: 'Main Floor', count: 45, max: 60, level: 'high' },
-    { zone: 'Food Court', count: 8, max: 40, level: 'low' },
-    { zone: 'Electronics', count: 22, max: 35, level: 'medium' },
-    { zone: 'Checkout', count: 35, max: 40, level: 'high' },
-    { zone: 'Parking', count: 5, max: 50, level: 'low' },
-];
+import React, { useState } from 'react';
+import { motion } from 'framer-motion';
+import { UsersRound, AlertTriangle } from 'lucide-react';
+import {
+    BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, Cell,
+} from 'recharts';
+import { crowdAPI } from '../services/api';
+import useLivePoll from '../hooks/useLivePoll';
+import useWebSocket from '../hooks/useWebSocket';
 
-const levelColors = { low: '#10b981', medium: '#f59e0b', high: '#f43f5e', critical: '#dc2626' };
-
-const hourlyData = Array.from({ length: 13 }, (_, i) => ({
-    hour: `${i + 9}:00`,
-    count: Math.floor(20 + Math.random() * 40 + (i > 3 && i < 8 ? 25 : 0)),
-}));
-
-const tooltipStyle = { contentStyle: { background: '#1e293b', border: '1px solid rgba(148,163,184,0.15)', borderRadius: '8px', fontSize: '12px', color: '#f1f5f9' } };
+const LEVEL_COLOR = {
+    low: '#10b981',
+    medium: '#fbbf24',
+    high: '#f97316',
+    critical: '#f43f5e',
+};
 
 export default function CrowdPage() {
-    const totalOccupancy = zoneData.reduce((s, z) => s + z.count, 0);
+    const { data, error } = useLivePoll(() => crowdAPI.status(), { intervalMs: 3000 });
+    const [alerts, setAlerts] = useState([]);
+    useWebSocket('/ws/live', {
+        onType: {
+            crowd_alert: (d) => setAlerts((prev) => [{ ...d, ts: Date.now() }, ...prev].slice(0, 20)),
+        },
+    });
+
+    const zones = Array.isArray(data) ? data : [];
+    const chartData = zones.map((z) => ({ name: z.zone, count: z.person_count, level: z.classification }));
+
     return (
-        <div>
+        <div className="page-scroll">
             <div className="page-header">
-                <h2 className="page-title">Crowd Density Monitoring</h2>
-                <p className="page-description">Real-time zone-based occupancy and density classification</p>
-            </div>
-
-            <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-                {[
-                    { label: 'Total Occupancy', value: totalOccupancy, color: '#6366f1' },
-                    { label: 'Zones Monitored', value: '6', color: '#06b6d4' },
-                    { label: 'High Density Zones', value: zoneData.filter(z => z.level === 'high').length, color: '#f43f5e' },
-                    { label: 'Avg Density', value: `${Math.round(totalOccupancy / zoneData.length)}`, color: '#10b981' },
-                ].map((s, i) => (
-                    <div key={i} className="stat-card animate-in">
-                        <span className="stat-card-label">{s.label}</span>
-                        <div className="stat-card-value" style={{ color: s.color }}>{s.value}</div>
-                    </div>
-                ))}
-            </div>
-
-            <div className="two-col">
-                <div className="card animate-in">
-                    <div className="card-header"><span className="card-title">Zone Density Map</span></div>
-                    <div className="card-body">
-                        {zoneData.map((z, i) => (
-                            <div key={i} style={{ marginBottom: 16 }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 13 }}>
-                                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{z.zone}</span>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                        <span style={{ color: 'var(--text-muted)' }}>{z.count} / {z.max}</span>
-                                        <span className={`badge ${z.level === 'high' ? 'badge-danger' : z.level === 'medium' ? 'badge-warning' : 'badge-success'}`}>
-                                            {z.level}
-                                        </span>
-                                    </div>
-                                </div>
-                                <div className="progress-bar" style={{ height: 8 }}>
-                                    <div className="progress-bar-fill" style={{
-                                        width: `${(z.count / z.max) * 100}%`,
-                                        background: levelColors[z.level],
-                                    }} />
-                                </div>
-                            </div>
-                        ))}
-                    </div>
+                <div>
+                    <h1 className="page-title">Crowd Density</h1>
+                    <p className="page-subtitle">Live person counts + classification per zone</p>
                 </div>
+            </div>
 
-                <div className="chart-card animate-in">
-                    <div className="chart-card-title">Hourly Trend</div>
-                    <ResponsiveContainer width="100%" height={300}>
-                        <BarChart data={hourlyData}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
-                            <XAxis dataKey="hour" tick={{ fontSize: 11, fill: '#64748b' }} />
-                            <YAxis tick={{ fontSize: 11, fill: '#64748b' }} />
-                            <Tooltip {...tooltipStyle} />
-                            <Bar dataKey="count" fill="#6366f1" radius={[4, 4, 0, 0]} barSize={20} />
-                        </BarChart>
-                    </ResponsiveContainer>
+            {error && <div className="alert-banner danger">Unable to reach crowd analytics.</div>}
+            {alerts.length > 0 && (
+                <div className="alert-banner danger">
+                    <AlertTriangle size={14} style={{ verticalAlign: -2 }} />{' '}
+                    <strong>{alerts[0].zone}</strong> is {alerts[0].density_level} ({alerts[0].person_count} people)
+                </div>
+            )}
+
+            <div className="stats-grid">
+                <Stat label="Zones Monitored" value={zones.length} accent="indigo" />
+                <Stat label="People (all zones)" value={zones.reduce((a, z) => a + (z.person_count || 0), 0)} accent="cyan" />
+                <Stat
+                    label="High / Critical"
+                    value={zones.filter((z) => ['high', 'critical'].includes(z.classification)).length}
+                    accent="rose"
+                />
+                <Stat
+                    label="Avg Density"
+                    value={zones.length ? (zones.reduce((a, z) => a + (z.density || 0), 0) / zones.length).toFixed(2) : 0}
+                    suffix=" /m²"
+                    accent="amber"
+                />
+            </div>
+
+            <div className="card">
+                <div className="card-header">
+                    <h3 className="card-title">Zone Density</h3>
+                    <div className="card-subtitle">Color-coded by classification</div>
+                </div>
+                {chartData.length === 0 ? (
+                    <div className="page-empty-hint">
+                        No crowd data — configure zones and start the pipeline.
+                    </div>
+                ) : (
+                    <div style={{ height: 320 }}>
+                        <ResponsiveContainer>
+                            <BarChart data={chartData}>
+                                <CartesianGrid stroke="rgba(255,255,255,0.05)" />
+                                <XAxis dataKey="name" stroke="#71717a" fontSize={11} />
+                                <YAxis stroke="#71717a" fontSize={11} />
+                                <Tooltip contentStyle={{ background: '#111', border: '1px solid #222' }} />
+                                <Bar dataKey="count" radius={[6, 6, 0, 0]}>
+                                    {chartData.map((d, i) => (
+                                        <Cell key={i} fill={LEVEL_COLOR[d.level] || '#6366f1'} />
+                                    ))}
+                                </Bar>
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                )}
+            </div>
+
+            <div className="card" style={{ marginTop: 18 }}>
+                <div className="card-header">
+                    <h3 className="card-title">Zones</h3>
+                </div>
+                <div style={{ display: 'grid', gap: 6 }}>
+                    {zones.map((z) => (
+                        <div
+                            key={`${z.camera_id}-${z.zone}`}
+                            style={{
+                                display: 'grid',
+                                gridTemplateColumns: '1fr 80px 100px 110px 90px',
+                                gap: 10, alignItems: 'center',
+                                padding: '10px 12px',
+                                background: 'var(--bg-glass)',
+                                border: '1px solid var(--border)', borderRadius: 10,
+                            }}
+                        >
+                            <div>
+                                <div style={{ fontWeight: 600 }}>{z.zone}</div>
+                                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>cam {z.camera_id}</div>
+                            </div>
+                            <span style={{ fontSize: 13 }}>{z.person_count} ppl</span>
+                            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{(z.density || 0).toFixed(2)} /m²</span>
+                            <span className={`pill pill-${z.classification === 'critical' || z.classification === 'high' ? 'danger' : z.classification === 'medium' ? 'warn' : 'success'}`}>
+                                {z.classification}
+                            </span>
+                            <span style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'right' }}>
+                                thr {z.threshold}
+                            </span>
+                        </div>
+                    ))}
                 </div>
             </div>
         </div>
+    );
+}
+
+function Stat({ label, value, suffix = '', accent = 'indigo' }) {
+    return (
+        <motion.div className="stat-card" whileHover={{ y: -2 }}>
+            <div className={`stat-icon stat-icon-${accent}`}><UsersRound size={18} /></div>
+            <div className="stat-label">{label}</div>
+            <div className="stat-value">{value}{suffix}</div>
+        </motion.div>
     );
 }

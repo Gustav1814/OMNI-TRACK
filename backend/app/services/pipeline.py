@@ -22,6 +22,17 @@ HOW IT WORKS (for a non-CV person):
   All cameras run in PARALLEL — synchronized by a central clock.
   Cross-camera identity matching happens continuously via the Re-ID gallery.
 
+GLOBAL ID & CROSS-CAMERA DATA (how the store gap is filled):
+  - Each camera has its own ByteTrack tracker → local track IDs (1, 2, 3…) per feed.
+  - One shared Re-ID gallery (in memory, optionally pgvector in DB): 512-d embedding per person.
+  - For every detected person, we crop the bounding box, extract an embedding (Torchreid), and
+    search the gallery by cosine similarity. If similarity ≥ threshold → same global_id (e.g. PERSON-00042).
+    If no match → new global_id, and we add that embedding to the gallery.
+  - So: same person on Cam 1 (entrance) and Cam 2 (aisle) gets the same global_id. Data from every
+    camera is merged in global_state: active_tracks[global_id] = { camera_id, last_seen, bbox };
+    zone_occupancy[zone] = count; vibe_score aggregates all cameras. The dashboard/API can answer
+    “where is PERSON-00042?” or “how many unique people in the store?” from this shared state.
+
 WHAT YOU NEED:
   - Camera RTSP URLs (from store IP cameras)
   - OR just use a video file for testing: pipeline.add_camera(1, "test_video.mp4")
@@ -32,7 +43,7 @@ import asyncio
 import time
 import numpy as np
 import cv2
-from typing import Dict, List, Optional, Any, Callable
+from typing import Dict, List, Optional, Any, Callable, Tuple
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from loguru import logger
@@ -40,14 +51,14 @@ import threading
 from enum import Enum
 
 # AI Modules
-from app.ai.detector import PersonDetector
+from app.ai.detector import PersonDetector, BBox
 from app.ai.tracker import MultiObjectTracker
 from app.ai.reid import PersonReID
 from app.ai.emotion import EmotionRecognizer
-from app.ai.fire_detector import FireSmokeDetector
+from app.ai.fire_detector import FireSmokeDetector  # alias for FireDetector
 from app.ai.crowd_density import CrowdDensityEstimator
-from app.ai.shelf_analytics import ShelfEngagementTracker
-from app.ai.checkout_analytics import CheckoutAnalyzer
+from app.ai.shelf_analytics import ShelfEngagementTracker  # alias for ShelfAnalytics
+from app.ai.checkout_analytics import CheckoutAnalyzer  # alias for CheckoutAnalytics
 from app.ai.store_vibe import StoreVibeEngine
 
 # Stream Manager
@@ -91,7 +102,7 @@ class GlobalState:
     the match. This gives cross-camera tracking.
     """
     total_persons_tracked: int = 0
-    active_tracks: Dict[int, Dict[str, Any]] = field(default_factory=dict)  # global_id → info
+    active_tracks: Dict[str, Dict[str, Any]] = field(default_factory=dict)  # global_id (e.g. PERSON-00042) → info
     zone_occupancy: Dict[str, int] = field(default_factory=dict)  # zone → person count
     fire_alert_active: bool = False
     vibe_score: float = 0.0
@@ -152,6 +163,8 @@ class ProcessingPipeline:
         device: str = "auto",
         confidence: float = 0.5,
         processing_fps: int = 15,     # How many frames/sec to process per camera
+        reid_threshold: float = 0.6,
+        reid_embeddings_per_id: int = 5,
         enable_emotions: bool = True,
         enable_fire: bool = True,
         enable_shelf: bool = True,
@@ -167,18 +180,23 @@ class ProcessingPipeline:
         # --- AI Modules (shared across all cameras) ---
         logger.info("Initializing AI modules...")
 
+        self._detector_model = detector_model
         self.detector = PersonDetector(
             model_path=detector_model,
             confidence=confidence,
             device=device,
         )
-        self.tracker = MultiObjectTracker(
-            model_path=detector_model,
-        )
+        # Per-camera trackers: each feed has its own ByteTrack state (local track IDs per camera).
+        # Global identity across cameras is resolved by Re-ID, not by the tracker.
+        self._trackers: Dict[int, MultiObjectTracker] = {}
         self.reid = PersonReID(
             model_name=reid_model,
             device=device if device != "auto" else "cpu",
+            similarity_threshold=reid_threshold,
+            max_embeddings_per_id=reid_embeddings_per_id,
         )
+        # Temporal consistency: (camera_id, track_id) -> last global_id (avoids flicker when face not visible)
+        self._last_global_by_track: Dict[Tuple[int, int], str] = {}
 
         # Optional modules
         self._enable_emotions = enable_emotions
@@ -204,6 +222,23 @@ class ProcessingPipeline:
         self._jpeg_lock = threading.Lock()
         # Per-camera recording: camera_id -> (VideoWriter, output_path)
         self._recorders: Dict[int, tuple] = {}
+        # camera_id -> zone_name (set at add_camera, used by analytics snapshot)
+        self._camera_zones: Dict[int, str] = {}
+        # Detections counter — powers dashboard "total_detections_today"
+        self._total_detections: int = 0
+        # Last-computed store vibe dict, so routers can serve without recomputing
+        self._latest_vibe: Optional[Dict[str, Any]] = None
+        # Re-ID embeddings produced during the current tick — drained by persistence
+        # callback so they land in pgvector. Kept off reid_matches to keep the WS
+        # payload small (each vector is ~2 KB).
+        self._pending_embeddings: List[Dict[str, Any]] = []
+        self._pending_embeddings_lock = threading.Lock()
+        # First-seen timestamps per global_id so journey legs get a real entry_time
+        self._journey_leg_start: Dict[Tuple[str, int, str], float] = {}
+
+        # Lifecycle hooks: external observers (e.g. audit log writer) register
+        # callables that fire on pipeline events. Hooks are async-friendly.
+        self._lifecycle_hooks: List[Callable[[str, Dict[str, Any]], Any]] = []
 
         logger.info(f"Pipeline initialized | device={device} | modules: "
                      f"emotion={enable_emotions} fire={enable_fire} "
@@ -255,11 +290,25 @@ class ProcessingPipeline:
         )
         self.stream_manager.add_camera(config)
         self._frame_counts[camera_id] = 0
+        self._camera_zones[camera_id] = zone
+        # One tracker per camera so local track IDs are per-feed; Re-ID assigns global_id across cameras.
+        if camera_id not in self._trackers:
+            self._trackers[camera_id] = MultiObjectTracker(model_path=self._detector_model)
 
-        # Register zone in crowd density
-        self.crowd.configure_zone(zone, max_capacity=50)
+        # Register zone in crowd density (one zone per camera).
+        self.crowd.configure_zone(zone, camera_id=camera_id, max_capacity=50)
 
         logger.info(f"Camera {camera_id} added → zone: {zone}")
+        # Fire-and-forget: audit log this camera addition on the running loop
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(self._emit_lifecycle("camera_added", {
+                    "camera_id": camera_id, "source": source,
+                    "stream_type": stream_type, "zone": zone,
+                }))
+        except RuntimeError:
+            pass
 
     def remove_camera(self, camera_id: int):
         """Remove a camera from processing."""
@@ -267,6 +316,17 @@ class ProcessingPipeline:
         self.stream_manager.remove_camera(camera_id)
         self._frame_counts.pop(camera_id, None)
         self._results_buffer.pop(camera_id, None)
+        self._trackers.pop(camera_id, None)
+        zone = self._camera_zones.pop(camera_id, None)
+        self._last_global_by_track = {k: v for k, v in self._last_global_by_track.items() if k[0] != camera_id}
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(self._emit_lifecycle("camera_removed", {
+                    "camera_id": camera_id, "zone": zone,
+                }))
+        except RuntimeError:
+            pass
 
     def _stop_recording_impl(self, camera_id: int) -> Optional[str]:
         """Stop recording for a camera; return saved file path or None."""
@@ -318,6 +378,66 @@ class ProcessingPipeline:
             "recording": list(self._recorders.keys()),
         }
 
+    @staticmethod
+    def _detection_to_dict(det: Any, track_id: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Normalize a detection (BBox dataclass or dict) into the dict shape the
+        downstream analytics modules consume:
+          {bbox: [x, y, w, h], confidence, class_name, track_id}
+        """
+        if isinstance(det, BBox):
+            return {
+                "bbox": [float(det.x), float(det.y), float(det.w), float(det.h)],
+                "confidence": float(det.confidence),
+                "class_name": det.class_name,
+                "track_id": det.track_id if det.track_id is not None else track_id,
+            }
+        bbox = det.get("bbox") or det.get("box") or []
+        if len(bbox) < 4:
+            return {"bbox": [0.0, 0.0, 0.0, 0.0], "confidence": 0.0, "class_name": "person", "track_id": track_id}
+        return {
+            "bbox": [float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])],
+            "confidence": float(det.get("confidence", 0.0)),
+            "class_name": str(det.get("class_name", "person")),
+            "track_id": det.get("track_id", track_id),
+        }
+
+    @staticmethod
+    def _iou(box1: List[float], box2: List[float]) -> float:
+        """IoU for two boxes [x, y, w, h]. Returns 0 if no overlap."""
+        x1, y1, w1, h1 = box1[0], box1[1], box1[2], box1[3]
+        x2, y2, w2, h2 = box2[0], box2[1], box2[2], box2[3]
+        ax1, ay1 = x1, y1
+        ax2, ay2 = x1 + w1, y1 + h1
+        bx1, by1 = x2, y2
+        bx2, by2 = x2 + w2, y2 + h2
+        ix1 = max(ax1, bx1)
+        iy1 = max(ay1, by1)
+        ix2 = min(ax2, bx2)
+        iy2 = min(ay2, by2)
+        if ix2 <= ix1 or iy2 <= iy1:
+            return 0.0
+        inter = (ix2 - ix1) * (iy2 - iy1)
+        area_a = w1 * h1
+        area_b = w2 * h2
+        union = area_a + area_b - inter
+        return inter / union if union > 0 else 0.0
+
+    def _match_det_to_track(self, det_bbox: List[float], tracks: List[Any]) -> Optional[int]:
+        """Return track_id of the track with best IoU to this detection, or None."""
+        if not tracks:
+            return None
+        best_id, best_iou = None, 0.0
+        for t in tracks:
+            tid = getattr(t, "track_id", None)
+            tbox = getattr(t, "bbox", None)
+            if tid is None or tbox is None or len(tbox) < 4:
+                continue
+            iou = self._iou(det_bbox, tbox)
+            if iou > best_iou:
+                best_iou, best_id = iou, tid
+        return best_id if best_iou >= 0.3 else None
+
     # ─────────────────────────────────────────────────────────────
     # CALLBACKS (for WebSocket push, DB persistence, etc.)
     # ─────────────────────────────────────────────────────────────
@@ -335,6 +455,71 @@ class ProcessingPipeline:
           - Trigger alerts (fire, overcrowding)
         """
         self._callbacks.append(callback)
+
+    def warm_reid_gallery(self, gallery_rows: List[Dict[str, Any]]) -> int:
+        """
+        Pre-load the global Re-ID gallery with rows from pgvector (survives restart).
+        Each row: {"global_id": str, "vector": List[float]}.
+        Returns the number of embeddings loaded.
+        """
+        loaded = 0
+        for row in gallery_rows or []:
+            try:
+                gid = row.get("global_id")
+                vec = row.get("vector")
+                if not gid or not vec:
+                    continue
+                arr = np.asarray(vec, dtype=np.float32)
+                norm = np.linalg.norm(arr)
+                if norm > 0:
+                    arr = arr / norm
+                self.reid.add_to_gallery(gid, arr)
+                loaded += 1
+            except Exception:
+                continue
+        # Seed the global counter so new IDs don't collide with persisted ones
+        max_suffix = 0
+        for gid, _ in self.reid._gallery:
+            try:
+                if gid.startswith("PERSON-"):
+                    n = int(gid.split("-")[-1])
+                    if n > max_suffix:
+                        max_suffix = n
+            except Exception:
+                continue
+        if max_suffix >= self.global_state.total_persons_tracked:
+            self.global_state.total_persons_tracked = max_suffix + 1
+        logger.info(f"Re-ID gallery warmed: {loaded} embeddings, counter seeded at {self.global_state.total_persons_tracked}")
+        return loaded
+
+    def get_and_clear_pending_embeddings(self) -> List[Dict[str, Any]]:
+        """
+        Atomically drain the pending embeddings buffer.
+        Called by PersistencePipelineCallback to ship Re-ID embeddings to pgvector.
+        """
+        with self._pending_embeddings_lock:
+            drained = self._pending_embeddings
+            self._pending_embeddings = []
+        return drained
+
+    def record_journey_leg(self, global_id: str, camera_id: int, zone: str, started_at: float) -> None:
+        """Store the first-seen time for a (global_id, camera, zone) leg so persistence can compute dwell."""
+        key = (global_id, camera_id, zone)
+        self._journey_leg_start.setdefault(key, started_at)
+
+    def on_lifecycle(self, hook: Callable[[str, Dict[str, Any]], Any]):
+        """Subscribe to pipeline lifecycle events (start/stop/camera_added/camera_removed)."""
+        self._lifecycle_hooks.append(hook)
+
+    async def _emit_lifecycle(self, event: str, payload: Dict[str, Any]):
+        for hook in self._lifecycle_hooks:
+            try:
+                if asyncio.iscoroutinefunction(hook):
+                    await hook(event, payload)
+                else:
+                    hook(event, payload)
+            except Exception as e:
+                logger.debug(f"Lifecycle hook failed for {event}: {e}")
 
     # ─────────────────────────────────────────────────────────────
     # MAIN PROCESSING LOOP
@@ -359,6 +544,10 @@ class ProcessingPipeline:
         # Start main processing loop
         self.state = PipelineState.RUNNING
         self._processing_task = asyncio.create_task(self._processing_loop())
+        await self._emit_lifecycle("pipeline_started", {
+            "cameras": self.stream_manager.total_count,
+            "target_fps": self.processing_fps,
+        })
         logger.info("✅ Pipeline running — processing all cameras in sync")
 
     async def stop(self):
@@ -380,6 +569,10 @@ class ProcessingPipeline:
             self._stop_recording_impl(cid)
         self.stream_manager.stop_all()
         self.state = PipelineState.IDLE
+        await self._emit_lifecycle("pipeline_stopped", {
+            "total_persons_tracked": self.global_state.total_persons_tracked,
+            "total_detections": self._total_detections,
+        })
         logger.info("Pipeline stopped")
 
     async def _processing_loop(self):
@@ -455,148 +648,194 @@ class ProcessingPipeline:
             frame_num = self._frame_counts[cam_id]
 
             # Detect persons
-            detections = await asyncio.to_thread(
+            raw_detections = await asyncio.to_thread(
                 self.detector.detect, frame
             )
-            all_detections[cam_id] = detections
 
-            # Track persons (maintain IDs across frames for this camera)
-            tracks = await asyncio.to_thread(
-                self.tracker.update, frame
-            )
+            # Track persons (per-camera ByteTrack: local IDs for this feed only)
+            tracker = self._trackers.get(cam_id)
+            if tracker is None:
+                tracker = MultiObjectTracker(model_path=self._detector_model)
+                self._trackers[cam_id] = tracker
+            tracks = await asyncio.to_thread(tracker.update, frame)
             all_tracks[cam_id] = tracks
+
+            # Normalize detections → dicts; attach track_id via IoU match against tracks.
+            norm_dets: List[Dict[str, Any]] = []
+            for raw in raw_detections:
+                if isinstance(raw, BBox):
+                    bbox = [float(raw.x), float(raw.y), float(raw.w), float(raw.h)]
+                else:
+                    bbox = raw.get("bbox") or raw.get("box") or []
+                tid = self._match_det_to_track(bbox, tracks) if len(bbox) >= 4 else None
+                norm_dets.append(self._detection_to_dict(raw, track_id=tid))
+            all_detections[cam_id] = norm_dets
+            self._total_detections += len(norm_dets)
 
             results[cam_id] = CameraResult(
                 camera_id=cam_id,
                 timestamp=timestamp,
                 frame_number=frame_num,
-                detections=detections,
+                detections=norm_dets,
                 tracks=tracks,
             )
 
         # ── PHASE 2: Cross-Camera Re-ID (GLOBAL gallery) ──
-        # This is what makes multi-camera tracking work:
-        # Extract embeddings from each tracked person and match against
-        # the global gallery. If Person A from Cam 1 appears on Cam 2,
-        # their embedding will match and they get the same global ID.
+        # Body-based matching (works when face not visible). Multi-view: we store several
+        # embeddings per identity and use best similarity. Temporal consistency: same
+        # (camera, track) keeps same global_id to avoid flicker when pose changes.
+        # Each produced embedding is queued for pgvector persistence (drained by the
+        # PersistencePipelineCallback each tick).
+        new_embeddings: List[Dict[str, Any]] = []
         for cam_id, (frame, timestamp) in frames.items():
             for det in all_detections.get(cam_id, []):
                 try:
-                    bbox = det.get("bbox", det.get("box", []))
-                    if len(bbox) >= 4:
-                        x, y, w, h = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
-                        # Clamp to frame bounds
-                        x = max(0, x)
-                        y = max(0, y)
-                        crop = frame[y:y+h, x:x+w]
-                        if crop.size > 0:
-                            embedding = await asyncio.to_thread(
-                                self.reid.extract_embedding, crop
-                            )
-                            if embedding is not None:
-                                # Search global gallery for match
-                                matches = self.reid.search_gallery(
-                                    embedding, top_k=1, threshold=0.6
-                                )
-                                if matches:
-                                    global_id = matches[0]["id"]
-                                else:
-                                    # New person — add to gallery
-                                    global_id = f"PERSON-{self.global_state.total_persons_tracked:05d}"
-                                    self.reid.add_to_gallery(global_id, embedding)
-                                    self.global_state.total_persons_tracked += 1
-
-                                results[cam_id].reid_matches.append({
-                                    "global_id": global_id,
-                                    "camera_id": cam_id,
-                                    "bbox": bbox,
-                                    "timestamp": timestamp,
-                                })
+                    bbox = det.get("bbox") or []
+                    if len(bbox) < 4:
+                        continue
+                    x, y, w, h = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+                    x, y = max(0, x), max(0, y)
+                    crop = frame[y:y+h, x:x+w]
+                    if crop.size == 0:
+                        continue
+                    track_id = det.get("track_id")
+                    embedding = await asyncio.to_thread(
+                        self.reid.extract_embedding, crop
+                    )
+                    if embedding is None:
+                        continue
+                    key = (cam_id, track_id) if track_id is not None else None
+                    prev_global = self._last_global_by_track.get(key) if key else None
+                    matches = self.reid.search_gallery(
+                        embedding, top_k=1
+                    )
+                    if matches:
+                        global_id = matches[0]["id"]
+                        sim = matches[0].get("similarity", 0)
+                        # Store a different view (e.g. back/side) only when not already very similar
+                        if sim < 0.92:
+                            self.reid.add_embedding_to_id(global_id, embedding)
+                    elif prev_global and key:
+                        # Temporal consistency: same track on same camera keeps same id
+                        global_id = prev_global
+                    else:
+                        global_id = f"PERSON-{self.global_state.total_persons_tracked:05d}"
+                        self.reid.add_to_gallery(global_id, embedding)
+                        self.global_state.total_persons_tracked += 1
+                    if key:
+                        self._last_global_by_track[key] = global_id
+                    det["global_id"] = global_id
+                    results[cam_id].reid_matches.append({
+                        "global_id": global_id,
+                        "camera_id": cam_id,
+                        "track_id": track_id,
+                        "bbox": bbox,
+                        "timestamp": timestamp,
+                    })
+                    # Queue for pgvector persistence. Convert to list so we don't
+                    # carry numpy refs across the asyncio boundary.
+                    new_embeddings.append({
+                        "camera_id": cam_id,
+                        "track_id": track_id,
+                        "global_id": global_id,
+                        "embedding": [float(v) for v in embedding.tolist()],
+                        "confidence": float(det.get("confidence", 0.0)),
+                        "bbox": bbox,
+                        "timestamp": timestamp,
+                    })
                 except Exception as e:
                     logger.debug(f"Re-ID error cam {cam_id}: {e}")
+        if new_embeddings:
+            with self._pending_embeddings_lock:
+                self._pending_embeddings.extend(new_embeddings)
 
         # ── PHASE 3: Analytics (parallel across modules) ──
-        analytics_tasks = []
-
         for cam_id, (frame, timestamp) in frames.items():
             dets = all_detections.get(cam_id, [])
-            
-            # Crowd density
+            zone = self._camera_zones.get(cam_id, "default")
+
+            # Crowd density (always on; cheap)
             try:
                 crowd_status = self.crowd.update(cam_id, dets)
                 results[cam_id].crowd_status = crowd_status
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Crowd update error cam {cam_id}: {e}")
 
             # Fire detection (safety-first — always runs)
             if self._enable_fire and self.fire_detector:
                 try:
                     fire_results = await asyncio.to_thread(
-                        self.fire_detector.detect, frame
+                        self.fire_detector.detect, frame, cam_id, zone
                     )
                     results[cam_id].fire_alerts = fire_results
                     if fire_results:
                         self.global_state.fire_alert_active = True
-                        logger.warning(f"🔥 FIRE/SMOKE ALERT on Camera {cam_id}!")
-                except Exception:
-                    pass
+                        logger.warning(f"FIRE/SMOKE ALERT on Camera {cam_id}!")
+                except Exception as e:
+                    logger.debug(f"Fire detect error cam {cam_id}: {e}")
 
-            # Emotion recognition
+            # Emotion recognition — returns a single summary dict per frame.
             if self._enable_emotions and self.emotion:
                 try:
-                    emotion_data = await asyncio.to_thread(
-                        self.emotion.analyze_frame, frame
+                    summary = await asyncio.to_thread(
+                        self.emotion.analyze_frame_summary, frame, cam_id, zone
                     )
-                    results[cam_id].emotions = emotion_data
-                except Exception:
-                    pass
+                    results[cam_id].emotions = summary
+                except Exception as e:
+                    logger.debug(f"Emotion analyze error cam {cam_id}: {e}")
 
-            # Shelf analytics
+            # Shelf analytics (tracks = normalized detections with track_id).
             if self._enable_shelf and self.shelf_tracker:
                 try:
                     shelf_data = self.shelf_tracker.update(cam_id, dets, timestamp)
                     results[cam_id].shelf_data = shelf_data
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Shelf update error cam {cam_id}: {e}")
 
             # Checkout analytics
             if self._enable_checkout and self.checkout:
                 try:
                     checkout_data = self.checkout.update(cam_id, dets, timestamp)
                     results[cam_id].checkout_data = checkout_data
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Checkout update error cam {cam_id}: {e}")
 
         # ── PHASE 4: Store Vibe Score (aggregate everything) ──
         try:
-            # Gather metrics from all cameras
             total_people = sum(len(d) for d in all_detections.values())
-            avg_sentiment = 0.0
             sentiment_samples = 0
-            total_engagement = 0.0
+            avg_sentiment = 0.0
+            engagement_accum = 0.0
+            engagement_samples = 0
 
             for r in results.values():
                 if r.emotions and isinstance(r.emotions, dict):
-                    sent = r.emotions.get("sentiment_score", 0)
-                    if sent:
+                    samples = r.emotions.get("sample_count", 0)
+                    sent = r.emotions.get("sentiment_score", 0.0)
+                    if samples:
                         avg_sentiment += sent
                         sentiment_samples += 1
                 if r.shelf_data and isinstance(r.shelf_data, dict):
-                    total_engagement += r.shelf_data.get("engagement_score", 0)
+                    eng = r.shelf_data.get("engagement_score", 0)
+                    if eng:
+                        engagement_accum += eng
+                        engagement_samples += 1
 
             if sentiment_samples > 0:
                 avg_sentiment /= sentiment_samples
+            avg_engagement = engagement_accum / max(engagement_samples, 1)
 
             vibe = self.vibe_engine.calculate(
                 sentiment_score=avg_sentiment,
                 crowd_count=total_people,
-                max_capacity=200,
-                engagement_score=total_engagement / max(len(results), 1),
+                max_capacity=self._total_capacity(),
+                engagement_score=avg_engagement,
                 foot_traffic=total_people,
             )
             self.global_state.vibe_score = vibe.get("overall_score", 0)
-        except Exception:
-            pass
+            self._latest_vibe = vibe
+        except Exception as e:
+            logger.debug(f"Vibe calc error: {e}")
 
         # ── PHASE 5: Update global state ──
         self.global_state.last_updated = time.time()
@@ -717,7 +956,7 @@ class ProcessingPipeline:
             },
             "ai_modules": {
                 "detector": "loaded" if self.detector.model else "mock",
-                "tracker": "loaded" if self.tracker.model else "fallback",
+                "tracker": "loaded" if (self._trackers and next(iter(self._trackers.values())).model) else "fallback" if self._trackers else "no cameras",
                 "reid": "loaded" if self.reid.model else "mock",
                 "emotion": "enabled" if self._enable_emotions else "disabled",
                 "fire": "enabled" if self._enable_fire else "disabled",
@@ -743,3 +982,115 @@ class ProcessingPipeline:
         if camera_id:
             return self._results_buffer.get(camera_id)
         return self._results_buffer
+
+    def _total_capacity(self) -> int:
+        """Sum of per-zone max_capacity for all registered zones (>=1)."""
+        if not getattr(self.crowd, "zones", None):
+            return 200
+        total = sum(getattr(z, "max_capacity", 50) for z in self.crowd.zones)
+        return max(total, 1)
+
+    # ─────────────────────────────────────────────────────────────
+    # ANALYTICS SNAPSHOTS (for REST routers)
+    # ─────────────────────────────────────────────────────────────
+
+    def get_analytics_snapshot(self) -> Dict[str, Any]:
+        """
+        Unified snapshot used by the analytics routers and dashboard overview.
+        Built purely from the latest per-camera CameraResult buffer so it's
+        O(cameras) and doesn't re-run any AI.
+        """
+        crowd_zones: List[Dict[str, Any]] = []
+        fire_alerts: List[Dict[str, Any]] = []
+        emotions_per_zone: List[Dict[str, Any]] = []
+        shelf_per_camera: List[Dict[str, Any]] = []
+        checkout_lanes: List[Dict[str, Any]] = []
+        total_detections_snapshot = 0
+
+        for cam_id, r in self._results_buffer.items():
+            total_detections_snapshot += len(r.detections or [])
+            if r.crowd_status:
+                crowd_zones.append(r.crowd_status)
+            if r.fire_alerts:
+                fire_alerts.extend(r.fire_alerts)
+            if r.emotions and isinstance(r.emotions, dict) and r.emotions.get("sample_count"):
+                emotions_per_zone.append(r.emotions)
+            if r.shelf_data and isinstance(r.shelf_data, dict):
+                shelf_per_camera.append(r.shelf_data)
+            if r.checkout_data and isinstance(r.checkout_data, dict):
+                lanes = r.checkout_data.get("lanes") or []
+                checkout_lanes.extend(lanes)
+
+        # Sentiment aggregate across all zones
+        total_sentiment_samples = sum(e.get("sample_count", 0) for e in emotions_per_zone)
+        weighted_sentiment = sum(
+            e.get("sentiment_score", 0) * e.get("sample_count", 0) for e in emotions_per_zone
+        )
+        overall_sentiment = (
+            weighted_sentiment / total_sentiment_samples if total_sentiment_samples else 0.0
+        )
+
+        # Shelf rankings pulled live from the analytics module
+        shelf_rankings = (
+            self.shelf_tracker.get_zone_rankings() if self.shelf_tracker else []
+        )
+
+        # Fire alert history — last 50
+        fire_history = (
+            self.fire_detector.get_alert_history(limit=50)
+            if self.fire_detector else []
+        )
+
+        current_vibe = self._latest_vibe or self.vibe_engine.get_current() or {
+            "overall_score": 0.0,
+            "sentiment_score": 0.0,
+            "energy_score": 0.0,
+            "engagement_score": 0.0,
+            "foot_traffic_score": 0.0,
+            "vibe_label": "Quiet",
+        }
+
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "cameras": {
+                "total": self.stream_manager.total_count,
+                "active": self.stream_manager.active_count,
+                "zones": dict(self._camera_zones),
+            },
+            "detections": {
+                "active_frame": total_detections_snapshot,
+                "total_processed": self._total_detections,
+                "frames_processed": int(sum(self._frame_counts.values())),
+                "frame_counts_by_camera": dict(self._frame_counts),
+            },
+            "crowd": {
+                "zones": crowd_zones,
+                "total_occupancy": sum(z.get("person_count", 0) for z in crowd_zones),
+                "critical_zones": [
+                    z for z in crowd_zones if z.get("classification") == "critical"
+                ],
+            },
+            "fire": {
+                "active_alerts": fire_alerts,
+                "history": fire_history,
+                "active": bool(fire_alerts),
+            },
+            "emotions": {
+                "per_zone": emotions_per_zone,
+                "overall_sentiment": round(overall_sentiment, 3),
+                "samples": total_sentiment_samples,
+            },
+            "shelf": {
+                "rankings": shelf_rankings,
+                "per_camera": shelf_per_camera,
+            },
+            "checkout": {
+                "lanes": checkout_lanes,
+                "summary": self.checkout.get_summary() if self.checkout else {},
+            },
+            "vibe": current_vibe,
+            "reid": {
+                "total_persons_tracked": self.global_state.total_persons_tracked,
+                "active_tracks": len(self.global_state.active_tracks),
+            },
+        }

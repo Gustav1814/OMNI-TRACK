@@ -1,98 +1,135 @@
 /**
- * OmniTrack AI — Checkout Analytics Page
+ * OmniTrack AI — Checkout (live)
+ * Polls /api/checkout/metrics and /api/checkout/summary.
  */
+
 import React from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend } from 'recharts';
-import { ShoppingCart, Clock, TrendingUp, Users } from 'lucide-react';
-
-const lanes = [
-    { id: 'Lane 1', queue: 3, serviceTime: 142, throughput: 38, wait: 285, status: 'active' },
-    { id: 'Lane 2', queue: 5, serviceTime: 180, throughput: 32, wait: 420, status: 'active' },
-    { id: 'Lane 3', queue: 7, serviceTime: 156, throughput: 28, wait: 588, status: 'busy' },
-    { id: 'Lane 4', queue: 2, serviceTime: 128, throughput: 42, wait: 168, status: 'active' },
-    { id: 'Lane 5', queue: 0, serviceTime: 0, throughput: 0, wait: 0, status: 'closed' },
-    { id: 'Lane 6', queue: 4, serviceTime: 165, throughput: 35, wait: 330, status: 'active' },
-];
-
-const throughputTrend = Array.from({ length: 13 }, (_, i) => ({
-    hour: `${i + 9}:00`,
-    throughput: Math.floor(20 + Math.random() * 25 + (i > 4 && i < 9 ? 15 : 0)),
-    waitTime: Math.floor(2 + Math.random() * 6 + (i > 4 && i < 9 ? 3 : 0)),
-}));
-
-const tooltipStyle = { contentStyle: { background: '#1e293b', border: '1px solid rgba(148,163,184,0.15)', borderRadius: '8px', fontSize: '12px', color: '#f1f5f9' } };
-const formatTime = (s) => `${Math.floor(s / 60)}m ${s % 60}s`;
+import { motion } from 'framer-motion';
+import { ShoppingCart, Clock, TrendingUp } from 'lucide-react';
+import {
+    BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, Cell,
+} from 'recharts';
+import { checkoutAPI } from '../services/api';
+import useLivePoll from '../hooks/useLivePoll';
 
 export default function CheckoutPage() {
+    const { data: metrics } = useLivePoll(() => checkoutAPI.metrics(), { intervalMs: 4000 });
+    const { data: summary } = useLivePoll(() => checkoutAPI.summary(), { intervalMs: 10000 });
+
+    const lanes = Array.isArray(metrics) ? metrics : [];
+    const chartData = lanes.map((l) => ({
+        name: l.lane_id,
+        queue: l.queue_length,
+        wait: l.current_wait_estimate,
+    }));
+
+    const totalQueue = lanes.reduce((a, l) => a + (l.queue_length || 0), 0);
+    const avgWait = lanes.length
+        ? lanes.reduce((a, l) => a + (l.current_wait_estimate || 0), 0) / lanes.length
+        : 0;
+    const avgService = lanes.length
+        ? lanes.reduce((a, l) => a + (l.avg_service_time || 0), 0) / lanes.length
+        : 0;
+    const throughput = lanes.reduce((a, l) => a + (l.throughput || 0), 0);
+
     return (
-        <div>
+        <div className="page-scroll">
             <div className="page-header">
-                <h2 className="page-title">Checkout Analytics</h2>
-                <p className="page-description">Queue monitoring, service time analysis & throughput optimization</p>
+                <div>
+                    <h1 className="page-title">Checkout Analytics</h1>
+                    <p className="page-subtitle">Queue lengths, wait times, service times, throughput</p>
+                </div>
             </div>
 
-            <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-                {[
-                    { label: 'Active Lanes', value: '5 / 6', icon: ShoppingCart, color: '#6366f1' },
-                    { label: 'Avg Wait', value: '2m 58s', icon: Clock, color: '#f59e0b' },
-                    { label: 'Served Today', value: '387', icon: Users, color: '#10b981' },
-                    { label: 'Avg Throughput', value: '35/hr', icon: TrendingUp, color: '#06b6d4' },
-                ].map((s, i) => {
-                    const Icon = s.icon;
-                    return (
-                        <div key={i} className="stat-card animate-in">
-                            <div className="stat-card-header">
-                                <span className="stat-card-label">{s.label}</span>
-                                <div className="stat-card-icon" style={{ background: `${s.color}15`, color: s.color }}><Icon size={16} /></div>
-                            </div>
-                            <div className="stat-card-value">{s.value}</div>
-                        </div>
-                    );
-                })}
+            <div className="stats-grid">
+                <Stat icon={ShoppingCart} label="Total in Queue" value={totalQueue} accent="indigo" />
+                <Stat icon={Clock} label="Avg Wait" value={avgWait.toFixed(1)} suffix="s" accent="amber" />
+                <Stat icon={Clock} label="Avg Service Time" value={avgService.toFixed(1)} suffix="s" accent="cyan" />
+                <Stat icon={TrendingUp} label="Throughput" value={Math.round(throughput)} suffix=" /hr" accent="emerald" />
             </div>
 
-            <div className="two-col">
-                <div className="card animate-in">
-                    <div className="card-header"><span className="card-title">Lane Status</span></div>
-                    <div className="card-body">
-                        <table className="data-table">
-                            <thead><tr><th>Lane</th><th>Queue</th><th>Avg Service</th><th>Throughput</th><th>Est. Wait</th><th>Status</th></tr></thead>
-                            <tbody>
-                                {lanes.map((l) => (
-                                    <tr key={l.id}>
-                                        <td style={{ fontWeight: 600 }}>{l.id}</td>
-                                        <td>{l.queue} people</td>
-                                        <td>{l.serviceTime ? formatTime(l.serviceTime) : '—'}</td>
-                                        <td>{l.throughput ? `${l.throughput}/hr` : '—'}</td>
-                                        <td>{l.wait ? formatTime(l.wait) : '—'}</td>
-                                        <td>
-                                            <span className={`badge ${l.status === 'active' ? 'badge-success' : l.status === 'busy' ? 'badge-warning' : 'badge-neutral'}`}>
-                                                {l.status}
-                                            </span>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+            <div className="card">
+                <div className="card-header">
+                    <h3 className="card-title">Per-Lane Queue Length</h3>
+                    <div className="card-subtitle">Updates every 4s</div>
+                </div>
+                {chartData.length === 0 ? (
+                    <div className="page-empty-hint">
+                        No checkout lanes configured. Add cameras with checkout zones to see live metrics.
                     </div>
-                </div>
+                ) : (
+                    <div style={{ height: 300 }}>
+                        <ResponsiveContainer>
+                            <BarChart data={chartData}>
+                                <CartesianGrid stroke="rgba(255,255,255,0.05)" />
+                                <XAxis dataKey="name" stroke="#71717a" fontSize={11} />
+                                <YAxis stroke="#71717a" fontSize={11} />
+                                <Tooltip contentStyle={{ background: '#111', border: '1px solid #222' }} />
+                                <Bar dataKey="queue" radius={[6, 6, 0, 0]} fill="#6366f1">
+                                    {chartData.map((_, i) => <Cell key={i} fill="#6366f1" />)}
+                                </Bar>
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                )}
+            </div>
 
-                <div className="chart-card animate-in">
-                    <div className="chart-card-title">Throughput & Wait Time Trend</div>
-                    <ResponsiveContainer width="100%" height={300}>
-                        <LineChart data={throughputTrend}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
-                            <XAxis dataKey="hour" tick={{ fontSize: 11, fill: '#64748b' }} />
-                            <YAxis yAxisId="left" tick={{ fontSize: 11, fill: '#64748b' }} />
-                            <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: '#64748b' }} />
-                            <Tooltip {...tooltipStyle} />
-                            <Legend wrapperStyle={{ fontSize: 11 }} />
-                            <Line yAxisId="left" type="monotone" dataKey="throughput" stroke="#6366f1" strokeWidth={2} dot={false} name="Throughput/hr" />
-                            <Line yAxisId="right" type="monotone" dataKey="waitTime" stroke="#f59e0b" strokeWidth={2} dot={false} name="Wait (min)" />
-                        </LineChart>
-                    </ResponsiveContainer>
+            <div className="card" style={{ marginTop: 18 }}>
+                <div className="card-header">
+                    <h3 className="card-title">Lanes</h3>
+                </div>
+                <div style={{ display: 'grid', gap: 6 }}>
+                    {lanes.map((l) => (
+                        <div key={l.lane_id} style={{
+                            display: 'grid',
+                            gridTemplateColumns: '1fr repeat(4, 120px)',
+                            gap: 10, alignItems: 'center',
+                            padding: '10px 12px',
+                            background: 'var(--bg-glass)',
+                            border: '1px solid var(--border)', borderRadius: 10,
+                        }}>
+                            <div>
+                                <div style={{ fontWeight: 600 }}>Lane {l.lane_id}</div>
+                                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>cam {l.camera_id}</div>
+                            </div>
+                            <Cell2 label="Queue" value={l.queue_length} />
+                            <Cell2 label="Wait" value={`${(l.current_wait_estimate || 0).toFixed(0)}s`} />
+                            <Cell2 label="Service" value={`${(l.avg_service_time || 0).toFixed(0)}s`} />
+                            <Cell2 label="Throughput" value={`${Math.round(l.throughput || 0)}/hr`} />
+                        </div>
+                    ))}
                 </div>
             </div>
+
+            {summary && (
+                <div className="card" style={{ marginTop: 18 }}>
+                    <div className="card-header">
+                        <h3 className="card-title">Summary</h3>
+                    </div>
+                    <pre style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                        {JSON.stringify(summary, null, 2)}
+                    </pre>
+                </div>
+            )}
+        </div>
+    );
+}
+
+function Stat({ icon: Icon, label, value, suffix = '', accent = 'indigo' }) {
+    return (
+        <motion.div className="stat-card" whileHover={{ y: -2 }}>
+            <div className={`stat-icon stat-icon-${accent}`}><Icon size={18} /></div>
+            <div className="stat-label">{label}</div>
+            <div className="stat-value">{value}{suffix}</div>
+        </motion.div>
+    );
+}
+
+function Cell2({ label, value }) {
+    return (
+        <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{label}</div>
+            <div style={{ fontSize: 14, fontWeight: 600 }}>{value}</div>
         </div>
     );
 }

@@ -2,20 +2,66 @@
 OmniTrack AI — Detection Router
 Start/stop detection, get results — wired to the multi-camera processing pipeline.
 Adding a camera and starting detection runs YOLO + ByteTrack on that feed; results come from the pipeline.
-For prototype: use source="footage:filename.mp4" to run CV on stored/downloaded CCTV as a live camera.
+
+Local playback (FYP / no live cameras):
+  - Use source="footage:filename.mp4" to run on clips in storage/footage (uploaded or recorded).
+  - Or pass a full path to a .mp4/.avi file and stream_type="file".
 """
 
 import os
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from app.models.user import User
 from app.security.dependencies import get_current_user
 from app.schemas.schemas import DetectionResult, DetectionFrame
 from app.config import settings
 
 router = APIRouter(prefix="/api/detection", tags=["Detection"])
+
+FOOTAGE_DIR = Path(settings.FOOTAGE_DIR)
+VIDEO_EXTENSIONS = {".mp4", ".avi", ".mkv", ".webm", ".mov"}
+
+
+def _resolve_source(source: str, stream_type: str) -> Tuple[str, str]:
+    """
+    Resolve source and stream_type for pipeline.
+    - footage:filename.mp4 → absolute path under FOOTAGE_DIR, stream_type=file
+    - Relative path with stream_type=file → under FOOTAGE_DIR if present
+    - "0" or numeric string with webcam → keep for OpenCV device index
+    """
+    source = (source or "").strip()
+    stream_type = (stream_type or "rtsp").lower()
+
+    if source.startswith("footage:"):
+        name = source.replace("footage:", "", 1).strip().lstrip("/")
+        if not name:
+            raise HTTPException(status_code=400, detail="footage: requires a filename (e.g. footage:clip.mp4)")
+        resolved = FOOTAGE_DIR / name
+        if not resolved.is_file():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Footage file not found: {name}. Upload it via Dashboard → Stored CCTV Footage or use /api/footage/upload.",
+            )
+        return str(resolved.resolve()), "file"
+
+    if stream_type == "file":
+        p = Path(source)
+        if not p.is_absolute():
+            # Try under FOOTAGE_DIR for relative paths
+            under_footage = FOOTAGE_DIR / source
+            if under_footage.is_file():
+                return str(under_footage.resolve()), "file"
+        if p.is_file():
+            return str(p.resolve()), "file"
+        # Let pipeline/OpenCV fail with a clear error if path invalid
+        return source, "file"
+
+    if stream_type == "webcam" and (source == "0" or (source.isdigit() and 0 <= int(source) <= 32)):
+        return source, "webcam"
+
+    return source, stream_type
 
 
 def get_pipeline(request: Request):

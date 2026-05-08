@@ -20,7 +20,11 @@ WHAT YOU NEED RUNNING:
 """
 
 import asyncio
+import logging
+import os
+import warnings
 from contextlib import asynccontextmanager
+from pathlib import Path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -28,6 +32,21 @@ from loguru import logger
 import sys
 import time
 from datetime import datetime, timezone
+
+# Reduce verbose third-party startup noise (TensorFlow / torchreid warnings).
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")
+warnings.filterwarnings(
+    "ignore",
+    message="Cython evaluation .* unavailable.*",
+    category=UserWarning,
+)
+warnings.filterwarnings(
+    "ignore",
+    message=".*sparse_softmax_cross_entropy is deprecated.*",
+    category=UserWarning,
+)
+logging.getLogger("tensorflow").setLevel(logging.ERROR)
 
 # Database
 from sqlalchemy import text
@@ -45,6 +64,7 @@ from app.services.cache import RedisCache
 from app.services.broadcast import BroadcastService
 from app.services.pipeline import ProcessingPipeline
 from app.services.export import ExportService
+from app.services.persistence import PersistencePipelineCallback
 
 # Routers
 from app.routers import auth, cameras, detection, reid, footage
@@ -78,9 +98,22 @@ cache = RedisCache(settings.REDIS_URL)
 broadcast = BroadcastService()
 pipeline = ProcessingPipeline(
     detector_model=settings.YOLO_MODEL,
+    reid_model=settings.REID_MODEL,
+    fire_model=getattr(settings, "FIRE_MODEL_PATH", settings.FIRE_MODEL),
     confidence=settings.DETECTION_CONFIDENCE,
     device=settings.DEVICE,
     processing_fps=settings.PROCESSING_FPS,
+    reid_threshold=getattr(settings, "REID_SIMILARITY_THRESHOLD", 0.6),
+    reid_embeddings_per_id=getattr(settings, "REID_EMBEDDINGS_PER_ID", 5),
+)
+
+# Persistence callback — bridges every pipeline tick into PostgreSQL + pgvector
+# + AES-256 / SHA-256 audit chain. This is what makes the backend PRODUCTION
+# instead of simulation: detections, embeddings, foot traffic, vibe scores,
+# journey legs, and fire alerts all flow into the database here.
+persistence_callback = PersistencePipelineCallback(
+    pipeline=pipeline,
+    model_version=getattr(settings, "REID_MODEL", "osnet_x1_0"),
 )
 
 
@@ -126,12 +159,34 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("⚠️  Redis unavailable — using in-memory fallback")
 
+    # 2b. Ensure storage dirs (local playback & exports)
+    for d in [Path(settings.FOOTAGE_DIR), Path(settings.EXPORT_DIR)]:
+        d.mkdir(parents=True, exist_ok=True)
+        logger.info(f"✅ Storage dir ready: {d.resolve()}")
+
     # 3. AI models are loaded lazily (on first use) to speed up startup
+
+    # 3b. Warm Re-ID gallery from pgvector so cross-camera matching is
+    #     warm across restarts (no cold-start false "new person" spikes).
+    try:
+        restored = await persistence_callback.warm_reid_gallery_from_db(
+            max_rows=getattr(settings, "REID_GALLERY_WARM_LIMIT", 2000)
+        )
+        if restored:
+            logger.info(f"✅ Restored {restored} Re-ID embeddings from pgvector")
+    except Exception as e:
+        logger.warning(f"⚠️  Re-ID gallery warm-up skipped: {e}")
+
+    # 3c. Register persistence + lifecycle hooks so pipeline ticks
+    #     (and camera/state transitions) are written to the DB.
+    pipeline.on_results(persistence_callback)
+    pipeline.on_lifecycle(persistence_callback.on_lifecycle)
 
     # 4. Store references for dependency injection
     app.state.cache = cache
     app.state.broadcast = broadcast
     app.state.pipeline = pipeline
+    app.state.persistence = persistence_callback
 
     elapsed = time.time() - startup_time
     logger.info(f"✅ OmniTrack AI ready in {elapsed:.2f}s")
@@ -220,8 +275,36 @@ app.include_router(dashboard_router)
 async def security_robustness():
     """
     Adversarial robustness status (proposal: ART, FGSM, PGD, documented resilience).
+    Returns art_available, last_eval, and install hint. Run POST /api/security/robustness/run to execute eval.
     """
     return get_robustness_status()
+
+
+@app.post("/api/security/robustness/run", tags=["System"])
+async def security_robustness_run(
+    sample_size: int = 4,
+    eps_fgsm: float = 0.03,
+    eps_pgd: float = 0.03,
+    pgd_steps: int = 5,
+    image_dir: str | None = None,
+):
+    """
+    Run adversarial robustness evaluation (FGSM, PGD) via ART.
+    Requires: pip install adversarial-robustness-toolbox[torch]
+
+    If `image_dir` is provided, sample real images from that folder;
+    otherwise uses the configured `FOOTAGE_DIR`, or random noise as a last resort.
+    Returns YOLO person-detection counts before/after attacks.
+    """
+    from app.security.adversarial_eval import run_detector_robustness_eval
+    result = run_detector_robustness_eval(
+        sample_size=sample_size,
+        eps_fgsm=eps_fgsm,
+        eps_pgd=eps_pgd,
+        pgd_steps=pgd_steps,
+        image_dir=image_dir,
+    )
+    return result
 
 
 @app.get("/api/health", tags=["System"])

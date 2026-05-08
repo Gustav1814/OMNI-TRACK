@@ -1,52 +1,101 @@
 /**
  * OmniTrack AI — API Service Layer
- * Centralized API client with JWT auth interceptors
+ * Centralized Axios client covering EVERY backend endpoint + WebSocket helpers.
+ *
+ * Token storage keys:
+ *   omnitrack_token          → access JWT (added to every /api/* request)
+ *   omnitrack_refresh_token  → refresh JWT
+ *   omnitrack_user           → last /auth/me payload (cached for UI)
  */
 
 import axios from 'axios';
 
-const API_BASE = '/api';
+export const API_BASE = '/api';
 
 const api = axios.create({
     baseURL: API_BASE,
-    timeout: 15000,
+    timeout: 20000,
     headers: { 'Content-Type': 'application/json' },
 });
 
-// Request interceptor: attach JWT
+// ────────────────────────────────────────────────────────────────
+// Token helpers
+// ────────────────────────────────────────────────────────────────
+
+export const tokenStore = {
+    get: () => localStorage.getItem('omnitrack_token') || '',
+    getRefresh: () => localStorage.getItem('omnitrack_refresh_token') || '',
+    set: (access, refresh) => {
+        if (access) localStorage.setItem('omnitrack_token', access);
+        if (refresh) localStorage.setItem('omnitrack_refresh_token', refresh);
+    },
+    clear: () => {
+        localStorage.removeItem('omnitrack_token');
+        localStorage.removeItem('omnitrack_refresh_token');
+        localStorage.removeItem('omnitrack_user');
+    },
+    setUser: (user) => localStorage.setItem('omnitrack_user', JSON.stringify(user || {})),
+    getUser: () => {
+        try { return JSON.parse(localStorage.getItem('omnitrack_user') || 'null'); }
+        catch { return null; }
+    },
+};
+
+// ────────────────────────────────────────────────────────────────
+// Interceptors (JWT attach + 401 bounce)
+// ────────────────────────────────────────────────────────────────
+
 api.interceptors.request.use((config) => {
-    const token = localStorage.getItem('omnitrack_token');
-    if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-    }
+    const token = tokenStore.get();
+    if (token) config.headers.Authorization = `Bearer ${token}`;
     return config;
 });
 
-// Response interceptor: handle 401
 api.interceptors.response.use(
     (res) => res,
     (err) => {
         if (err.response?.status === 401) {
-            localStorage.removeItem('omnitrack_token');
-            window.location.href = '/login';
+            const onLogin = window.location.pathname === '/login';
+            tokenStore.clear();
+            if (!onLogin) window.location.href = '/login';
         }
         return Promise.reject(err);
     }
 );
 
-// --- Auth ---
+// ────────────────────────────────────────────────────────────────
+// Auth
+// ────────────────────────────────────────────────────────────────
+
 export const authAPI = {
-    login: (data) => api.post('/auth/login', data),
+    login: (username, password) => api.post('/auth/login', { username, password }),
     register: (data) => api.post('/auth/register', data),
+    refresh: (refreshToken) => api.post('/auth/refresh', { refresh_token: refreshToken }),
     me: () => api.get('/auth/me'),
 };
 
-// --- Dashboard ---
+// ────────────────────────────────────────────────────────────────
+// System
+// ────────────────────────────────────────────────────────────────
+
+export const systemAPI = {
+    health: () => api.get('/health'),
+    robustness: () => api.get('/security/robustness'),
+    runRobustness: (params = {}) => api.post('/security/robustness/run', null, { params }),
+};
+
+// ────────────────────────────────────────────────────────────────
+// Dashboard
+// ────────────────────────────────────────────────────────────────
+
 export const dashboardAPI = {
     overview: () => api.get('/dashboard/overview'),
 };
 
-// --- Cameras ---
+// ────────────────────────────────────────────────────────────────
+// Cameras
+// ────────────────────────────────────────────────────────────────
+
 export const camerasAPI = {
     list: () => api.get('/cameras/'),
     get: (id) => api.get(`/cameras/${id}`),
@@ -55,10 +104,13 @@ export const camerasAPI = {
     delete: (id) => api.delete(`/cameras/${id}`),
 };
 
-// --- Detection (wired to pipeline: real YOLO + ByteTrack on camera feeds) ---
+// ────────────────────────────────────────────────────────────────
+// Detection (per-camera stream + recording)
+// ────────────────────────────────────────────────────────────────
+
 export const detectionAPI = {
-    start: (cameraId, params = {}) =>
-        api.post(`/detection/start/${cameraId}`, null, { params: { source: params.source ?? '0', stream_type: params.stream_type ?? 'webcam', zone: params.zone ?? 'default' } }),
+    start: (cameraId, { source = '0', stream_type = 'webcam', zone = 'default' } = {}) =>
+        api.post(`/detection/start/${cameraId}`, null, { params: { source, stream_type, zone } }),
     stop: (cameraId) => api.post(`/detection/stop/${cameraId}`),
     status: () => api.get('/detection/status'),
     results: (cameraId) => api.get(`/detection/results/${cameraId}`),
@@ -67,28 +119,49 @@ export const detectionAPI = {
     recordingStatus: () => api.get('/detection/recording/status'),
 };
 
-// --- Pipeline (multi-camera processing: add cameras, start/stop, real results) ---
+// ────────────────────────────────────────────────────────────────
+// Pipeline
+// ────────────────────────────────────────────────────────────────
+
 export const pipelineAPI = {
     status: () => api.get('/pipeline/status'),
     start: () => api.post('/pipeline/start'),
     stop: () => api.post('/pipeline/stop'),
-    addCamera: (cameraId, source, streamType = 'webcam', zone = 'default') =>
-        api.post('/pipeline/cameras/add', null, { params: { camera_id: cameraId, source, stream_type: streamType, zone } }),
-    results: (cameraId) => api.get('/pipeline/results', { params: cameraId != null ? { camera_id: cameraId } : {} }),
+    addCamera: (cameraId, source, streamType = 'webcam', zone = 'default', fps = 30, skipFrames = 1) =>
+        api.post('/pipeline/cameras/add', null, {
+            params: { camera_id: cameraId, source, stream_type: streamType, zone, fps, skip_frames: skipFrames },
+        }),
+    results: (cameraId) => api.get('/pipeline/results', {
+        params: cameraId != null ? { camera_id: cameraId } : {},
+    }),
 };
 
-// --- Re-ID ---
+// ────────────────────────────────────────────────────────────────
+// Re-Identification
+// ────────────────────────────────────────────────────────────────
+
 export const reidAPI = {
     search: (data) => api.post('/reid/search', data),
     journey: (globalId) => api.get(`/reid/journey/${globalId}`),
     active: () => api.get('/reid/active'),
 };
 
-// --- Analytics ---
+// ────────────────────────────────────────────────────────────────
+// Video Synopsis
+// ────────────────────────────────────────────────────────────────
+
 export const synopsisAPI = {
     list: () => api.get('/synopsis/'),
-    generate: (cameraId) => api.post(`/synopsis/generate?camera_id=${cameraId}`),
+    generate: (cameraId, { source, compression = 10.0, hours = 1 } = {}) =>
+        api.post('/synopsis/generate', null, {
+            params: { camera_id: cameraId, hours, compression, ...(source ? { source } : {}) },
+        }),
+    job: (jobId) => api.get(`/synopsis/jobs/${jobId}`),
 };
+
+// ────────────────────────────────────────────────────────────────
+// Analytics
+// ────────────────────────────────────────────────────────────────
 
 export const shelfAPI = {
     engagement: () => api.get('/shelf/engagement'),
@@ -102,7 +175,7 @@ export const fireAPI = {
 
 export const crowdAPI = {
     status: () => api.get('/crowd/status'),
-    history: (zone) => api.get(`/crowd/history/${zone}`),
+    history: (zone) => api.get(`/crowd/history/${encodeURIComponent(zone)}`),
 };
 
 export const checkoutAPI = {
@@ -116,26 +189,31 @@ export const emotionAPI = {
 };
 
 export const auditAPI = {
-    logs: () => api.get('/audit/logs'),
+    logs: (limit = 50) => api.get('/audit/logs', { params: { limit } }),
     verify: () => api.get('/audit/verify'),
 };
 
 export const vibeAPI = {
     current: () => api.get('/vibe/current'),
-    trend: () => api.get('/vibe/trend'),
+    trend: (hours = 24) => api.get('/vibe/trend', { params: { hours } }),
 };
 
 export const demographicsAPI = {
-    current: () => api.get('/demographics/current'),
+    current: (zone) => api.get('/demographics/current', { params: zone ? { zone } : {} }),
 };
 
 export const peakHoursAPI = {
-    today: () => api.get('/peak-hours/today'),
+    today: (zone) => api.get('/peak-hours/today', { params: zone ? { zone } : {} }),
 };
 
-// --- Footage (CCTV storage: list, upload, serve for playback) ---
+// ────────────────────────────────────────────────────────────────
+// Footage (stored CCTV clips)
+// ────────────────────────────────────────────────────────────────
+
 export const footageAPI = {
-    list: (cameraId) => api.get('/footage/list', { params: cameraId != null ? { camera_id: cameraId } : {} }),
+    list: (cameraId) => api.get('/footage/list', {
+        params: cameraId != null ? { camera_id: cameraId } : {},
+    }),
     upload: (file, cameraId = 1) => {
         const form = new FormData();
         form.append('file', file);
@@ -143,11 +221,29 @@ export const footageAPI = {
             headers: { 'Content-Type': 'multipart/form-data' },
         });
     },
-    /** URL to stream a stored clip (append ?token= for auth). Use same origin so proxy works. */
-    serveUrl: (filename) => `${api.defaults.baseURL || '/api'}/footage/serve/${encodeURIComponent(filename)}`,
+    serveUrl: (filename) =>
+        `${API_BASE}/footage/serve/${encodeURIComponent(filename)}`,
 };
 
-/** Base URL for API (for stream URLs that need token in query). */
-export const API_BASE = api.defaults.baseURL || '/api';
+// ────────────────────────────────────────────────────────────────
+// Live MJPEG stream (authenticated via ?token=JWT for <img src>)
+// ────────────────────────────────────────────────────────────────
+
+export const liveStreamUrl = (cameraId) => {
+    const token = tokenStore.get();
+    const qs = token ? `?token=${encodeURIComponent(token)}` : '';
+    return `${API_BASE}/stream/camera/${cameraId}/live${qs}`;
+};
+
+// ────────────────────────────────────────────────────────────────
+// WebSocket URL builders
+// ────────────────────────────────────────────────────────────────
+
+export function buildWsUrl(path = '/ws/live') {
+    const token = tokenStore.get();
+    const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const qs = token ? `?token=${encodeURIComponent(token)}` : '';
+    return `${scheme}://${window.location.host}${path}${qs}`;
+}
 
 export default api;

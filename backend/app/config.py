@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     YOLO_MODEL: str = "yolov8n.pt"           # YOLOv8 person detection model
     FIRE_MODEL: str = "yolov8n.pt"           # Fire/smoke detection model (you can train custom)
     REID_MODEL: str = "osnet_x1_0"           # Re-ID model (from torchreid)
+    REID_SIMILARITY_THRESHOLD: float = 0.6   # Cosine similarity threshold (higher = stricter; use 0.65–0.75 if many similar-looking people)
+    REID_EMBEDDINGS_PER_ID: int = 5          # Max embeddings per global_id for multi-view (back/front/side) when face not visible
     DETECTION_CONFIDENCE: float = 0.5        # Min confidence to count a detection
     NMS_THRESHOLD: float = 0.45              # Non-max suppression (reduces duplicate boxes)
     DEVICE: str = "auto"                     # "auto", "cpu", "cuda", "mps" (for Apple M-series)

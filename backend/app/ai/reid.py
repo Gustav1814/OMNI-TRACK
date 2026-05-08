@@ -2,7 +2,10 @@
 OmniTrack AI — Torchreid Re-Identification Module
 Global person Re-ID using osnet_x1_0 backbone.
 One shared gallery across ALL cameras: same person on Cam 1 and Cam 2 gets the same global_id.
-Extracts 512-d feature embeddings, L2 normalized for cosine similarity.
+
+Body-based (not face): uses full-body appearance (clothing, shape, pose) so it works when
+the person's face is not towards the camera. Multiple embeddings per identity (different
+angles/poses) improve matching when the same person is seen from the back or side.
 """
 
 import numpy as np
@@ -27,19 +30,28 @@ except ImportError:
 
 class PersonReID:
     """
-    Person Re-Identification using Torchreid.
-    One GLOBAL gallery shared by all cameras: add_to_gallery / search_gallery
-    so the same person across cameras gets the same global_id.
+    Person Re-Identification using Torchreid (body-based, not face).
+    One GLOBAL gallery shared by all cameras. Supports multiple embeddings per
+    global_id so the same person seen from different angles (face away, side)
+    still matches.
     """
 
     EMBEDDING_DIM = 512
 
-    def __init__(self, model_name: str = "osnet_x1_0", device: str = "auto"):
+    def __init__(
+        self,
+        model_name: str = "osnet_x1_0",
+        device: str = "auto",
+        similarity_threshold: float = 0.6,
+        max_embeddings_per_id: int = 5,
+    ):
         self.model_name = model_name
         self.device = self._resolve_device(device)
+        self.similarity_threshold = similarity_threshold
+        self.max_embeddings_per_id = max(1, max_embeddings_per_id)
         self.model = None
         self.transform = self._build_transform()
-        # Single gallery for ALL cameras (global Re-ID)
+        # Gallery: (global_id, embedding). Same global_id can appear multiple times (multi-view).
         self._gallery: List[Tuple[str, np.ndarray]] = []
         self._load_model()
 
@@ -109,20 +121,40 @@ class PersonReID:
         return float(np.dot(emb1, emb2))
 
     def add_to_gallery(self, global_id: str, embedding: np.ndarray) -> None:
-        """Add a person to the global gallery (shared across all cameras)."""
-        self._gallery.append((global_id, embedding.astype(np.float32)))
+        """
+        Add a person to the global gallery. If this global_id already has
+        max_embeddings_per_id entries, drop the oldest so we keep diverse
+        views (front, back, side) for matching when face is not visible.
+        """
+        emb = embedding.astype(np.float32)
+        same_id = [(i, g, e) for i, (g, e) in enumerate(self._gallery) if g == global_id]
+        if len(same_id) >= self.max_embeddings_per_id:
+            # Remove oldest (first occurrence) for this id
+            idx = same_id[0][0]
+            self._gallery.pop(idx)
+        self._gallery.append((global_id, emb))
+
+    def add_embedding_to_id(self, global_id: str, embedding: np.ndarray) -> None:
+        """
+        Add another view/angle for an existing identity (e.g. person turned).
+        Uses same cap as add_to_gallery. Call when Re-ID matched so we store
+        back/side views for future matching.
+        """
+        self.add_to_gallery(global_id, embedding.astype(np.float32))
 
     def search_gallery(
         self,
         query: np.ndarray,
         top_k: int = 1,
-        threshold: float = 0.6,
+        threshold: Optional[float] = None,
     ) -> List[Dict]:
         """
-        Search the GLOBAL gallery (all cameras). Returns matches so the same
-        person seen on different cameras gets the same global_id.
+        Search the GLOBAL gallery. For each global_id we take the BEST
+        similarity over all its embeddings (multi-view), so same person
+        from different angles still matches.
         """
-        matches = self.find_matches(query, self._gallery, threshold=threshold, top_k=top_k)
+        th = threshold if threshold is not None else self.similarity_threshold
+        matches = self.find_matches(query, self._gallery, threshold=th, top_k=top_k)
         return [{"id": m["global_id"], "similarity": m["similarity"]} for m in matches]
 
     def find_matches(
@@ -133,15 +165,15 @@ class PersonReID:
         top_k: int = 10,
     ) -> List[Dict]:
         """
-        Find top-K matches for a query embedding in a gallery.
-        Gallery format: [(global_id, embedding), ...]
+        Find top-K matches. Each global_id can have multiple embeddings;
+        we use the best similarity per identity (so multiple views help).
         """
-        scores = []
+        best_per_id: Dict[str, float] = {}
         for gid, emb in gallery:
             sim = self.compute_similarity(query, emb)
             if sim >= threshold:
-                scores.append({"global_id": gid, "similarity": sim})
-
+                best_per_id[gid] = max(best_per_id.get(gid, sim), sim)
+        scores = [{"global_id": gid, "similarity": sim} for gid, sim in best_per_id.items()]
         scores.sort(key=lambda x: x["similarity"], reverse=True)
         return scores[:top_k]
 

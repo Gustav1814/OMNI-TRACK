@@ -12,9 +12,15 @@ from loguru import logger
 try:
     from deepface import DeepFace
     DEEPFACE_AVAILABLE = True
-except ImportError:
+except Exception as _deepface_err:
+    # Catches ImportError AND ValueError raised by retinaface when tf-keras is missing
+    # (TF 2.16+ split keras; retinaface crashes hard at import time otherwise).
     DEEPFACE_AVAILABLE = False
-    logger.warning("DeepFace not installed. Emotion module will run in mock mode.")
+    DeepFace = None  # type: ignore
+    logger.warning(
+        f"DeepFace not available ({type(_deepface_err).__name__}). "
+        "Emotion module will run in mock mode."
+    )
 
 
 class EmotionRecognizer:
@@ -75,6 +81,50 @@ class EmotionRecognizer:
         except Exception as e:
             logger.error(f"Emotion analysis failed: {e}")
             return []
+
+    def analyze_frame_summary(
+        self,
+        frame: np.ndarray,
+        camera_id: int = 0,
+        zone: str = None,
+    ) -> Dict[str, Any]:
+        """
+        Per-frame summary aggregating all detected faces.
+        Returns a single dict (dominant emotion, distribution, sentiment_score)
+        rather than a list — convenient for pipeline aggregation.
+        """
+        faces = self.analyze_frame(frame, camera_id=camera_id, zone=zone)
+        if not faces:
+            return {
+                "camera_id": camera_id,
+                "zone": zone,
+                "sample_count": 0,
+                "dominant_emotion": None,
+                "emotion_distribution": {},
+                "sentiment_score": 0.0,
+            }
+        emotion_counts = defaultdict(int)
+        for f in faces:
+            emotion_counts[f.get("dominant_emotion", "neutral")] += 1
+        total = sum(emotion_counts.values())
+        dominant = max(emotion_counts, key=emotion_counts.get)
+        distribution = {k: round(v / total, 3) for k, v in emotion_counts.items()}
+        positive = emotion_counts.get("happy", 0) + emotion_counts.get("surprise", 0)
+        negative = (
+            emotion_counts.get("sad", 0)
+            + emotion_counts.get("angry", 0)
+            + emotion_counts.get("fear", 0)
+            + emotion_counts.get("disgust", 0)
+        )
+        sentiment = (positive - negative) / max(total, 1)
+        return {
+            "camera_id": camera_id,
+            "zone": zone,
+            "sample_count": total,
+            "dominant_emotion": dominant,
+            "emotion_distribution": distribution,
+            "sentiment_score": round(sentiment, 3),
+        }
 
     def analyze_demographics(self, frame: np.ndarray) -> List[Dict[str, Any]]:
         """

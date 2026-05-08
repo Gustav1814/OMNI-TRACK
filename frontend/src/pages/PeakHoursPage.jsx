@@ -1,97 +1,120 @@
 /**
- * OmniTrack AI — Peak Hours Page
+ * OmniTrack AI — Peak Hours (live)
+ * Polls /api/peak-hours/today.
  */
-import React from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { Clock, TrendingUp, Users } from 'lucide-react';
 
-const hourlyData = Array.from({ length: 13 }, (_, i) => {
-    const hour = i + 9;
-    const count = Math.floor(20 + Math.random() * 30 + (hour >= 12 && hour <= 15 ? 50 : 0) + (hour >= 17 && hour <= 19 ? 35 : 0));
-    return {
-        hour: `${hour}:00`,
-        visitors: count,
-        isPeak: count > 70,
-        busyZone: ['Main Floor', 'Electronics', 'Food Court', 'Checkout'][Math.floor(Math.random() * 4)],
-    };
-});
-
-const peakHour = hourlyData.reduce((max, h) => h.visitors > max.visitors ? h : max, hourlyData[0]);
-const totalVisitors = hourlyData.reduce((s, h) => s + h.visitors, 0);
-
-const tooltipStyle = { contentStyle: { background: '#1e293b', border: '1px solid rgba(148,163,184,0.15)', borderRadius: '8px', fontSize: '12px', color: '#f1f5f9' } };
+import React, { useMemo, useState } from 'react';
+import { motion } from 'framer-motion';
+import { TrendingUp, Clock, Users } from 'lucide-react';
+import {
+    AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
+} from 'recharts';
+import { peakHoursAPI } from '../services/api';
+import useLivePoll from '../hooks/useLivePoll';
 
 export default function PeakHoursPage() {
+    const [zone, setZone] = useState('');
+    const { data } = useLivePoll(
+        () => peakHoursAPI.today(zone || undefined),
+        { intervalMs: 60000 }
+    );
+
+    const hourly = Array.isArray(data?.hourly_data) ? data.hourly_data : [];
+
+    const chart = useMemo(() => hourly.map((h) => ({
+        hour: `${String(h.hour).padStart(2, '0')}:00`,
+        visitors: h.visitor_count,
+        dwell: h.avg_dwell_time,
+    })), [hourly]);
+
+    const peakHour = data?.peak_hour;
+    const peakCount = data?.peak_count;
+    const totalVisitors = data?.total_visitors ?? hourly.reduce((a, h) => a + (h.visitor_count || 0), 0);
+
     return (
-        <div>
+        <div className="page-scroll">
             <div className="page-header">
-                <h2 className="page-title">Peak Hours Analysis</h2>
-                <p className="page-description">Identify busiest shopping windows for staffing & inventory optimization</p>
-            </div>
-
-            <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-                {[
-                    { label: 'Peak Hour', value: peakHour.hour, icon: Clock, color: '#f43f5e' },
-                    { label: 'Peak Count', value: peakHour.visitors, icon: TrendingUp, color: '#6366f1' },
-                    { label: 'Total Visitors', value: totalVisitors.toLocaleString(), icon: Users, color: '#10b981' },
-                    { label: 'Avg / Hour', value: Math.round(totalVisitors / 13), icon: TrendingUp, color: '#06b6d4' },
-                ].map((s, i) => {
-                    const Icon = s.icon;
-                    return (
-                        <div key={i} className="stat-card animate-in">
-                            <div className="stat-card-header">
-                                <span className="stat-card-label">{s.label}</span>
-                                <div className="stat-card-icon" style={{ background: `${s.color}15`, color: s.color }}><Icon size={16} /></div>
-                            </div>
-                            <div className="stat-card-value" style={{ color: s.color }}>{s.value}</div>
-                        </div>
-                    );
-                })}
-            </div>
-
-            <div className="chart-card animate-in">
-                <div className="chart-card-title">Hourly Visitor Traffic</div>
-                <ResponsiveContainer width="100%" height={360}>
-                    <BarChart data={hourlyData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
-                        <XAxis dataKey="hour" tick={{ fontSize: 11, fill: '#64748b' }} />
-                        <YAxis tick={{ fontSize: 11, fill: '#64748b' }} />
-                        <Tooltip {...tooltipStyle} />
-                        <Bar dataKey="visitors" radius={[4, 4, 0, 0]} barSize={28}>
-                            {hourlyData.map((h, i) => (
-                                <Cell key={i} fill={h.isPeak ? '#f43f5e' : '#6366f1'} />
-                            ))}
-                        </Bar>
-                    </BarChart>
-                </ResponsiveContainer>
-                <div style={{ display: 'flex', justifyContent: 'center', gap: 20, marginTop: 12 }}>
-                    <span style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ width: 12, height: 12, borderRadius: 3, background: '#f43f5e', display: 'inline-block' }} /> Peak Hours
-                    </span>
-                    <span style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ width: 12, height: 12, borderRadius: 3, background: '#6366f1', display: 'inline-block' }} /> Normal
-                    </span>
+                <div>
+                    <h1 className="page-title">Peak Hours</h1>
+                    <p className="page-subtitle">Foot-traffic patterns today · {data?.date || 'today'}</p>
                 </div>
+                <input
+                    className="form-input"
+                    placeholder="Filter by zone…"
+                    style={{ maxWidth: 240 }}
+                    value={zone}
+                    onChange={(e) => setZone(e.target.value)}
+                />
             </div>
 
-            <div className="card animate-in" style={{ marginTop: 20 }}>
-                <div className="card-header"><span className="card-title">Hourly Breakdown</span></div>
-                <div className="card-body">
-                    <table className="data-table">
-                        <thead><tr><th>Hour</th><th>Visitors</th><th>Status</th><th>Busiest Zone</th></tr></thead>
-                        <tbody>
-                            {hourlyData.map((h, i) => (
-                                <tr key={i}>
-                                    <td style={{ fontWeight: 600 }}>{h.hour}</td>
-                                    <td>{h.visitors}</td>
-                                    <td><span className={`badge ${h.isPeak ? 'badge-danger' : 'badge-success'}`}>{h.isPeak ? 'Peak' : 'Normal'}</span></td>
-                                    <td>{h.busyZone}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
+            <div className="stats-grid">
+                <Stat icon={Users} label="Total Visitors" value={Number(totalVisitors).toLocaleString()} accent="indigo" />
+                <Stat
+                    icon={Clock}
+                    label="Peak Hour"
+                    value={peakHour != null ? `${String(peakHour).padStart(2, '0')}:00` : '—'}
+                    accent="gold"
+                />
+                <Stat
+                    icon={TrendingUp}
+                    label="Peak Visitors"
+                    value={Number(peakCount || 0).toLocaleString()}
+                    accent="rose"
+                />
+                <Stat
+                    icon={Users}
+                    label="Busiest Zone"
+                    value={hourly.find((h) => h.hour === peakHour)?.busiest_zone || '—'}
+                    accent="cyan"
+                />
+            </div>
+
+            <div className="card">
+                <div className="card-header">
+                    <h3 className="card-title">Hourly Traffic</h3>
                 </div>
+                {chart.length === 0 ? (
+                    <div className="page-empty-hint">
+                        No traffic samples yet for today. Start the pipeline to record foot-traffic rows.
+                    </div>
+                ) : (
+                    <div style={{ height: 320 }}>
+                        <ResponsiveContainer>
+                            <AreaChart data={chart}>
+                                <defs>
+                                    <linearGradient id="peakA" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.5} />
+                                        <stop offset="100%" stopColor="#22d3ee" stopOpacity={0} />
+                                    </linearGradient>
+                                </defs>
+                                <CartesianGrid stroke="rgba(255,255,255,0.05)" />
+                                <XAxis dataKey="hour" stroke="#71717a" fontSize={11} />
+                                <YAxis stroke="#71717a" fontSize={11} />
+                                <Tooltip contentStyle={{ background: '#111', border: '1px solid #222' }} />
+                                {peakHour != null && (
+                                    <ReferenceLine
+                                        x={`${String(peakHour).padStart(2, '0')}:00`}
+                                        stroke="#f43f5e"
+                                        strokeDasharray="3 3"
+                                        label={{ value: 'Peak', fill: '#f43f5e', fontSize: 10 }}
+                                    />
+                                )}
+                                <Area type="monotone" dataKey="visitors" stroke="#22d3ee" strokeWidth={2} fill="url(#peakA)" />
+                            </AreaChart>
+                        </ResponsiveContainer>
+                    </div>
+                )}
             </div>
         </div>
+    );
+}
+
+function Stat({ icon: Icon, label, value, accent = 'indigo' }) {
+    return (
+        <motion.div className="stat-card" whileHover={{ y: -2 }}>
+            <div className={`stat-icon stat-icon-${accent}`}><Icon size={18} /></div>
+            <div className="stat-label">{label}</div>
+            <div className="stat-value">{value}</div>
+        </motion.div>
     );
 }
