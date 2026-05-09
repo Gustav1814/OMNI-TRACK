@@ -1,0 +1,1165 @@
+{
+  "frames": [
+    {
+      "frame_number": 4,
+      "timestamp": 1778287275.136557,
+      "detections": [
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.7912,
+          "bbox": [
+            2028.302490234375,
+            318.13360595703125,
+            49.5380859375,
+            58.4234619140625
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.7904,
+          "bbox": [
+            2148.23046875,
+            400.9801330566406,
+            46.93798828125,
+            59.072021484375
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.5904,
+          "bbox": [
+            1448.4573974609375,
+            54.324859619140625,
+            27.122314453125,
+            32.379913330078125
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.565,
+          "bbox": [
+            1166.386962890625,
+            131.97357177734375,
+            38.8310546875,
+            47.7369384765625
+          ],
+          "global_id": null,
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 5,
+      "timestamp": 1778287277.0025778,
+      "detections": [
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.7936,
+          "bbox": [
+            2150.02978515625,
+            400.60845947265625,
+            46.7509765625,
+            57.9171142578125
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.7666,
+          "bbox": [
+            2014.122314453125,
+            321.276123046875,
+            50.556640625,
+            59.100830078125
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.6008,
+          "bbox": [
+            1163.410400390625,
+            129.98895263671875,
+            40.201171875,
+            48.28778076171875
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.5791,
+          "bbox": [
+            1447.592041015625,
+            54.59028625488281,
+            27.552734375,
+            32.018280029296875
+          ],
+          "global_id": null,
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 6,
+      "timestamp": 1778287278.3886054,
+      "detections": [
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.7899,
+          "bbox": [
+            2148.901123046875,
+            400.5010681152344,
+            47.0595703125,
+            60.4974365234375
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.5893,
+          "bbox": [
+            1163.91943359375,
+            131.07144165039062,
+            38.52197265625,
+            47.607452392578125
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.5832,
+          "bbox": [
+            1447.5093994140625,
+            53.79008483886719,
+            27.1708984375,
+            31.967529296875
+          ],
+          "global_id": null,
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 3
+    },
+    {
+      "frame_number": 7,
+      "timestamp": 1778287279.963554,
+      "detections": [
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.7918,
+          "bbox": [
+            2149.36083984375,
+            400.1463623046875,
+            46.49365234375,
+            60.9276123046875
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.5801,
+          "bbox": [
+            1163.47021484375,
+            130.79571533203125,
+            39.8662109375,
+            48.9837646484375
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.539,
+          "bbox": [
+            1448.298095703125,
+            53.87937927246094,
+            27.64794921875,
+            32.7540283203125
+          ],
+          "global_id": null,
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 3
+    },
+    {
+      "frame_number": 8,
+      "timestamp": 1778287281.295032,
+      "detections": [
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.7924,
+          "bbox": [
+            2148.390625,
+            399.346435546875,
+            48.76025390625,
+            63.396728515625
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.6256,
+          "bbox": [
+            1162.57958984375,
+            131.17230224609375,
+            39.75830078125,
+            48.584869384765625
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.596,
+          "bbox": [
+            1448.385009765625,
+            53.36065673828125,
+            27.76513671875,
+            33.642547607421875
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.5202,
+          "bbox": [
+            2042.069580078125,
+            331.5420837402344,
+            42.9501953125,
+            52.6890869140625
+          ],
+          "global_id": null,
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 9,
+      "timestamp": 1778287282.833195,
+      "detections": [
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.7204,
+          "bbox": [
+            2147.7177734375,
+            400.0831298828125,
+            45.2998046875,
+            58.160400390625
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.7127,
+          "bbox": [
+            2043.050537109375,
+            330.29864501953125,
+            50.02587890625,
+            60.66864013671875
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.6387,
+          "bbox": [
+            1162.293701171875,
+            130.89149475097656,
+            40.087890625,
+            48.817901611328125
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.5917,
+          "bbox": [
+            1447.754638671875,
+            53.45263671875,
+            28.2080078125,
+            33.566436767578125
+          ],
+          "global_id": null,
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 10,
+      "timestamp": 1778287284.0668404,
+      "detections": [
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.7889,
+          "bbox": [
+            2042.834228515625,
+            325.09979248046875,
+            49.83349609375,
+            60.8934326171875
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.7845,
+          "bbox": [
+            2145.70361328125,
+            398.063720703125,
+            44.0751953125,
+            57.28759765625
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.659,
+          "bbox": [
+            1162.4512939453125,
+            130.48077392578125,
+            40.275146484375,
+            50.0877685546875
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.6038,
+          "bbox": [
+            1447.63671875,
+            53.583282470703125,
+            28.49951171875,
+            33.92790222167969
+          ],
+          "global_id": null,
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 11,
+      "timestamp": 1778287285.6453142,
+      "detections": [
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.7726,
+          "bbox": [
+            2144.751708984375,
+            398.21282958984375,
+            45.55078125,
+            57.8819580078125
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.7426,
+          "bbox": [
+            2011.98681640625,
+            320.72662353515625,
+            51.926513671875,
+            58.806884765625
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.6258,
+          "bbox": [
+            1163.25146484375,
+            130.27688598632812,
+            39.103515625,
+            50.140380859375
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.6219,
+          "bbox": [
+            1448.01123046875,
+            53.24169921875,
+            28.39208984375,
+            34.672576904296875
+          ],
+          "global_id": null,
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 12,
+      "timestamp": 1778287287.060363,
+      "detections": [
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.7916,
+          "bbox": [
+            2142.91943359375,
+            399.32476806640625,
+            41.9228515625,
+            56.3814697265625
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.6956,
+          "bbox": [
+            2002.413818359375,
+            332.4171142578125,
+            51.9052734375,
+            56.5042724609375
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.5895,
+          "bbox": [
+            1448.218505859375,
+            53.68072509765625,
+            27.39794921875,
+            33.48338317871094
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.5546,
+          "bbox": [
+            1169.619384765625,
+            126.43002319335938,
+            38.14697265625,
+            45.49609375
+          ],
+          "global_id": null,
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 13,
+      "timestamp": 1778287288.3741028,
+      "detections": [
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.6165,
+          "bbox": [
+            2139.02392578125,
+            389.81964111328125,
+            42.47802734375,
+            65.22021484375
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.58,
+          "bbox": [
+            2003.916748046875,
+            344.969482421875,
+            49.7841796875,
+            51.47625732421875
+          ],
+          "global_id": null,
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 2
+    },
+    {
+      "frame_number": 14,
+      "timestamp": 1778287289.3371494,
+      "detections": [
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.5779,
+          "bbox": [
+            1448.49365234375,
+            54.32646179199219,
+            27.62939453125,
+            33.07643127441406
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.57,
+          "bbox": [
+            2003.318115234375,
+            347.693603515625,
+            52.478515625,
+            49.3402099609375
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.5402,
+          "bbox": [
+            2138.504638671875,
+            390.6704406738281,
+            37.74609375,
+            61.74847412109375
+          ],
+          "global_id": null,
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 3
+    },
+    {
+      "frame_number": 15,
+      "timestamp": 1778287290.2997918,
+      "detections": [
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.73,
+          "bbox": [
+            400.1572570800781,
+            111.74507141113281,
+            44.918212890625,
+            53.181365966796875
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.6656,
+          "bbox": [
+            1162.926025390625,
+            143.44088745117188,
+            37.89794921875,
+            44.09429931640625
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.5891,
+          "bbox": [
+            1448.069091796875,
+            54.08430480957031,
+            27.91259765625,
+            32.96141052246094
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.587,
+          "bbox": [
+            2138.482421875,
+            392.28314208984375,
+            37.90576171875,
+            59.87603759765625
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.565,
+          "bbox": [
+            2006.840576171875,
+            348.16796875,
+            53.974365234375,
+            51.452880859375
+          ],
+          "global_id": null,
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 5
+    },
+    {
+      "frame_number": 16,
+      "timestamp": 1778287291.3782325,
+      "detections": [
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.8071,
+          "bbox": [
+            301.4119873046875,
+            250.40924072265625,
+            58.84454345703125,
+            77.7415771484375
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.5768,
+          "bbox": [
+            2137.6748046875,
+            393.97125244140625,
+            37.3935546875,
+            57.097900390625
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.5757,
+          "bbox": [
+            1169.36474609375,
+            126.95654296875,
+            35.8193359375,
+            45.376708984375
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.5521,
+          "bbox": [
+            2008.516357421875,
+            352.183837890625,
+            49.05419921875,
+            48.624267578125
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.5386,
+          "bbox": [
+            1449.493896484375,
+            54.124114990234375,
+            26.6044921875,
+            32.33445739746094
+          ],
+          "global_id": null,
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 5
+    },
+    {
+      "frame_number": 17,
+      "timestamp": 1778287292.3522542,
+      "detections": [
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.7817,
+          "bbox": [
+            175.20632934570312,
+            524.0281372070312,
+            89.15042114257812,
+            133.9447021484375
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.6956,
+          "bbox": [
+            2027.46533203125,
+            320.0362548828125,
+            49.15625,
+            59.9730224609375
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.6834,
+          "bbox": [
+            1170.9765625,
+            115.94625854492188,
+            38.79443359375,
+            48.20928955078125
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.559,
+          "bbox": [
+            1448.5955810546875,
+            53.965728759765625,
+            27.486572265625,
+            32.99943542480469
+          ],
+          "global_id": null,
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 18,
+      "timestamp": 1778287293.3055744,
+      "detections": [
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.8157,
+          "bbox": [
+            163.27572631835938,
+            1019.390380859375,
+            155.36447143554688,
+            229.0390625
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.715,
+          "bbox": [
+            2045.2353515625,
+            329.88818359375,
+            48.912109375,
+            61.5413818359375
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.5639,
+          "bbox": [
+            1449.0782470703125,
+            54.731536865234375,
+            27.15380859375,
+            32.54486083984375
+          ],
+          "global_id": null,
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 3
+    },
+    {
+      "frame_number": 19,
+      "timestamp": 1778287294.3267243,
+      "detections": [
+        {
+          "track_id": 33,
+          "class_name": "face",
+          "confidence": 0.8015,
+          "bbox": [
+            299.03704833984375,
+            1165.57666015625,
+            172.87548828125,
+            229.21826171875
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.7262,
+          "bbox": [
+            2029.5423583984375,
+            327.58294677734375,
+            52.3878173828125,
+            61.6329345703125
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.5762,
+          "bbox": [
+            1449.1728515625,
+            54.73870849609375,
+            27.0859375,
+            32.662200927734375
+          ],
+          "global_id": null,
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 3
+    },
+    {
+      "frame_number": 20,
+      "timestamp": 1778287296.0634704,
+      "detections": [
+        {
+          "track_id": 33,
+          "class_name": "face",
+          "confidence": 0.7841,
+          "bbox": [
+            239.90530395507812,
+            1202.197265625,
+            171.5831298828125,
+            231.23193359375
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.6593,
+          "bbox": [
+            2022.21240234375,
+            336.1108703613281,
+            56.08837890625,
+            60.28131103515625
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.5298,
+          "bbox": [
+            1449.38134765625,
+            55.546112060546875,
+            26.97802734375,
+            31.804595947265625
+          ],
+          "global_id": null,
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 3
+    },
+    {
+      "frame_number": 21,
+      "timestamp": 1778287297.1964986,
+      "detections": [
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.5849,
+          "bbox": [
+            221.16448974609375,
+            1246.042724609375,
+            166.8760986328125,
+            190.2216796875
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.5549,
+          "bbox": [
+            1448.597900390625,
+            55.54460144042969,
+            27.7724609375,
+            32.99468994140625
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.5117,
+          "bbox": [
+            2023.6683349609375,
+            348.8306579589844,
+            50.5997314453125,
+            54.24932861328125
+          ],
+          "global_id": null,
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 3
+    },
+    {
+      "frame_number": 22,
+      "timestamp": 1778287298.558783,
+      "detections": [
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.6639,
+          "bbox": [
+            2138.32275390625,
+            387.97601318359375,
+            37.93701171875,
+            62.70831298828125
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.5433,
+          "bbox": [
+            1448.90576171875,
+            55.987213134765625,
+            27.5634765625,
+            32.325592041015625
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.501,
+          "bbox": [
+            2016.296875,
+            350.1860046386719,
+            53.265380859375,
+            54.21221923828125
+          ],
+          "global_id": null,
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 3
+    },
+    {
+      "frame_number": 23,
+      "timestamp": 1778287299.7422957,
+      "detections": [
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.7219,
+          "bbox": [
+            2135.66845703125,
+            412.98358154296875,
+            46.07958984375,
+            61.12109375
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.6434,
+          "bbox": [
+            2009.37109375,
+            336.83184814453125,
+            54.616943359375,
+            60.6376953125
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.5466,
+          "bbox": [
+            1448.952392578125,
+            55.948577880859375,
+            27.43798828125,
+            32.239898681640625
+          ],
+          "global_id": null,
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 3
+    },
+    {
+      "frame_number": 24,
+      "timestamp": 1778287300.954504,
+      "detections": [
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.7208,
+          "bbox": [
+            2135.3974609375,
+            409.76751708984375,
+            46.5478515625,
+            62.86260986328125
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.6783,
+          "bbox": [
+            2009.940185546875,
+            323.16278076171875,
+            55.2431640625,
+            61.9666748046875
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.5363,
+          "bbox": [
+            1448.8944091796875,
+            55.6885986328125,
+            28.07373046875,
+            32.88395690917969
+          ],
+          "global_id": null,
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 3
+    },
+    {
+      "frame_number": 25,
+      "timestamp": 1778287302.1615071,
+      "detections": [
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.7004,
+          "bbox": [
+            2136.67578125,
+            410.98876953125,
+            44.0849609375,
+            61.57708740234375
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.6381,
+          "bbox": [
+            2011.1650390625,
+            339.5494689941406,
+            49.74853515625,
+            56.44378662109375
+          ],
+          "global_id": null,
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "face",
+          "confidence": 0.5244,
+          "bbox": [
+            1448.093505859375,
+            55.98472595214844,
+            27.594970703125,
+            31.870361328125
+          ],
+          "global_id": null,
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 3
+    }
+  ],
+  "video_file": "storage\\footage\\camera_1_1778287276.mp4",
+  "camera_id": 1,
+  "model": "C:\\Users\\zeera\\Desktop\\New folder\\FYP\\backend\\model_weight\\face11n.pt",
+  "start_time": "2026-05-09T00:41:16.367926+00:00",
+  "end_time": "2026-05-09T00:41:44.291085+00:00",
+  "total_frames": 22
+}

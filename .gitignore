@@ -1,0 +1,16 @@
+node_modules/
+.venv/
+.venv312/
+__pycache__/
+*.pyc
+.env
+dist/
+build/
+.DS_Store
+*.db
+*.log
+*.pt
+backend/omnitrack.db
+backend/server.log
+backend/test_import.log
+backend/yolo11n.pt

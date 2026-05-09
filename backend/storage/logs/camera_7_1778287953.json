@@ -1,0 +1,3795 @@
+{
+  "frames": [
+    {
+      "frame_number": 944,
+      "timestamp": 1778287953.0844412,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6237,
+          "bbox": [
+            1265.499755859375,
+            9.826400756835938,
+            185.083984375,
+            173.61212158203125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.6229,
+          "bbox": [
+            1412.71142578125,
+            42.919952392578125,
+            114.4365234375,
+            141.86370849609375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 216,
+          "class_name": "person",
+          "confidence": 0.6138,
+          "bbox": [
+            1847.927734375,
+            305.74462890625,
+            272.635498046875,
+            357.999755859375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.5634,
+          "bbox": [
+            1897.75244140625,
+            385.6324462890625,
+            344.46435546875,
+            436.737548828125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 945,
+      "timestamp": 1778287953.2118502,
+      "detections": [
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.6335,
+          "bbox": [
+            1411.9981689453125,
+            43.037811279296875,
+            114.857666015625,
+            141.657470703125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 216,
+          "class_name": "person",
+          "confidence": 0.6164,
+          "bbox": [
+            1847.939697265625,
+            305.7095947265625,
+            272.6240234375,
+            358.4283447265625
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6156,
+          "bbox": [
+            1264.359619140625,
+            12.336250305175781,
+            181.67626953125,
+            173.55584716796875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.545,
+          "bbox": [
+            1897.561767578125,
+            385.6716003417969,
+            344.44921875,
+            436.5303039550781
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 946,
+      "timestamp": 1778287953.3227768,
+      "detections": [
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.6404,
+          "bbox": [
+            1413.4227294921875,
+            42.978302001953125,
+            113.455322265625,
+            141.56338500976562
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 216,
+          "class_name": "person",
+          "confidence": 0.6215,
+          "bbox": [
+            1848.009521484375,
+            305.6434326171875,
+            272.41650390625,
+            358.5191650390625
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6178,
+          "bbox": [
+            1267.7548828125,
+            17.13634490966797,
+            177.10546875,
+            169.03485107421875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.5518,
+          "bbox": [
+            1898.066162109375,
+            385.4539794921875,
+            343.76318359375,
+            436.2440185546875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 947,
+      "timestamp": 1778287953.4329948,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.647,
+          "bbox": [
+            1264.451416015625,
+            11.261871337890625,
+            181.5126953125,
+            173.9912109375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.6393,
+          "bbox": [
+            1413.882080078125,
+            42.98003387451172,
+            112.81201171875,
+            141.5595703125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6235,
+          "bbox": [
+            1847.89501953125,
+            304.892333984375,
+            272.0576171875,
+            359.22607421875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.5762,
+          "bbox": [
+            1897.4420166015625,
+            385.2991943359375,
+            344.4315185546875,
+            436.211181640625
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 948,
+      "timestamp": 1778287953.544992,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6643,
+          "bbox": [
+            1264.203125,
+            11.81890869140625,
+            181.84375,
+            173.043212890625
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6427,
+          "bbox": [
+            1847.594482421875,
+            305.35174560546875,
+            272.312255859375,
+            359.2237548828125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.641,
+          "bbox": [
+            1413.6346435546875,
+            43.015625,
+            113.026123046875,
+            141.47042846679688
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.5879,
+          "bbox": [
+            1895.852294921875,
+            385.01385498046875,
+            345.681640625,
+            436.50048828125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 949,
+      "timestamp": 1778287953.664656,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6683,
+          "bbox": [
+            1264.05322265625,
+            11.937065124511719,
+            181.8759765625,
+            173.0948486328125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6432,
+          "bbox": [
+            1846.479736328125,
+            303.8464050292969,
+            273.1552734375,
+            362.2221984863281
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.6359,
+          "bbox": [
+            1413.082763671875,
+            43.10919189453125,
+            113.5712890625,
+            141.15908813476562
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.5924,
+          "bbox": [
+            1896.212890625,
+            384.87322998046875,
+            345.27685546875,
+            436.938720703125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 950,
+      "timestamp": 1778287953.780194,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6764,
+          "bbox": [
+            1264.1650390625,
+            12.326278686523438,
+            181.060546875,
+            172.89328002929688
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6547,
+          "bbox": [
+            1846.474365234375,
+            303.70654296875,
+            273.0390625,
+            362.4820556640625
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.6267,
+          "bbox": [
+            1412.98291015625,
+            42.932586669921875,
+            113.662109375,
+            141.2103271484375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.5955,
+          "bbox": [
+            1896.474853515625,
+            384.91650390625,
+            345.05712890625,
+            436.8388671875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 951,
+      "timestamp": 1778287953.8931649,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.67,
+          "bbox": [
+            1264.2227783203125,
+            12.049995422363281,
+            181.597900390625,
+            173.41082763671875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6474,
+          "bbox": [
+            1846.12255859375,
+            303.9763488769531,
+            273.11328125,
+            361.4135437011719
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.6269,
+          "bbox": [
+            1415.18310546875,
+            42.7408447265625,
+            111.35205078125,
+            142.36941528320312
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.5887,
+          "bbox": [
+            1899.0390625,
+            383.3645935058594,
+            339.7001953125,
+            437.9883117675781
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 952,
+      "timestamp": 1778287954.010467,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6666,
+          "bbox": [
+            1264.3614501953125,
+            12.082916259765625,
+            181.219482421875,
+            173.29922485351562
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6516,
+          "bbox": [
+            1846.18505859375,
+            303.9554443359375,
+            273.0234375,
+            361.4451904296875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.6275,
+          "bbox": [
+            1414.697998046875,
+            43.78498077392578,
+            111.743408203125,
+            141.53887939453125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.5914,
+          "bbox": [
+            1899.3048095703125,
+            383.410888671875,
+            339.4998779296875,
+            437.926513671875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 953,
+      "timestamp": 1778287954.119752,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6663,
+          "bbox": [
+            1264.29296875,
+            12.029380798339844,
+            181.654296875,
+            173.38482666015625
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6512,
+          "bbox": [
+            1846.167724609375,
+            303.9945068359375,
+            273.087890625,
+            361.439208984375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.6161,
+          "bbox": [
+            1413.753662109375,
+            44.08228302001953,
+            112.96533203125,
+            141.02978515625
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.589,
+          "bbox": [
+            1898.95556640625,
+            383.4439392089844,
+            340.025390625,
+            438.0158996582031
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 954,
+      "timestamp": 1778287954.22755,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6668,
+          "bbox": [
+            1264.2938232421875,
+            12.013916015625,
+            181.105712890625,
+            173.37139892578125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6491,
+          "bbox": [
+            1846.15234375,
+            304.04144287109375,
+            273.119384765625,
+            361.4178466796875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.6104,
+          "bbox": [
+            1413.668212890625,
+            44.02116394042969,
+            113.11474609375,
+            141.00799560546875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.5838,
+          "bbox": [
+            1898.530029296875,
+            383.4657287597656,
+            340.4619140625,
+            438.0070495605469
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 955,
+      "timestamp": 1778287954.3376942,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6646,
+          "bbox": [
+            1264.401123046875,
+            12.12841796875,
+            181.0087890625,
+            173.2314453125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6474,
+          "bbox": [
+            1846.158447265625,
+            303.977783203125,
+            273.0791015625,
+            361.446044921875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.6108,
+          "bbox": [
+            1413.4248046875,
+            44.28114318847656,
+            113.357421875,
+            140.89178466796875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.5794,
+          "bbox": [
+            1898.5516357421875,
+            383.526611328125,
+            340.4522705078125,
+            437.9586181640625
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 956,
+      "timestamp": 1778287954.447418,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6677,
+          "bbox": [
+            1264.385498046875,
+            12.129425048828125,
+            181.09765625,
+            173.2099609375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6506,
+          "bbox": [
+            1846.113525390625,
+            303.90765380859375,
+            273.19921875,
+            361.5343017578125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.5995,
+          "bbox": [
+            1413.23681640625,
+            44.122093200683594,
+            113.471923828125,
+            140.82855224609375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.5842,
+          "bbox": [
+            1898.572509765625,
+            383.4619140625,
+            340.34033203125,
+            437.9130859375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 957,
+      "timestamp": 1778287954.5557833,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6634,
+          "bbox": [
+            1264.372314453125,
+            12.093536376953125,
+            181.28271484375,
+            173.07919311523438
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6508,
+          "bbox": [
+            1846.098876953125,
+            303.88995361328125,
+            273.207763671875,
+            361.5177001953125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.5972,
+          "bbox": [
+            1413.179443359375,
+            44.194732666015625,
+            113.517578125,
+            140.70938110351562
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.5851,
+          "bbox": [
+            1898.575439453125,
+            383.4283447265625,
+            340.369140625,
+            437.8448486328125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 958,
+      "timestamp": 1778287954.88652,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6654,
+          "bbox": [
+            1264.391845703125,
+            12.053512573242188,
+            182.89013671875,
+            173.00845336914062
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.656,
+          "bbox": [
+            1846.02880859375,
+            303.874755859375,
+            273.03369140625,
+            361.650146484375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.6159,
+          "bbox": [
+            1413.2880859375,
+            44.185577392578125,
+            113.3466796875,
+            140.53750610351562
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.5808,
+          "bbox": [
+            1898.027099609375,
+            383.47552490234375,
+            340.904296875,
+            437.481201171875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 959,
+      "timestamp": 1778287955.037475,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6705,
+          "bbox": [
+            1267.44384765625,
+            16.792282104492188,
+            178.2451171875,
+            168.7303466796875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6588,
+          "bbox": [
+            1846.028564453125,
+            303.7347106933594,
+            273.110107421875,
+            361.8249816894531
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.6032,
+          "bbox": [
+            1411.74462890625,
+            44.266326904296875,
+            115.095703125,
+            140.68594360351562
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.5773,
+          "bbox": [
+            1898.0091552734375,
+            383.4476013183594,
+            341.0147705078125,
+            437.3139953613281
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 960,
+      "timestamp": 1778287955.1552742,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6674,
+          "bbox": [
+            1264.310302734375,
+            12.156608581542969,
+            181.633056640625,
+            173.22760009765625
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6618,
+          "bbox": [
+            1846.00390625,
+            303.55621337890625,
+            273.1240234375,
+            361.9832763671875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.5985,
+          "bbox": [
+            1411.411865234375,
+            44.286338806152344,
+            115.26220703125,
+            140.541748046875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.5757,
+          "bbox": [
+            1897.729736328125,
+            383.4571228027344,
+            341.201171875,
+            437.4902648925781
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 961,
+      "timestamp": 1778287955.2619593,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6818,
+          "bbox": [
+            1267.761474609375,
+            16.74616241455078,
+            178.1484375,
+            168.27154541015625
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6357,
+          "bbox": [
+            1846.226318359375,
+            303.2935791015625,
+            273.029541015625,
+            361.7945556640625
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6282,
+          "bbox": [
+            1898.166015625,
+            383.7459716796875,
+            343.044921875,
+            439.321044921875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.5742,
+          "bbox": [
+            1412.9853515625,
+            43.797218322753906,
+            114.80126953125,
+            141.412841796875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 962,
+      "timestamp": 1778287955.368848,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6798,
+          "bbox": [
+            1267.764404296875,
+            16.78430938720703,
+            178.1982421875,
+            168.2384033203125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6353,
+          "bbox": [
+            1846.2109375,
+            303.30389404296875,
+            273.052734375,
+            361.8275146484375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6283,
+          "bbox": [
+            1898.0340576171875,
+            383.76458740234375,
+            343.1749267578125,
+            439.275146484375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.582,
+          "bbox": [
+            1413.028076171875,
+            43.87225341796875,
+            114.72607421875,
+            141.1358642578125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 963,
+      "timestamp": 1778287955.4704256,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6748,
+          "bbox": [
+            1267.7744140625,
+            16.853591918945312,
+            177.720703125,
+            168.34820556640625
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6317,
+          "bbox": [
+            1846.195068359375,
+            303.3219299316406,
+            273.07373046875,
+            361.8681335449219
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6279,
+          "bbox": [
+            1897.6390380859375,
+            383.812744140625,
+            343.6378173828125,
+            439.3499755859375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.5911,
+          "bbox": [
+            1412.892822265625,
+            43.97980499267578,
+            114.69384765625,
+            141.2711181640625
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 964,
+      "timestamp": 1778287955.57036,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6771,
+          "bbox": [
+            1267.79296875,
+            16.752235412597656,
+            177.578369140625,
+            168.46038818359375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6292,
+          "bbox": [
+            1897.723388671875,
+            383.7962341308594,
+            343.5986328125,
+            439.3984680175781
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6267,
+          "bbox": [
+            1846.236328125,
+            303.24786376953125,
+            272.953125,
+            361.844482421875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.5905,
+          "bbox": [
+            1412.7525634765625,
+            44.21013641357422,
+            114.7587890625,
+            140.7724609375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 965,
+      "timestamp": 1778287955.6694517,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6739,
+          "bbox": [
+            1267.777587890625,
+            16.785110473632812,
+            178.0703125,
+            168.49368286132812
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6287,
+          "bbox": [
+            1897.773681640625,
+            383.77947998046875,
+            343.4208984375,
+            439.259521484375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.622,
+          "bbox": [
+            1846.218994140625,
+            303.2158203125,
+            272.94482421875,
+            361.878662109375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.6055,
+          "bbox": [
+            1413.0830078125,
+            44.34809875488281,
+            114.307373046875,
+            140.49847412109375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 966,
+      "timestamp": 1778287955.7754455,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6802,
+          "bbox": [
+            1267.863525390625,
+            16.69464111328125,
+            177.822265625,
+            168.5313720703125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6287,
+          "bbox": [
+            1898.0196533203125,
+            383.7324523925781,
+            343.2059326171875,
+            439.4330749511719
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6256,
+          "bbox": [
+            1846.17333984375,
+            303.20697021484375,
+            272.931640625,
+            361.80517578125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.5963,
+          "bbox": [
+            1413.278076171875,
+            44.23487854003906,
+            114.303955078125,
+            140.80947875976562
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 442,
+          "class_name": "person",
+          "confidence": 0.5797,
+          "bbox": [
+            623.1129150390625,
+            2.0769500732421875,
+            69.107177734375,
+            140.1309814453125
+          ],
+          "global_id": "PERSON-00005",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 5
+    },
+    {
+      "frame_number": 967,
+      "timestamp": 1778287956.0040944,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6646,
+          "bbox": [
+            1267.7366943359375,
+            16.860366821289062,
+            178.39306640625,
+            168.57977294921875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6422,
+          "bbox": [
+            1898.58349609375,
+            383.65252685546875,
+            342.46533203125,
+            439.549072265625
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6378,
+          "bbox": [
+            1846.25830078125,
+            303.2059020996094,
+            272.71435546875,
+            361.7524719238281
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.6115,
+          "bbox": [
+            1413.589111328125,
+            44.34080505371094,
+            113.78515625,
+            140.88278198242188
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "person",
+          "confidence": 0.6075,
+          "bbox": [
+            613.3392333984375,
+            2.6859893798828125,
+            80.00341796875,
+            142.61373901367188
+          ],
+          "global_id": "PERSON-00005",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 5
+    },
+    {
+      "frame_number": 968,
+      "timestamp": 1778287956.1697395,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6656,
+          "bbox": [
+            1267.63818359375,
+            16.493438720703125,
+            179.33642578125,
+            168.909423828125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6405,
+          "bbox": [
+            1898.804931640625,
+            383.760498046875,
+            342.04296875,
+            439.4251708984375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6374,
+          "bbox": [
+            1846.278076171875,
+            303.31201171875,
+            272.6650390625,
+            361.6158447265625
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.6053,
+          "bbox": [
+            1413.7490234375,
+            44.388153076171875,
+            113.85205078125,
+            141.19168090820312
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 969,
+      "timestamp": 1778287956.2788317,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6646,
+          "bbox": [
+            1267.6949462890625,
+            16.51104736328125,
+            179.359619140625,
+            168.87496948242188
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6397,
+          "bbox": [
+            1846.290771484375,
+            303.3348083496094,
+            272.46875,
+            361.5835266113281
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6348,
+          "bbox": [
+            1898.605224609375,
+            383.719970703125,
+            342.2998046875,
+            439.413818359375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.6082,
+          "bbox": [
+            1413.604736328125,
+            44.35956573486328,
+            114.04541015625,
+            141.40350341796875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 970,
+      "timestamp": 1778287956.3947682,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6572,
+          "bbox": [
+            1267.65185546875,
+            16.071075439453125,
+            179.27685546875,
+            169.30078125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6396,
+          "bbox": [
+            1846.30859375,
+            303.47735595703125,
+            272.39306640625,
+            361.479248046875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6389,
+          "bbox": [
+            1898.87548828125,
+            383.7454833984375,
+            342.078125,
+            439.378173828125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.6098,
+          "bbox": [
+            1413.7496337890625,
+            44.197418212890625,
+            113.793212890625,
+            141.3831787109375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "person",
+          "confidence": 0.5428,
+          "bbox": [
+            584.1148681640625,
+            6.4503021240234375,
+            65.656494140625,
+            161.05252075195312
+          ],
+          "global_id": "PERSON-00004",
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "person",
+          "confidence": 0.5132,
+          "bbox": [
+            503.7581787109375,
+            4.5090484619140625,
+            70.3291015625,
+            179.6904296875
+          ],
+          "global_id": "PERSON-00004",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 6
+    },
+    {
+      "frame_number": 971,
+      "timestamp": 1778287956.6587315,
+      "detections": [
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6721,
+          "bbox": [
+            1845.787109375,
+            303.3184814453125,
+            273.20703125,
+            362.39892578125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6488,
+          "bbox": [
+            1264.103271484375,
+            7.8140106201171875,
+            179.34765625,
+            178.27932739257812
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6111,
+          "bbox": [
+            1892.0323486328125,
+            384.34063720703125,
+            350.8875732421875,
+            440.2464599609375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.61,
+          "bbox": [
+            1412.434326171875,
+            44.9989013671875,
+            114.989013671875,
+            139.41818237304688
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 972,
+      "timestamp": 1778287957.045494,
+      "detections": [
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6478,
+          "bbox": [
+            1846.00390625,
+            303.278076171875,
+            272.9775390625,
+            362.1519775390625
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "person",
+          "confidence": 0.6271,
+          "bbox": [
+            543.3751220703125,
+            4.586151123046875,
+            94.600341796875,
+            188.8472900390625
+          ],
+          "global_id": "PERSON-00002",
+          "region": "entrance"
+        },
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6215,
+          "bbox": [
+            1264.896484375,
+            8.359519958496094,
+            175.833984375,
+            177.30853271484375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6142,
+          "bbox": [
+            1894.1748046875,
+            385.04034423828125,
+            349.4072265625,
+            439.8568115234375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.594,
+          "bbox": [
+            1411.300048828125,
+            45.34168243408203,
+            115.661865234375,
+            137.61053466796875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "person",
+          "confidence": 0.5206,
+          "bbox": [
+            486.5694885253906,
+            3.65606689453125,
+            69.03683471679688,
+            198.091064453125
+          ],
+          "global_id": "PERSON-00002",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 6
+    },
+    {
+      "frame_number": 973,
+      "timestamp": 1778287957.378597,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6525,
+          "bbox": [
+            1263.91015625,
+            7.192047119140625,
+            176.34228515625,
+            178.17196655273438
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6426,
+          "bbox": [
+            1846.1240234375,
+            303.3456115722656,
+            272.68212890625,
+            361.8034362792969
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6223,
+          "bbox": [
+            1895.4527587890625,
+            385.0863037109375,
+            348.7772216796875,
+            439.9661865234375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.59,
+          "bbox": [
+            1411.663330078125,
+            45.186370849609375,
+            115.20068359375,
+            137.26220703125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 974,
+      "timestamp": 1778287957.5586386,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6498,
+          "bbox": [
+            1263.1375732421875,
+            7.343017578125,
+            177.041748046875,
+            177.2662353515625
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6231,
+          "bbox": [
+            1896.592529296875,
+            384.8273010253906,
+            347.70068359375,
+            440.1820983886719
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.5997,
+          "bbox": [
+            1847.0380859375,
+            305.5971374511719,
+            272.333984375,
+            358.2903137207031
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.5866,
+          "bbox": [
+            1411.773681640625,
+            45.53923797607422,
+            115.0244140625,
+            136.82696533203125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 975,
+      "timestamp": 1778287957.6612887,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6578,
+          "bbox": [
+            1263.9979248046875,
+            7.4432220458984375,
+            176.66943359375,
+            177.72097778320312
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6239,
+          "bbox": [
+            1893.086181640625,
+            385.5353698730469,
+            351.4169921875,
+            439.8069152832031
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6228,
+          "bbox": [
+            1846.0703125,
+            303.6661376953125,
+            273.21875,
+            362.201171875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.597,
+          "bbox": [
+            1411.842041015625,
+            45.29986572265625,
+            115.00244140625,
+            137.7626953125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 976,
+      "timestamp": 1778287957.7668412,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6596,
+          "bbox": [
+            1264.05224609375,
+            7.49029541015625,
+            176.43994140625,
+            177.74807739257812
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6405,
+          "bbox": [
+            1894.595947265625,
+            385.16693115234375,
+            349.6826171875,
+            439.8753662109375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.5977,
+          "bbox": [
+            1412.1256103515625,
+            45.33447265625,
+            114.655517578125,
+            137.67752075195312
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 216,
+          "class_name": "person",
+          "confidence": 0.5666,
+          "bbox": [
+            1846.858154296875,
+            305.4832763671875,
+            273.09912109375,
+            358.6810302734375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 977,
+      "timestamp": 1778287957.9770854,
+      "detections": [
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6663,
+          "bbox": [
+            1895.8802490234375,
+            383.988037109375,
+            349.9620361328125,
+            442.037841796875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6555,
+          "bbox": [
+            1266.27734375,
+            10.595100402832031,
+            177.5078125,
+            174.0889892578125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6041,
+          "bbox": [
+            1847.225341796875,
+            301.8177490234375,
+            273.762939453125,
+            364.37548828125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.5973,
+          "bbox": [
+            1416.539794921875,
+            44.660858154296875,
+            111.13623046875,
+            139.9063720703125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 978,
+      "timestamp": 1778287958.0880318,
+      "detections": [
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6596,
+          "bbox": [
+            1897.64404296875,
+            383.9449157714844,
+            349.1279296875,
+            441.9802551269531
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6422,
+          "bbox": [
+            1266.2340087890625,
+            10.611297607421875,
+            176.96484375,
+            174.52035522460938
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.6171,
+          "bbox": [
+            1416.7451171875,
+            44.66748809814453,
+            110.81884765625,
+            139.7315673828125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "person",
+          "confidence": 0.6036,
+          "bbox": [
+            424.4471435546875,
+            1.460906982421875,
+            89.54736328125,
+            251.27310180664062
+          ],
+          "global_id": "PERSON-00002",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 979,
+      "timestamp": 1778287958.2465506,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6673,
+          "bbox": [
+            1266.24853515625,
+            10.605430603027344,
+            176.54150390625,
+            174.40396118164062
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6473,
+          "bbox": [
+            1909.015625,
+            383.78753662109375,
+            334.7216796875,
+            439.3145751953125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.601,
+          "bbox": [
+            1417.271728515625,
+            44.67236328125,
+            110.44873046875,
+            139.10671997070312
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 3
+    },
+    {
+      "frame_number": 980,
+      "timestamp": 1778287958.355654,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6988,
+          "bbox": [
+            1266.31982421875,
+            11.739067077636719,
+            176.47509765625,
+            173.81951904296875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6129,
+          "bbox": [
+            1899.464599609375,
+            383.63531494140625,
+            346.3544921875,
+            436.9449462890625
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.5873,
+          "bbox": [
+            1414.9327392578125,
+            44.7430419921875,
+            112.87255859375,
+            140.04299926757812
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 216,
+          "class_name": "person",
+          "confidence": 0.5469,
+          "bbox": [
+            1846.802734375,
+            295.60516357421875,
+            275.1669921875,
+            371.1263427734375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 981,
+      "timestamp": 1778287958.4642634,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6687,
+          "bbox": [
+            1266.342529296875,
+            12.935226440429688,
+            175.50341796875,
+            173.06735229492188
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.633,
+          "bbox": [
+            1887.9656982421875,
+            383.412841796875,
+            357.4219970703125,
+            442.159912109375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.6049,
+          "bbox": [
+            1416.669677734375,
+            44.714332580566406,
+            110.930908203125,
+            139.5621337890625
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 489,
+          "class_name": "person",
+          "confidence": 0.5767,
+          "bbox": [
+            488.71490478515625,
+            15.784027099609375,
+            93.0721435546875,
+            269.03619384765625
+          ],
+          "global_id": "PERSON-00002",
+          "region": "entrance"
+        },
+        {
+          "track_id": 216,
+          "class_name": "person",
+          "confidence": 0.5474,
+          "bbox": [
+            1847.93017578125,
+            289.70648193359375,
+            275.109130859375,
+            376.519775390625
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 5
+    },
+    {
+      "frame_number": 982,
+      "timestamp": 1778287958.6684165,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6841,
+          "bbox": [
+            1266.6390380859375,
+            14.991424560546875,
+            177.090087890625,
+            170.82049560546875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6137,
+          "bbox": [
+            1884.4761962890625,
+            385.0008544921875,
+            360.8514404296875,
+            440.7640380859375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 216,
+          "class_name": "person",
+          "confidence": 0.6076,
+          "bbox": [
+            1847.0234375,
+            281.92791748046875,
+            276.09228515625,
+            384.6387939453125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": null,
+          "class_name": "person",
+          "confidence": 0.5949,
+          "bbox": [
+            494.5966796875,
+            15.36737060546875,
+            87.17724609375,
+            276.4072265625
+          ],
+          "global_id": "PERSON-00002",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.5797,
+          "bbox": [
+            1418.03857421875,
+            44.191558837890625,
+            109.775146484375,
+            141.29351806640625
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 5
+    },
+    {
+      "frame_number": 983,
+      "timestamp": 1778287958.8815162,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.7126,
+          "bbox": [
+            1266.326171875,
+            15.84521484375,
+            177.67626953125,
+            169.7542724609375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6393,
+          "bbox": [
+            1908.54931640625,
+            383.9414367675781,
+            334.04345703125,
+            440.2804870605469
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.5999,
+          "bbox": [
+            1418.529052734375,
+            43.720977783203125,
+            109.272705078125,
+            141.5572509765625
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 216,
+          "class_name": "person",
+          "confidence": 0.5455,
+          "bbox": [
+            1846.819091796875,
+            281.25445556640625,
+            277.046630859375,
+            385.5478515625
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 4
+    },
+    {
+      "frame_number": 984,
+      "timestamp": 1778287959.147405,
+      "detections": [
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.7153,
+          "bbox": [
+            1265.908447265625,
+            15.488632202148438,
+            178.403564453125,
+            170.414794921875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6748,
+          "bbox": [
+            1902.6163330078125,
+            383.5971374511719,
+            345.2342529296875,
+            438.3347473144531
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 216,
+          "class_name": "person",
+          "confidence": 0.6588,
+          "bbox": [
+            1845.84423828125,
+            290.5477600097656,
+            275.539306640625,
+            376.8095397949219
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.5929,
+          "bbox": [
+            1417.6512451171875,
+            44.075836181640625,
+            110.234375,
+            141.23562622070312
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 489,
+          "class_name": "person",
+          "confidence": 0.5484,
+          "bbox": [
+            450.53350830078125,
+            38.77764892578125,
+            127.11181640625,
+            305.6390380859375
+          ],
+          "global_id": "PERSON-00002",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 5
+    },
+    {
+      "frame_number": 985,
+      "timestamp": 1778287959.30457,
+      "detections": [
+        {
+          "track_id": 216,
+          "class_name": "person",
+          "confidence": 0.6887,
+          "bbox": [
+            1846.201416015625,
+            295.6119689941406,
+            275.6845703125,
+            371.0717468261719
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6861,
+          "bbox": [
+            1267.509033203125,
+            15.972930908203125,
+            176.900634765625,
+            169.42892456054688
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6772,
+          "bbox": [
+            1906.6998291015625,
+            384.56427001953125,
+            342.8328857421875,
+            435.2236328125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 489,
+          "class_name": "person",
+          "confidence": 0.664,
+          "bbox": [
+            434.94451904296875,
+            20.63336181640625,
+            136.74920654296875,
+            340.693115234375
+          ],
+          "global_id": "PERSON-00002",
+          "region": "entrance"
+        },
+        {
+          "track_id": 439,
+          "class_name": "person",
+          "confidence": 0.5808,
+          "bbox": [
+            1417.18603515625,
+            44.274505615234375,
+            109.409423828125,
+            140.55288696289062
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 492,
+          "class_name": "person",
+          "confidence": 0.5705,
+          "bbox": [
+            347.515380859375,
+            13.43914794921875,
+            98.911865234375,
+            309.08819580078125
+          ],
+          "global_id": "PERSON-00002",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 6
+    },
+    {
+      "frame_number": 986,
+      "timestamp": 1778287959.6182754,
+      "detections": [
+        {
+          "track_id": 489,
+          "class_name": "person",
+          "confidence": 0.7775,
+          "bbox": [
+            436.3509521484375,
+            39.76377868652344,
+            118.9730224609375,
+            358.17529296875
+          ],
+          "global_id": "PERSON-00002",
+          "region": "entrance"
+        },
+        {
+          "track_id": 492,
+          "class_name": "person",
+          "confidence": 0.7654,
+          "bbox": [
+            320.3222351074219,
+            23.20465087890625,
+            122.14483642578125,
+            336.6541748046875
+          ],
+          "global_id": "PERSON-00002",
+          "region": "entrance"
+        },
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6835,
+          "bbox": [
+            1267.140625,
+            15.56939697265625,
+            176.7060546875,
+            169.90426635742188
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 216,
+          "class_name": "person",
+          "confidence": 0.6737,
+          "bbox": [
+            1846.1689453125,
+            294.746337890625,
+            276.735107421875,
+            371.581787109375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6656,
+          "bbox": [
+            1905.347900390625,
+            385.0062561035156,
+            343.6552734375,
+            434.5744323730469
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.5836,
+          "bbox": [
+            1416.2041015625,
+            44.050697326660156,
+            110.45556640625,
+            140.965087890625
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 6
+    },
+    {
+      "frame_number": 987,
+      "timestamp": 1778287959.7173412,
+      "detections": [
+        {
+          "track_id": 489,
+          "class_name": "person",
+          "confidence": 0.8275,
+          "bbox": [
+            423.67413330078125,
+            46.97601318359375,
+            144.55908203125,
+            361.24920654296875
+          ],
+          "global_id": "PERSON-00002",
+          "region": "entrance"
+        },
+        {
+          "track_id": 492,
+          "class_name": "person",
+          "confidence": 0.7293,
+          "bbox": [
+            305.6937255859375,
+            29.63873291015625,
+            125.176513671875,
+            347.6505126953125
+          ],
+          "global_id": "PERSON-00002",
+          "region": "entrance"
+        },
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6863,
+          "bbox": [
+            1266.7578125,
+            16.05322265625,
+            176.916015625,
+            169.4234619140625
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6783,
+          "bbox": [
+            1905.5167236328125,
+            384.85205078125,
+            344.0447998046875,
+            435.1588134765625
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 216,
+          "class_name": "person",
+          "confidence": 0.6622,
+          "bbox": [
+            1846.223876953125,
+            300.19464111328125,
+            276.18994140625,
+            365.8712158203125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.5649,
+          "bbox": [
+            1414.56982421875,
+            44.22392272949219,
+            112.1806640625,
+            140.7772216796875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 6
+    },
+    {
+      "frame_number": 988,
+      "timestamp": 1778287959.8226063,
+      "detections": [
+        {
+          "track_id": 489,
+          "class_name": "person",
+          "confidence": 0.8517,
+          "bbox": [
+            420.4837646484375,
+            54.755218505859375,
+            159.0244140625,
+            385.82733154296875
+          ],
+          "global_id": "PERSON-00002",
+          "region": "entrance"
+        },
+        {
+          "track_id": 492,
+          "class_name": "person",
+          "confidence": 0.7971,
+          "bbox": [
+            308.5863952636719,
+            38.874267578125,
+            120.5433349609375,
+            353.7686767578125
+          ],
+          "global_id": "PERSON-00002",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6882,
+          "bbox": [
+            1906.06591796875,
+            385.0429382324219,
+            343.3701171875,
+            434.7507629394531
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6847,
+          "bbox": [
+            1266.7957763671875,
+            15.759689331054688,
+            177.07177734375,
+            170.06765747070312
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 216,
+          "class_name": "person",
+          "confidence": 0.655,
+          "bbox": [
+            1846.236572265625,
+            297.27667236328125,
+            275.84423828125,
+            368.6474609375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.5677,
+          "bbox": [
+            1414.89404296875,
+            44.303680419921875,
+            112.0009765625,
+            140.87847900390625
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 6
+    },
+    {
+      "frame_number": 989,
+      "timestamp": 1778287960.0298097,
+      "detections": [
+        {
+          "track_id": 489,
+          "class_name": "person",
+          "confidence": 0.7658,
+          "bbox": [
+            393.98663330078125,
+            62.39906311035156,
+            160.719482421875,
+            386.8782958984375
+          ],
+          "global_id": "PERSON-00002",
+          "region": "entrance"
+        },
+        {
+          "track_id": 492,
+          "class_name": "person",
+          "confidence": 0.7142,
+          "bbox": [
+            300.7828369140625,
+            37.665069580078125,
+            121.061767578125,
+            373.01983642578125
+          ],
+          "global_id": "PERSON-00002",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.7013,
+          "bbox": [
+            1906.429443359375,
+            385.2054138183594,
+            342.63037109375,
+            434.7861633300781
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6869,
+          "bbox": [
+            1265.31884765625,
+            15.642974853515625,
+            178.59033203125,
+            169.93942260742188
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 216,
+          "class_name": "person",
+          "confidence": 0.6835,
+          "bbox": [
+            1845.726806640625,
+            301.3033447265625,
+            276.68798828125,
+            364.9639892578125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.5911,
+          "bbox": [
+            1414.220458984375,
+            44.43043518066406,
+            112.489501953125,
+            140.29849243164062
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 6
+    },
+    {
+      "frame_number": 990,
+      "timestamp": 1778287960.1554198,
+      "detections": [
+        {
+          "track_id": 489,
+          "class_name": "person",
+          "confidence": 0.7763,
+          "bbox": [
+            380.6934814453125,
+            74.53125,
+            175.27081298828125,
+            395.8642578125
+          ],
+          "global_id": "PERSON-00002",
+          "region": "entrance"
+        },
+        {
+          "track_id": 216,
+          "class_name": "person",
+          "confidence": 0.7118,
+          "bbox": [
+            1846.018310546875,
+            300.5340576171875,
+            276.443603515625,
+            365.5655517578125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.703,
+          "bbox": [
+            1898.184814453125,
+            383.72674560546875,
+            350.63232421875,
+            440.440673828125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 492,
+          "class_name": "person",
+          "confidence": 0.6863,
+          "bbox": [
+            293.60675048828125,
+            45.76312255859375,
+            131.2333984375,
+            346.8831787109375
+          ],
+          "global_id": "PERSON-00002",
+          "region": "entrance"
+        },
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6801,
+          "bbox": [
+            1265.28173828125,
+            15.75885009765625,
+            179.1845703125,
+            169.99618530273438
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.5806,
+          "bbox": [
+            1413.7490234375,
+            44.4573974609375,
+            112.89501953125,
+            140.5224609375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 6
+    },
+    {
+      "frame_number": 991,
+      "timestamp": 1778287960.2598157,
+      "detections": [
+        {
+          "track_id": 489,
+          "class_name": "person",
+          "confidence": 0.7915,
+          "bbox": [
+            389.0845947265625,
+            81.5150146484375,
+            153.589599609375,
+            398.1148681640625
+          ],
+          "global_id": "PERSON-00002",
+          "region": "entrance"
+        },
+        {
+          "track_id": 216,
+          "class_name": "person",
+          "confidence": 0.7245,
+          "bbox": [
+            1847.122314453125,
+            305.536865234375,
+            273.774658203125,
+            362.1943359375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6981,
+          "bbox": [
+            1896.230712890625,
+            384.3223876953125,
+            352.51953125,
+            439.6866455078125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6725,
+          "bbox": [
+            1264.706787109375,
+            15.918685913085938,
+            179.82421875,
+            169.11676025390625
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 492,
+          "class_name": "person",
+          "confidence": 0.6616,
+          "bbox": [
+            282.23779296875,
+            50.019775390625,
+            125.784423828125,
+            373.06964111328125
+          ],
+          "global_id": "PERSON-00002",
+          "region": "entrance"
+        },
+        {
+          "track_id": 439,
+          "class_name": "person",
+          "confidence": 0.5993,
+          "bbox": [
+            1414.14697265625,
+            44.54468536376953,
+            112.5927734375,
+            140.38104248046875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 6
+    },
+    {
+      "frame_number": 992,
+      "timestamp": 1778287960.3643112,
+      "detections": [
+        {
+          "track_id": 489,
+          "class_name": "person",
+          "confidence": 0.7981,
+          "bbox": [
+            399.82958984375,
+            81.157958984375,
+            146.94744873046875,
+            407.39697265625
+          ],
+          "global_id": "PERSON-00002",
+          "region": "entrance"
+        },
+        {
+          "track_id": 492,
+          "class_name": "person",
+          "confidence": 0.722,
+          "bbox": [
+            261.8135070800781,
+            47.319122314453125,
+            134.9290771484375,
+            395.4923095703125
+          ],
+          "global_id": "PERSON-00002",
+          "region": "entrance"
+        },
+        {
+          "track_id": 216,
+          "class_name": "person",
+          "confidence": 0.7089,
+          "bbox": [
+            1846.29833984375,
+            304.9251708984375,
+            275.23583984375,
+            361.26416015625
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6975,
+          "bbox": [
+            1898.2137451171875,
+            384.7232666015625,
+            349.8614501953125,
+            439.2767333984375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6534,
+          "bbox": [
+            1264.2655029296875,
+            16.475112915039062,
+            180.815673828125,
+            168.61892700195312
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 439,
+          "class_name": "person",
+          "confidence": 0.6102,
+          "bbox": [
+            1415.269287109375,
+            43.82569122314453,
+            111.68310546875,
+            141.6729736328125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 6
+    },
+    {
+      "frame_number": 993,
+      "timestamp": 1778287960.4631577,
+      "detections": [
+        {
+          "track_id": 492,
+          "class_name": "person",
+          "confidence": 0.8106,
+          "bbox": [
+            251.61477661132812,
+            57.17333984375,
+            148.2926025390625,
+            417.384765625
+          ],
+          "global_id": "PERSON-00002",
+          "region": "entrance"
+        },
+        {
+          "track_id": 489,
+          "class_name": "person",
+          "confidence": 0.7963,
+          "bbox": [
+            383.25341796875,
+            89.21784973144531,
+            169.8453369140625,
+            444.8681640625
+          ],
+          "global_id": "PERSON-00002",
+          "region": "entrance"
+        },
+        {
+          "track_id": 216,
+          "class_name": "person",
+          "confidence": 0.7105,
+          "bbox": [
+            1846.348876953125,
+            305.1705322265625,
+            275.393310546875,
+            360.9892578125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.688,
+          "bbox": [
+            1898.81298828125,
+            385.0849304199219,
+            349.3369140625,
+            438.7578430175781
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6657,
+          "bbox": [
+            1264.823486328125,
+            16.350006103515625,
+            180.4169921875,
+            168.44564819335938
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 439,
+          "class_name": "person",
+          "confidence": 0.5945,
+          "bbox": [
+            1411.31103515625,
+            43.63087463378906,
+            116.50927734375,
+            141.62997436523438
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 6
+    },
+    {
+      "frame_number": 994,
+      "timestamp": 1778287960.561414,
+      "detections": [
+        {
+          "track_id": 489,
+          "class_name": "person",
+          "confidence": 0.854,
+          "bbox": [
+            347.076904296875,
+            102.32000732421875,
+            185.20550537109375,
+            451.96844482421875
+          ],
+          "global_id": "PERSON-00004",
+          "region": "entrance"
+        },
+        {
+          "track_id": 492,
+          "class_name": "person",
+          "confidence": 0.7042,
+          "bbox": [
+            246.56373596191406,
+            66.39491271972656,
+            139.56236267089844,
+            440.665771484375
+          ],
+          "global_id": "PERSON-00002",
+          "region": "entrance"
+        },
+        {
+          "track_id": 216,
+          "class_name": "person",
+          "confidence": 0.6995,
+          "bbox": [
+            1846.341552734375,
+            305.83953857421875,
+            275.16015625,
+            360.1463623046875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6907,
+          "bbox": [
+            1899.4022216796875,
+            385.1505126953125,
+            348.5782470703125,
+            438.5833740234375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6583,
+          "bbox": [
+            1265.254150390625,
+            17.216217041015625,
+            180.80859375,
+            166.8265380859375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 5
+    },
+    {
+      "frame_number": 995,
+      "timestamp": 1778287960.7129135,
+      "detections": [
+        {
+          "track_id": 489,
+          "class_name": "person",
+          "confidence": 0.8008,
+          "bbox": [
+            323.88385009765625,
+            107.99076843261719,
+            188.0389404296875,
+            453.2427978515625
+          ],
+          "global_id": "PERSON-00004",
+          "region": "entrance"
+        },
+        {
+          "track_id": 216,
+          "class_name": "person",
+          "confidence": 0.7145,
+          "bbox": [
+            1846.787841796875,
+            307.7867126464844,
+            272.912353515625,
+            360.7087707519531
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.7119,
+          "bbox": [
+            1899.1204833984375,
+            385.7389831542969,
+            348.0841064453125,
+            439.4162902832031
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6789,
+          "bbox": [
+            1265.0166015625,
+            17.566184997558594,
+            181.358154296875,
+            165.512939453125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 492,
+          "class_name": "person",
+          "confidence": 0.6574,
+          "bbox": [
+            237.96844482421875,
+            74.428955078125,
+            122.2626953125,
+            420.0985107421875
+          ],
+          "global_id": "PERSON-00002",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.5529,
+          "bbox": [
+            1416.599609375,
+            45.723297119140625,
+            113.810546875,
+            140.23577880859375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 6
+    },
+    {
+      "frame_number": 996,
+      "timestamp": 1778287960.8663013,
+      "detections": [
+        {
+          "track_id": 489,
+          "class_name": "person",
+          "confidence": 0.847,
+          "bbox": [
+            307.9832763671875,
+            138.43214416503906,
+            195.1865234375,
+            476.54443359375
+          ],
+          "global_id": "PERSON-00004",
+          "region": "entrance"
+        },
+        {
+          "track_id": 492,
+          "class_name": "person",
+          "confidence": 0.7306,
+          "bbox": [
+            217.62893676757812,
+            66.76318359375,
+            119.49627685546875,
+            481.05010986328125
+          ],
+          "global_id": "PERSON-00002",
+          "region": "entrance"
+        },
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6974,
+          "bbox": [
+            1265.1192626953125,
+            17.456932067871094,
+            183.0888671875,
+            165.0625
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6739,
+          "bbox": [
+            1901.96435546875,
+            386.6040344238281,
+            344.5205078125,
+            438.4250183105469
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.5813,
+          "bbox": [
+            1846.92041015625,
+            303.9247131347656,
+            278.5244140625,
+            365.3185729980469
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.5452,
+          "bbox": [
+            1415.238525390625,
+            45.51642608642578,
+            115.71728515625,
+            140.82952880859375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 6
+    },
+    {
+      "frame_number": 997,
+      "timestamp": 1778287960.9163218,
+      "detections": [
+        {
+          "track_id": 489,
+          "class_name": "person",
+          "confidence": 0.8315,
+          "bbox": [
+            308.16839599609375,
+            140.42401123046875,
+            185.324462890625,
+            477.55133056640625
+          ],
+          "global_id": "PERSON-00004",
+          "region": "entrance"
+        },
+        {
+          "track_id": 492,
+          "class_name": "person",
+          "confidence": 0.7688,
+          "bbox": [
+            207.66635131835938,
+            86.845947265625,
+            130.9625244140625,
+            461.779296875
+          ],
+          "global_id": "PERSON-00002",
+          "region": "entrance"
+        },
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6914,
+          "bbox": [
+            1265.441162109375,
+            17.65313720703125,
+            183.094970703125,
+            164.693359375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6675,
+          "bbox": [
+            1902.16552734375,
+            386.0595703125,
+            344.69677734375,
+            438.9603271484375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6138,
+          "bbox": [
+            1846.223388671875,
+            302.188232421875,
+            276.80908203125,
+            366.21044921875
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 238,
+          "class_name": "person",
+          "confidence": 0.5586,
+          "bbox": [
+            1410.302978515625,
+            45.374267578125,
+            120.013671875,
+            140.66351318359375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 6
+    },
+    {
+      "frame_number": 998,
+      "timestamp": 1778287961.2843497,
+      "detections": [
+        {
+          "track_id": 489,
+          "class_name": "person",
+          "confidence": 0.8366,
+          "bbox": [
+            246.87142944335938,
+            180.93121337890625,
+            214.00115966796875,
+            530.9833374023438
+          ],
+          "global_id": "PERSON-00004",
+          "region": "entrance"
+        },
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.6877,
+          "bbox": [
+            1264.9390869140625,
+            18.467864990234375,
+            181.593994140625,
+            164.40890502929688
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6541,
+          "bbox": [
+            1910.413330078125,
+            382.1458740234375,
+            331.03173828125,
+            439.8692626953125
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6094,
+          "bbox": [
+            1848.4248046875,
+            302.9039611816406,
+            273.92919921875,
+            362.3446960449219
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 492,
+          "class_name": "person",
+          "confidence": 0.5903,
+          "bbox": [
+            157.901123046875,
+            126.14134216308594,
+            105.67156982421875,
+            393.531005859375
+          ],
+          "global_id": "PERSON-00002",
+          "region": "entrance"
+        },
+        {
+          "track_id": 439,
+          "class_name": "person",
+          "confidence": 0.5696,
+          "bbox": [
+            1418.369873046875,
+            44.491729736328125,
+            112.01513671875,
+            141.34164428710938
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 6
+    },
+    {
+      "frame_number": 999,
+      "timestamp": 1778287961.5535996,
+      "detections": [
+        {
+          "track_id": 489,
+          "class_name": "person",
+          "confidence": 0.8655,
+          "bbox": [
+            206.4825439453125,
+            206.28671264648438,
+            233.43829345703125,
+            587.288330078125
+          ],
+          "global_id": "PERSON-00004",
+          "region": "entrance"
+        },
+        {
+          "track_id": 192,
+          "class_name": "person",
+          "confidence": 0.7076,
+          "bbox": [
+            1265.546142578125,
+            19.92645263671875,
+            180.151611328125,
+            164.18991088867188
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 216,
+          "class_name": "person",
+          "confidence": 0.6784,
+          "bbox": [
+            1847.04443359375,
+            300.1046142578125,
+            274.79296875,
+            366.6077880859375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 380,
+          "class_name": "person",
+          "confidence": 0.6446,
+          "bbox": [
+            1890.7647705078125,
+            382.6398010253906,
+            354.5848388671875,
+            441.2873229980469
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        },
+        {
+          "track_id": 492,
+          "class_name": "person",
+          "confidence": 0.6381,
+          "bbox": [
+            118.03545379638672,
+            153.2894287109375,
+            139.31231689453125,
+            519.50048828125
+          ],
+          "global_id": "PERSON-00005",
+          "region": "entrance"
+        },
+        {
+          "track_id": 439,
+          "class_name": "person",
+          "confidence": 0.54,
+          "bbox": [
+            1416.41552734375,
+            45.169395446777344,
+            113.2587890625,
+            140.79730224609375
+          ],
+          "global_id": "PERSON-00003",
+          "region": "entrance"
+        }
+      ],
+      "detection_count": 6
+    }
+  ],
+  "video_file": "storage\\footage\\camera_7_1778287953.mp4",
+  "camera_id": 7,
+  "model": "C:\\Users\\zeera\\Desktop\\New folder\\FYP\\backend\\model_weight\\yolo11n.pt",
+  "start_time": "2026-05-09T00:52:33.168341+00:00",
+  "end_time": "2026-05-09T00:52:41.874858+00:00",
+  "total_frames": 56
+}
