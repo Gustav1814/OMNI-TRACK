@@ -28,12 +28,14 @@ import VibePage from './pages/VibePage';
 import PeakHoursPage from './pages/PeakHoursPage';
 import DemographicsPage from './pages/DemographicsPage';
 import SecurityPage from './pages/SecurityPage';
+import TrimPage from './pages/TrimPage';
 
 const pageTitles = {
     '/': 'Live Overview',
     '/detection': 'Video Feeds',
     '/reid': 'Cross-Feed Matching',
     '/synopsis': 'Highlights Reel',
+    '/trim': 'Video Trimmer',
     '/shelf': 'Shelf Activity',
     '/fire': 'Safety Watch',
     '/crowd': 'Footfall',
@@ -116,6 +118,7 @@ function ProtectedLayout() {
                             <Route path="/detection" element={<DetectionPage />} />
                             <Route path="/reid" element={<ReIDPage />} />
                             <Route path="/synopsis" element={<SynopsisPage />} />
+                            <Route path="/trim" element={<TrimPage />} />
                             <Route path="/shelf" element={<ShelfPage />} />
                             <Route path="/fire" element={<FirePage />} />
                             <Route path="/crowd" element={<CrowdPage />} />

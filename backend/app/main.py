@@ -67,7 +67,7 @@ from app.services.export import ExportService
 from app.services.persistence import PersistencePipelineCallback
 
 # Routers
-from app.routers import auth, cameras, detection, reid, footage
+from app.routers import auth, cameras, detection, reid, footage, model
 from app.routers.analytics import (
     synopsis_router,
     shelf_router,
@@ -142,12 +142,15 @@ async def lifespan(app: FastAPI):
     logger.info("  OmniTrack AI — Starting Up")
     logger.info("═" * 60)
 
-    # 1. Ensure pgvector extension, then create database tables
+    # 1. Ensure pgvector extension (PostgreSQL only), then create database tables
     try:
         async with engine.begin() as conn:
-            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            # Only create pgvector extension for PostgreSQL (not SQLite)
+            if settings.DATABASE_URL.startswith("postgresql"):
+                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+                logger.info("✅ pgvector extension enabled")
             await conn.run_sync(Base.metadata.create_all)
-        logger.info("✅ Database tables ready (pgvector enabled)")
+        logger.info("✅ Database tables ready")
     except Exception as e:
         logger.error(f"❌ Database error: {e}")
         logger.warning("   → Running without database (using mock data)")
@@ -253,6 +256,7 @@ app.include_router(cameras.router)
 app.include_router(detection.router)
 app.include_router(reid.router)
 app.include_router(footage.router)
+app.include_router(model.router)
 # Analytics sub-routers (each has its own prefix in analytics.py)
 app.include_router(synopsis_router)
 app.include_router(shelf_router)

@@ -27,6 +27,8 @@ class BBox:
     class_id: int = 0
     class_name: str = "person"
     track_id: Optional[int] = None
+    # Pose keypoints: list of [x, y, confidence] triplets (COCO-17 for YOLO pose models)
+    keypoints: Optional[List[List[float]]] = None
 
 
 class PersonDetector:
@@ -57,39 +59,66 @@ class PersonDetector:
             return
         try:
             self.model = YOLO(self.model_path)
-            logger.info(f"Loaded YOLO model: {self.model_path}")
+            # Detect pose model from filename or task attribute
+            self.is_pose_model = "pose" in str(self.model_path).lower() or \
+                getattr(self.model, "task", "") == "pose"
+            logger.info(f"Loaded YOLO model: {self.model_path} (pose={self.is_pose_model})")
         except Exception as e:
             logger.error(f"Failed to load YOLO model: {e}")
             self.model = None
+            self.is_pose_model = False
+
+    def get_class_names(self) -> Dict[int, str]:
+        """Get all class names that this model can detect."""
+        if self.model is None:
+            return {0: "person"}  # Default fallback
+        return self.model.names
 
     def detect(self, frame: np.ndarray) -> List[BBox]:
         """Run detection on a single frame. Returns list of BBox."""
         if self.model is None:
             return self._mock_detect(frame)
 
-        results = self.model.predict(
+        # Pose models use all classes (typically just person), detection models filter
+        predict_kwargs = dict(
             source=frame,
             conf=self.confidence,
             iou=self.nms_threshold,
-            classes=self.classes,
             verbose=False,
         )
+        if not getattr(self, "is_pose_model", False):
+            predict_kwargs["classes"] = self.classes
+        results = self.model.predict(**predict_kwargs)
 
         detections = []
         for result in results:
             if result.boxes is None:
                 continue
-            for box in result.boxes:
+            # Extract keypoints if pose model — shape: (N, 17, 3) [x, y, conf]
+            kpts_data = None
+            if getattr(self, "is_pose_model", False) and getattr(result, "keypoints", None) is not None:
+                try:
+                    kpts_data = result.keypoints.data.cpu().numpy()  # (N, K, 3)
+                except Exception:
+                    kpts_data = None
+
+            for i, box in enumerate(result.boxes):
                 xyxy = box.xyxy[0].cpu().numpy()
                 x1, y1, x2, y2 = xyxy
+                class_id = int(box.cls[0])
+                class_name = self.model.names.get(class_id, f"class_{class_id}") if self.model else "person"
+                kpts = None
+                if kpts_data is not None and i < len(kpts_data):
+                    kpts = [[float(p[0]), float(p[1]), float(p[2])] for p in kpts_data[i]]
                 detections.append(BBox(
                     x=float(x1),
                     y=float(y1),
                     w=float(x2 - x1),
                     h=float(y2 - y1),
                     confidence=float(box.conf[0]),
-                    class_id=int(box.cls[0]),
-                    class_name="person",
+                    class_id=class_id,
+                    class_name=class_name,
+                    keypoints=kpts,
                 ))
         return detections
 

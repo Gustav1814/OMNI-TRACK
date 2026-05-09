@@ -34,7 +34,9 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
 
     # --- AI Models ---
-    YOLO_MODEL: str = "yolov8n.pt"           # YOLOv8 person detection model
+    MODEL_WEIGHTS_DIR: str = "model_weight"  # Directory containing YOLO .pt files
+    DEFAULT_YOLO_MODEL: str = "yolov8n.pt"   # Default model if none selected
+    YOLO_MODEL: str = "yolov8n.pt"           # YOLOv8 person detection model (legacy)
     FIRE_MODEL: str = "yolov8n.pt"           # Fire/smoke detection model (you can train custom)
     REID_MODEL: str = "osnet_x1_0"           # Re-ID model (from torchreid)
     REID_SIMILARITY_THRESHOLD: float = 0.6   # Cosine similarity threshold (higher = stricter; use 0.65–0.75 if many similar-looking people)

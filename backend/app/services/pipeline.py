@@ -41,6 +41,7 @@ WHAT YOU NEED:
 
 import asyncio
 import time
+import json
 import numpy as np
 import cv2
 from typing import Dict, List, Optional, Any, Callable, Tuple
@@ -181,11 +182,13 @@ class ProcessingPipeline:
         logger.info("Initializing AI modules...")
 
         self._detector_model = detector_model
-        self.detector = PersonDetector(
-            model_path=detector_model,
-            confidence=confidence,
-            device=device,
-        )
+        self._detector_confidence = confidence
+        self._detector_device = device
+        # Cache of detectors by model path (allows per-camera model selection)
+        self._detectors: Dict[str, PersonDetector] = {}
+        self._camera_models: Dict[int, str] = {}  # camera_id -> model_path
+        # Initialize default detector
+        self.detector = self._get_or_create_detector(detector_model)
         # Per-camera trackers: each feed has its own ByteTrack state (local track IDs per camera).
         # Global identity across cameras is resolved by Re-ID, not by the tracker.
         self._trackers: Dict[int, MultiObjectTracker] = {}
@@ -222,6 +225,11 @@ class ProcessingPipeline:
         self._jpeg_lock = threading.Lock()
         # Per-camera recording: camera_id -> (VideoWriter, output_path)
         self._recorders: Dict[int, tuple] = {}
+        # Per-camera detection logs: camera_id -> {"log_path": Path, "frames": []}
+        self._detection_logs: Dict[int, Dict[str, Any]] = {}
+        # Ensure logs directory exists
+        self._logs_dir = Path("storage/logs")
+        self._logs_dir.mkdir(parents=True, exist_ok=True)
         # camera_id -> zone_name (set at add_camera, used by analytics snapshot)
         self._camera_zones: Dict[int, str] = {}
         # Detections counter — powers dashboard "total_detections_today"
@@ -248,6 +256,17 @@ class ProcessingPipeline:
     # CAMERA MANAGEMENT
     # ─────────────────────────────────────────────────────────────
 
+    def _get_or_create_detector(self, model_path: str) -> PersonDetector:
+        """Get cached detector or create new one for the given model path."""
+        if model_path not in self._detectors:
+            logger.info(f"Creating detector for model: {model_path}")
+            self._detectors[model_path] = PersonDetector(
+                model_path=model_path,
+                confidence=self._detector_confidence,
+                device=self._detector_device,
+            )
+        return self._detectors[model_path]
+
     def add_camera(
         self,
         camera_id: int,
@@ -257,6 +276,7 @@ class ProcessingPipeline:
         fps: int = 30,
         skip_frames: int = 1,
         roi: Optional[Dict] = None,
+        model_path: Optional[str] = None,
     ):
         """
         Register a camera for processing.
@@ -291,9 +311,15 @@ class ProcessingPipeline:
         self.stream_manager.add_camera(config)
         self._frame_counts[camera_id] = 0
         self._camera_zones[camera_id] = zone
+        # Store model assignment for this camera (default if not specified)
+        effective_model = model_path or self._detector_model
+        self._camera_models[camera_id] = effective_model
+        # Create detector for this model if not exists
+        self._get_or_create_detector(effective_model)
+        
         # One tracker per camera so local track IDs are per-feed; Re-ID assigns global_id across cameras.
         if camera_id not in self._trackers:
-            self._trackers[camera_id] = MultiObjectTracker(model_path=self._detector_model)
+            self._trackers[camera_id] = MultiObjectTracker(model_path=effective_model)
 
         # Register zone in crowd density (one zone per camera).
         self.crowd.configure_zone(zone, camera_id=camera_id, max_capacity=50)
@@ -317,6 +343,7 @@ class ProcessingPipeline:
         self._frame_counts.pop(camera_id, None)
         self._results_buffer.pop(camera_id, None)
         self._trackers.pop(camera_id, None)
+        self._camera_models.pop(camera_id, None)  # Clean up model assignment
         zone = self._camera_zones.pop(camera_id, None)
         self._last_global_by_track = {k: v for k, v in self._last_global_by_track.items() if k[0] != camera_id}
         try:
@@ -338,7 +365,26 @@ class ProcessingPipeline:
             writer.release()
         except Exception:
             pass
+        # Flush detection log to JSON
+        self._flush_detection_log(camera_id)
         return str(path)
+
+    def _flush_detection_log(self, camera_id: int):
+        """Write accumulated detection log frames to a JSON file."""
+        log_data = self._detection_logs.pop(camera_id, None)
+        if not log_data:
+            return
+        log_path = log_data.pop("log_path", None)
+        if not log_path:
+            return
+        log_data["end_time"] = datetime.now(timezone.utc).isoformat()
+        log_data["total_frames"] = len(log_data.get("frames", []))
+        try:
+            with open(str(log_path), "w", encoding="utf-8") as f:
+                json.dump(log_data, f, indent=2, default=str)
+            logger.info(f"Detection log saved: {log_path} ({log_data['total_frames']} frames)")
+        except Exception as e:
+            logger.error(f"Failed to save detection log: {e}")
 
     def start_recording(self, camera_id: int) -> Dict[str, Any]:
         """
@@ -360,15 +406,29 @@ class ProcessingPipeline:
             logger.error(f"Failed to create recorder for camera {camera_id}")
             return {"recording": False, "error": "Failed to create video file"}
         self._recorders[camera_id] = (writer, out_path)
+        # Start detection log with same name as video but .json in storage/logs
+        log_path = self._logs_dir / f"{out_path.stem}.json"
+        self._detection_logs[camera_id] = {
+            "log_path": log_path,
+            "frames": [],
+            "video_file": str(out_path),
+            "camera_id": camera_id,
+            "model": self._camera_models.get(camera_id, self._detector_model),
+            "start_time": datetime.now(timezone.utc).isoformat(),
+        }
         logger.info(f"Recording started for camera {camera_id} -> {out_path}")
-        return {"recording": True, "path": str(out_path), "camera_id": camera_id}
+        logger.info(f"Detection log started -> {log_path}")
+        return {"recording": True, "path": str(out_path), "log_path": str(log_path), "camera_id": camera_id}
 
     def stop_recording(self, camera_id: int) -> Dict[str, Any]:
         """Stop recording and save the clip to footage storage."""
+        # Capture log path before stopping (flush will pop it)
+        log_info = self._detection_logs.get(camera_id)
+        log_path = str(log_info["log_path"]) if log_info else None
         path = self._stop_recording_impl(camera_id)
         if path:
             logger.info(f"Recording stopped for camera {camera_id} -> {path}")
-            return {"recording": False, "saved": path, "camera_id": camera_id}
+            return {"recording": False, "saved": path, "log_path": log_path, "camera_id": camera_id}
         return {"recording": False, "message": f"Camera {camera_id} was not recording"}
 
     def get_recording_status(self) -> Dict[str, Any]:
@@ -391,15 +451,17 @@ class ProcessingPipeline:
                 "confidence": float(det.confidence),
                 "class_name": det.class_name,
                 "track_id": det.track_id if det.track_id is not None else track_id,
+                "keypoints": det.keypoints,
             }
         bbox = det.get("bbox") or det.get("box") or []
         if len(bbox) < 4:
-            return {"bbox": [0.0, 0.0, 0.0, 0.0], "confidence": 0.0, "class_name": "person", "track_id": track_id}
+            return {"bbox": [0.0, 0.0, 0.0, 0.0], "confidence": 0.0, "class_name": "person", "track_id": track_id, "keypoints": None}
         return {
             "bbox": [float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])],
             "confidence": float(det.get("confidence", 0.0)),
             "class_name": str(det.get("class_name", "person")),
             "track_id": det.get("track_id", track_id),
+            "keypoints": det.get("keypoints"),
         }
 
     @staticmethod
@@ -647,15 +709,19 @@ class ProcessingPipeline:
             self._frame_counts[cam_id] = self._frame_counts.get(cam_id, 0) + 1
             frame_num = self._frame_counts[cam_id]
 
+            # Get the correct detector for this camera (supports per-camera model selection)
+            camera_model = self._camera_models.get(cam_id, self._detector_model)
+            detector = self._get_or_create_detector(camera_model)
+            
             # Detect persons
             raw_detections = await asyncio.to_thread(
-                self.detector.detect, frame
+                detector.detect, frame
             )
 
             # Track persons (per-camera ByteTrack: local IDs for this feed only)
             tracker = self._trackers.get(cam_id)
             if tracker is None:
-                tracker = MultiObjectTracker(model_path=self._detector_model)
+                tracker = MultiObjectTracker(model_path=camera_model)
                 self._trackers[cam_id] = tracker
             tracks = await asyncio.to_thread(tracker.update, frame)
             all_tracks[cam_id] = tracks
@@ -876,6 +942,30 @@ class ProcessingPipeline:
                         writer, _ = rec
                         if writer.isOpened():
                             writer.write(vis)
+                    # Append detection log entry for this frame
+                    log_entry = self._detection_logs.get(cam_id)
+                    if log_entry is not None:
+                        frame_log = {
+                            "frame_number": r.frame_number,
+                            "timestamp": r.timestamp,
+                            "detections": [],
+                        }
+                        for det in r.detections:
+                            d = det if isinstance(det, dict) else self._detection_to_dict(det)
+                            reid_match = next(
+                                (m for m in r.reid_matches if m.get("track_id") == d.get("track_id")),
+                                None
+                            )
+                            frame_log["detections"].append({
+                                "track_id": d.get("track_id"),
+                                "class_name": d.get("class_name", "unknown"),
+                                "confidence": round(d.get("confidence", 0.0), 4),
+                                "bbox": d.get("bbox", []),
+                                "global_id": reid_match.get("global_id") if reid_match else None,
+                                "region": self._camera_zones.get(cam_id, "global"),
+                            })
+                        frame_log["detection_count"] = len(frame_log["detections"])
+                        log_entry["frames"].append(frame_log)
                 except Exception as e:
                     logger.debug(f"Annotation draw error cam {cam_id}: {e}")
 
@@ -884,39 +974,121 @@ class ProcessingPipeline:
 
         return results
 
+    # COCO-17 keypoint skeleton edges (Ultralytics pose models)
+    _POSE_SKELETON = [
+        (5, 7), (7, 9), (6, 8), (8, 10),         # arms
+        (11, 13), (13, 15), (12, 14), (14, 16),  # legs
+        (5, 6), (11, 12), (5, 11), (6, 12),      # torso
+        (0, 1), (0, 2), (1, 3), (2, 4),          # face
+        (0, 5), (0, 6),                           # neck-shoulders
+    ]
+    # Colors per joint group (BGR): face=yellow, arms=cyan, legs=magenta, torso=green
+    _POSE_KP_COLORS = {
+        **{i: (0, 255, 255) for i in range(0, 5)},      # face: nose, eyes, ears
+        **{i: (255, 200, 0) for i in [5, 6, 7, 8, 9, 10]},  # arms
+        **{i: (255, 0, 255) for i in [11, 12, 13, 14, 15, 16]},  # legs
+    }
+
+    @staticmethod
+    def _color_for_track(track_id: Optional[int]) -> Tuple[int, int, int]:
+        """Deterministic vivid color (BGR) for a track_id. Same ID -> same color across frames."""
+        if track_id is None:
+            return (0, 255, 0)  # green for untracked
+        # Hash to HSV hue, full saturation/value for visibility
+        hue = (int(track_id) * 47) % 180  # OpenCV hue range: 0-179
+        hsv = np.uint8([[[hue, 220, 255]]])
+        bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)[0][0]
+        return (int(bgr[0]), int(bgr[1]), int(bgr[2]))
+
+    def _draw_pose_skeleton(self, frame: np.ndarray, keypoints: List[List[float]], color: Tuple[int, int, int]):
+        """Draw COCO-17 pose skeleton on frame. keypoints: list of [x, y, conf]."""
+        if not keypoints or len(keypoints) < 17:
+            return
+        kp_thresh = 0.3
+        # Draw bones
+        for a, b in self._POSE_SKELETON:
+            if a >= len(keypoints) or b >= len(keypoints):
+                continue
+            ka, kb = keypoints[a], keypoints[b]
+            if ka[2] < kp_thresh or kb[2] < kp_thresh:
+                continue
+            pa = (int(ka[0]), int(ka[1]))
+            pb = (int(kb[0]), int(kb[1]))
+            cv2.line(frame, pa, pb, color, 2, cv2.LINE_AA)
+        # Draw joints
+        for i, kp in enumerate(keypoints):
+            if kp[2] < kp_thresh:
+                continue
+            cx, cy = int(kp[0]), int(kp[1])
+            joint_color = self._POSE_KP_COLORS.get(i, color)
+            cv2.circle(frame, (cx, cy), 3, joint_color, -1, cv2.LINE_AA)
+            cv2.circle(frame, (cx, cy), 4, (255, 255, 255), 1, cv2.LINE_AA)
+
     def _draw_annotations(self, frame: np.ndarray, result: "CameraResult") -> np.ndarray:
-        """Draw detection bboxes, track IDs and labels on frame for live CCTV view."""
+        """Draw detection bboxes, per-track colors, labels with class name + track_id, and pose skeleton."""
         h, w = frame.shape[:2]
+
+        # Build a quick lookup: track_id -> global_id for label suffix
+        gid_by_tid = {m.get("track_id"): m.get("global_id") for m in result.reid_matches if m.get("track_id") is not None}
+
         for det in result.detections:
             if hasattr(det, "x"):
                 x, y, bw, bh = int(det.x), int(det.y), int(det.w), int(det.h)
-                conf = getattr(det, "confidence", 0)
+                conf = float(getattr(det, "confidence", 0))
                 track_id = getattr(det, "track_id", None)
+                class_name = getattr(det, "class_name", "object")
+                keypoints = getattr(det, "keypoints", None)
             else:
                 bbox = det.get("bbox", det.get("box", []))
                 if len(bbox) < 4:
                     continue
                 x, y, bw, bh = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
-                conf = det.get("confidence", 0)
-                track_id = det.get("track_id", "")
+                conf = float(det.get("confidence", 0))
+                track_id = det.get("track_id")
+                class_name = det.get("class_name", "object")
+                keypoints = det.get("keypoints")
+
             x, y = max(0, x), max(0, y)
-            label = f"#{track_id} {conf:.0%}" if track_id else f"{conf:.0%}"
-            cv2.rectangle(frame, (x, y), (x + bw, y + bh), (0, 255, 0), 2)
-            cv2.putText(
-                frame, label, (x, max(20, y - 5)),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA
+            color = self._color_for_track(track_id)
+
+            # Bounding box
+            cv2.rectangle(frame, (x, y), (x + bw, y + bh), color, 2)
+
+            # Label: "ClassName #ID  87%"
+            tid_str = f"#{track_id}" if track_id is not None else ""
+            label = f"{class_name} {tid_str} {conf:.0%}".strip()
+
+            # Filled label background for readability
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = 0.55
+            thickness = 1
+            (tw, th), baseline = cv2.getTextSize(label, font, font_scale, thickness)
+            label_y = max(th + 6, y)
+            label_bg_top = label_y - th - 6
+            label_bg_bottom = label_y
+            cv2.rectangle(
+                frame,
+                (x, label_bg_top),
+                (x + tw + 8, label_bg_bottom),
+                color, -1
             )
-        for match in result.reid_matches:
-            bbox = match.get("bbox", [])
-            if len(bbox) < 4:
-                continue
-            x, y, bw, bh = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
-            gid = match.get("global_id", "")
+            cv2.putText(
+                frame, label, (x + 4, label_y - 4),
+                font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA
+            )
+
+            # Pose skeleton if available
+            if keypoints:
+                self._draw_pose_skeleton(frame, keypoints, color)
+
+            # Global ID below bbox (from Re-ID)
+            gid = gid_by_tid.get(track_id) if track_id is not None else None
             if gid:
                 cv2.putText(
                     frame, str(gid), (x, min(h - 5, y + bh + 18)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 200, 0), 1, cv2.LINE_AA
+                    font, 0.45, (255, 200, 0), 1, cv2.LINE_AA
                 )
+
         if result.fire_alerts:
             cv2.putText(
                 frame, "FIRE ALERT", (10, 30),

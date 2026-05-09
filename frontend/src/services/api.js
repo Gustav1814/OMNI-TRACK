@@ -109,8 +109,8 @@ export const camerasAPI = {
 // ────────────────────────────────────────────────────────────────
 
 export const detectionAPI = {
-    start: (cameraId, { source = '0', stream_type = 'webcam', zone = 'default' } = {}) =>
-        api.post(`/detection/start/${cameraId}`, null, { params: { source, stream_type, zone } }),
+    start: (cameraId, { source = '0', stream_type = 'webcam', zone = 'default', model = null } = {}) =>
+        api.post(`/detection/start/${cameraId}`, null, { params: { source, stream_type, zone, model } }),
     stop: (cameraId) => api.post(`/detection/stop/${cameraId}`),
     status: () => api.get('/detection/status'),
     results: (cameraId) => api.get(`/detection/results/${cameraId}`),
@@ -207,6 +207,17 @@ export const peakHoursAPI = {
 };
 
 // ────────────────────────────────────────────────────────────────
+// Models (YOLO model management)
+// ────────────────────────────────────────────────────────────────
+
+export const modelAPI = {
+    list: () => api.get('/models/'),
+    classes: (modelFilename) => api.get(`/models/${modelFilename}/classes`),
+    current: () => api.get('/models/current'),
+    loaded: () => api.get('/models/loaded'),
+};
+
+// ────────────────────────────────────────────────────────────────
 // Footage (stored CCTV clips)
 // ────────────────────────────────────────────────────────────────
 
@@ -221,8 +232,20 @@ export const footageAPI = {
             headers: { 'Content-Type': 'multipart/form-data' },
         });
     },
-    serveUrl: (filename) =>
-        `${API_BASE}/footage/serve/${encodeURIComponent(filename)}`,
+    serveUrl: (filename) => {
+        const token = tokenStore.get();
+        const qs = token ? `?token=${encodeURIComponent(token)}` : '';
+        return `${API_BASE}/footage/serve/${encodeURIComponent(filename)}${qs}`;
+    },
+    // Detection logs
+    logsList: () => api.get('/footage/logs/list'),
+    logGet: (logFilename) => api.get(`/footage/logs/${encodeURIComponent(logFilename)}`),
+    logTracks: (logFilename) => api.get(`/footage/logs/${encodeURIComponent(logFilename)}/tracks`),
+    // Trim video by track ID
+    trimByTrack: (logFilename, trackId, paddingFrames = 5) =>
+        api.post('/footage/trim/by-track', null, {
+            params: { log_filename: logFilename, track_id: trackId, padding_frames: paddingFrames },
+        }),
 };
 
 // ────────────────────────────────────────────────────────────────

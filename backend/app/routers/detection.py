@@ -76,24 +76,41 @@ async def start_detection(
     source: str = "0",
     stream_type: str = "webcam",
     zone: str = "default",
+    model: str = None,
     current_user: User = Depends(get_current_user),
     pipeline=Depends(get_pipeline),
 ):
     """
     Start person detection on a camera feed.
     - source: "0" (webcam), path to .mp4, RTSP URL, or "footage:filename.mp4" (stored CCTV)
+    - model: Model filename from /api/models (e.g., "yolo11n.pt"). Uses default if not specified.
     - Use footage: for prototype: run full CV on downloaded store clips as live cameras.
     """
     source, stream_type = _resolve_source(source, stream_type)
+    
+    # Resolve model path
+    model_path = None
+    if model:
+        model_file = Path(settings.MODEL_WEIGHTS_DIR) / model
+        if not model_file.exists():
+            raise HTTPException(status_code=404, detail=f"Model {model} not found in {settings.MODEL_WEIGHTS_DIR}")
+        model_path = str(model_file.resolve())
+    
     pipeline.add_camera(
         camera_id=camera_id,
         source=source,
         stream_type=stream_type,
         zone=zone,
+        model_path=model_path,
     )
     if pipeline.state.value != "running":
         await pipeline.start()
-    return {"message": f"Detection started on camera {camera_id}", "status": "running", "source": source}
+    return {
+        "message": f"Detection started on camera {camera_id}",
+        "status": "running",
+        "source": source,
+        "model": model or settings.DEFAULT_YOLO_MODEL
+    }
 
 
 @router.post("/stop/{camera_id}")

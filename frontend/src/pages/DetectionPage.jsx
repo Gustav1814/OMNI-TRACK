@@ -13,7 +13,7 @@ import {
     PlayCircle, StopCircle, Plus, Upload, Video, Circle, Square, RefreshCw,
 } from 'lucide-react';
 import {
-    detectionAPI, pipelineAPI, footageAPI, liveStreamUrl,
+    detectionAPI, pipelineAPI, footageAPI, liveStreamUrl, modelAPI,
 } from '../services/api';
 import useLivePoll from '../hooks/useLivePoll';
 import useWebSocket from '../hooks/useWebSocket';
@@ -26,7 +26,10 @@ export default function DetectionPage() {
         source: '',
         zone: 'entrance',
         fps: 30,
+        model: '',
     });
+    const [models, setModels] = useState([]);
+    const [selectedModelInfo, setSelectedModelInfo] = useState(null);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState(null);
     const [notice, setNotice] = useState(null);
@@ -43,6 +46,30 @@ export default function DetectionPage() {
     const { data: footage, refresh: refreshFootage } = useLivePoll(
         () => footageAPI.list(), { intervalMs: 10000 }
     );
+    const { data: modelsData, refresh: refreshModels } = useLivePoll(
+        () => modelAPI.list(), { intervalMs: 30000 }
+    );
+
+    // Update models list when data changes
+    React.useEffect(() => {
+        if (modelsData?.models) {
+            setModels(modelsData.models);
+            // Set default model if none selected
+            if (!form.model && modelsData.default_model) {
+                setForm(prev => ({ ...prev, model: modelsData.default_model }));
+            }
+        }
+    }, [modelsData]);
+
+    // Update selected model info when model changes
+    React.useEffect(() => {
+        if (form.model && models.length > 0) {
+            const model = models.find(m => m.filename === form.model);
+            setSelectedModelInfo(model || null);
+        } else {
+            setSelectedModelInfo(null);
+        }
+    }, [form.model, models]);
 
     // Per-camera detection counters via WebSocket
     const [cameraLive, setCameraLive] = useState({});
@@ -87,12 +114,19 @@ export default function DetectionPage() {
         e.preventDefault();
         setBusy(true); setError(null); setNotice(null);
         try {
-            const { cameraId, streamType, source, zone, fps } = form;
+            const { cameraId, streamType, source, zone, fps, model } = form;
             if (!source?.toString().trim()) throw new Error('Pick a video source before adding the feed.');
             await pipelineAPI.addCamera(
                 Number(cameraId), source, streamType, zone || 'default', Number(fps) || 30, 1
             );
-            setNotice(`Camera ${cameraId} added.`);
+            // Start detection with selected model
+            await detectionAPI.start(Number(cameraId), {
+                source,
+                stream_type: streamType,
+                zone: zone || 'default',
+                model: model || undefined,
+            });
+            setNotice(`Camera ${cameraId} added with model ${model || 'default'}.`);
             await Promise.all([refreshPipeline(), refreshDet()]);
         } catch (e) {
             setError(e?.response?.data?.detail || e.message);
@@ -187,6 +221,28 @@ export default function DetectionPage() {
                                     placeholder="entrance, aisle, checkout"
                                 />
                             </div>
+                        </div>
+
+                        <div>
+                            <label className="form-label">Detection Model</label>
+                            <select
+                                className="form-select"
+                                value={form.model}
+                                onChange={(e) => setForm({ ...form, model: e.target.value })}
+                            >
+                                <option value="">Default (yolov8n.pt)</option>
+                                {models.map((m) => (
+                                    <option key={m.filename} value={m.filename}>
+                                        {m.filename} ({m.num_classes} classes)
+                                    </option>
+                                ))}
+                            </select>
+                            {selectedModelInfo && (
+                                <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
+                                    <strong>Detects:</strong> {selectedModelInfo.classes?.slice(0, 5).map(c => c.name).join(', ')}
+                                    {selectedModelInfo.classes?.length > 5 && ` +${selectedModelInfo.classes.length - 5} more`}
+                                </div>
+                            )}
                         </div>
 
                         <div>
