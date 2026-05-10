@@ -1,0 +1,73 @@
+# ============================================================
+# OmniTrack AI — Git Ignore
+# ============================================================
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+.venv312/
+*.egg-info/
+dist/
+build/
+
+# Node / Frontend
+node_modules/
+frontend/dist/
+frontend/build/
+.vite/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# AI Models — ignore by default; ship defaults under backend/model_weight for clone-and-run
+*.pt
+*.pth
+*.onnx
+*.engine
+*.weights
+!backend/model_weight/
+!backend/model_weight/**/*
+
+# IDE / Editor
+.vscode/
+.idea/
+.cursor/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Exports & storage
+exports/
+backend/storage/
+
+# Alembic migrations (keep in repo for clone-and-run)
+
+# Docker
+docker-compose.override.yml
+
+# Misc
+*.bak
+*.tmp
+.cache/
+
+# Local dev / editor junk
+backend/local.db
+**/~$*
+*.mp4

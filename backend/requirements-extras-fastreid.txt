@@ -1,0 +1,3 @@
+cython>=3.0.0
+# FastReID installation can vary by platform/GPU stack.
+# Install from source if needed: https://github.com/JDAI-CV/fast-reid
