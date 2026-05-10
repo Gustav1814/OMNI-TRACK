@@ -66,7 +66,7 @@ from app.ai.store_vibe import StoreVibeEngine
 
 # Stream Manager
 from app.services.stream_manager import StreamManager, StreamConfig, StreamType
-from app.config import settings
+from app.config import settings, resolved_footage_dir, resolved_logs_dir
 from pathlib import Path
 from app.services.event_bus import EventBus, NullBus
 
@@ -238,12 +238,15 @@ class ProcessingPipeline:
         # Latest annotated frame (JPEG bytes) per camera for live MJPEG stream
         self._latest_annotated_jpeg: Dict[int, bytes] = {}
         self._jpeg_lock = threading.Lock()
-        # Per-camera recording: camera_id -> (VideoWriter, output_path)
+        # Per-camera recording: camera_id -> (VideoWriter | None, output_path). Writer is
+        # created on first processed frame so dimensions match decoded frames (stats.resolution
+        # is pre-downscale and would corrupt MP4 if used for VideoWriter).
         self._recorders: Dict[int, tuple] = {}
+        self._recorder_target_wh: Dict[int, Tuple[int, int]] = {}
         # Per-camera detection logs: camera_id -> {"log_path": Path, "frames": []}
         self._detection_logs: Dict[int, Dict[str, Any]] = {}
-        # Ensure logs directory exists
-        self._logs_dir = Path("storage/logs")
+        # Ensure logs directory exists (backend-relative, not process cwd)
+        self._logs_dir = resolved_logs_dir()
         self._logs_dir.mkdir(parents=True, exist_ok=True)
         # camera_id -> zone_name (set at add_camera, used by analytics snapshot)
         self._camera_zones: Dict[int, str] = {}
@@ -466,18 +469,75 @@ class ProcessingPipeline:
         except Exception as e:
             logger.debug(f"reid_match broadcast failed: {e}")
 
+    @staticmethod
+    def _even_video_dims(w: int, h: int) -> Tuple[int, int]:
+        """MPEG-4 / most codecs expect even width and height."""
+        w = max(2, int(w) - int(w) % 2)
+        h = max(2, int(h) - int(h) % 2)
+        return w, h
+
+    def _init_recorder_writer(self, camera_id: int, frame_bgr: np.ndarray) -> None:
+        """Open VideoWriter using the same size as frames we actually write (post-decode)."""
+        rec = self._recorders.get(camera_id)
+        if not rec:
+            return
+        writer, out_path = rec
+        if writer is not None:
+            return
+        fh, fw = frame_bgr.shape[:2]
+        w, h = self._even_video_dims(fw, fh)
+        fps = max(1, int(self.processing_fps))
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        new_writer = cv2.VideoWriter(str(out_path), fourcc, float(fps), (w, h))
+        if not new_writer.isOpened():
+            logger.error(f"VideoWriter could not open {out_path} at {w}x{h} fps={fps}")
+            return
+        self._recorders[camera_id] = (new_writer, out_path)
+        self._recorder_target_wh[camera_id] = (w, h)
+        logger.info(f"Recording writer opened: {out_path.name} {w}x{h} @ {fps} fps (mp4v)")
+
+    def _write_recording_frame(self, camera_id: int, vis_bgr: np.ndarray) -> None:
+        rec = self._recorders.get(camera_id)
+        if not rec:
+            return
+        writer, _ = rec
+        if writer is None:
+            self._init_recorder_writer(camera_id, vis_bgr)
+            rec = self._recorders.get(camera_id)
+            if not rec:
+                return
+            writer, _ = rec
+        if writer is None or not writer.isOpened():
+            return
+        tw, th = self._recorder_target_wh.get(camera_id, (vis_bgr.shape[1], vis_bgr.shape[0]))
+        tw, th = self._even_video_dims(tw, th)
+        if vis_bgr.shape[1] != tw or vis_bgr.shape[0] != th:
+            vis_bgr = cv2.resize(vis_bgr, (tw, th), interpolation=cv2.INTER_AREA)
+        writer.write(vis_bgr)
+
     def _stop_recording_impl(self, camera_id: int) -> Optional[str]:
         """Stop recording for a camera; return saved file path or None."""
         rec = self._recorders.pop(camera_id, None)
+        self._recorder_target_wh.pop(camera_id, None)
         if not rec:
             return None
         writer, path = rec
-        try:
-            writer.release()
-        except Exception:
-            pass
+        if writer is not None:
+            try:
+                writer.release()
+            except Exception:
+                pass
         # Flush detection log to JSON
         self._flush_detection_log(camera_id)
+        try:
+            p = Path(path)
+            if p.is_file() and p.stat().st_size == 0:
+                p.unlink(missing_ok=True)
+                return None
+        except OSError:
+            pass
+        if not Path(path).is_file():
+            return None
         return str(path)
 
     def _flush_detection_log(self, camera_id: int):
@@ -504,19 +564,11 @@ class ProcessingPipeline:
         """
         if camera_id in self._recorders:
             return {"recording": True, "message": f"Camera {camera_id} already recording"}
-        stats = self.stream_manager.get_stats(camera_id)
-        w, h = (stats.resolution if stats and stats.resolution[0] else (1280, 720))[:2]
-        if w <= 0 or h <= 0:
-            w, h = 1280, 720
-        footage_dir = Path(settings.FOOTAGE_DIR)
+        footage_dir = resolved_footage_dir()
         footage_dir.mkdir(parents=True, exist_ok=True)
-        out_path = footage_dir / f"camera_{camera_id}_{int(time.time())}.mp4"
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        writer = cv2.VideoWriter(str(out_path), fourcc, max(1, self.processing_fps), (int(w), int(h)))
-        if not writer.isOpened():
-            logger.error(f"Failed to create recorder for camera {camera_id}")
-            return {"recording": False, "error": "Failed to create video file"}
-        self._recorders[camera_id] = (writer, out_path)
+        out_path = (footage_dir / f"camera_{camera_id}_{int(time.time())}.mp4").resolve()
+        # Defer VideoWriter until first frame so (w,h) match decoded video (DECODE_IMGSZ).
+        self._recorders[camera_id] = (None, out_path)
         # Start detection log with same name as video but .json in storage/logs
         log_path = self._logs_dir / f"{out_path.stem}.json"
         self._detection_logs[camera_id] = {
@@ -775,7 +827,8 @@ class ProcessingPipeline:
                 # Step 1: Grab frames from ALL cameras simultaneously
                 frames = {}
                 cam_ids = list(self._frame_counts.keys())
-                deadline_s = max(0.05, interval * 0.6)
+                # Slightly more time per tick when multiple feeds decode in parallel (file/RTSP).
+                deadline_s = max(0.12, interval * (0.9 + 0.15 * max(0, len(cam_ids) - 1)))
                 frame_reads = await asyncio.gather(
                     *[self.stream_manager.get_frame_async(cam_id, timeout=deadline_s) for cam_id in cam_ids],
                     return_exceptions=True,
@@ -1133,11 +1186,8 @@ class ProcessingPipeline:
                     with self._jpeg_lock:
                         self._latest_annotated_jpeg[cam_id] = jpeg.tobytes()
                     # Write to recorder if this camera is recording
-                    rec = self._recorders.get(cam_id)
-                    if rec:
-                        writer, _ = rec
-                        if writer.isOpened():
-                            writer.write(vis)
+                    if cam_id in self._recorders:
+                        self._write_recording_frame(cam_id, vis)
                     # Append detection log entry for this frame
                     log_entry = self._detection_logs.get(cam_id)
                     if log_entry is not None:

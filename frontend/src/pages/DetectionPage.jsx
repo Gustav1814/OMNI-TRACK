@@ -124,10 +124,9 @@ export default function DetectionPage() {
         try {
             const { cameraId, streamType, source, zone, fps, model, tracker, enableReid } = form;
             if (!source?.toString().trim()) throw new Error('Pick a video source before adding the feed.');
-            await pipelineAPI.addCamera(
-                Number(cameraId), source, streamType, zone || 'default', Number(fps) || 30, 1, enableReid
-            );
-            // Start detection with selected model
+            // Single registration path: detection/start already calls pipeline.add_camera and
+            // starts the session when idle. Calling pipeline add + detection start doubled
+            // add_camera (stop/replace stream) and broke second feeds.
             await detectionAPI.start(Number(cameraId), {
                 source,
                 stream_type: streamType,
@@ -250,10 +249,19 @@ export default function DetectionPage() {
                     <form onSubmit={addCamera} style={{ display: 'grid', gap: 10 }}>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                             <div>
-                                <label className="form-label">Feed Slot ID</label>
+                                <label className="form-label">
+                                    Feed Slot ID
+                                    {profileInfo?.max_cameras != null && (
+                                        <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: 6 }}>
+                                            (max {profileInfo.max_cameras})
+                                        </span>
+                                    )}
+                                </label>
                                 <input
                                     className="form-input"
-                                    type="number" min={1}
+                                    type="number"
+                                    min={1}
+                                    max={profileInfo?.max_cameras ?? 64}
                                     value={form.cameraId}
                                     onChange={(e) => setForm({ ...form, cameraId: e.target.value })}
                                     required

@@ -3,15 +3,19 @@
  * Trim recorded videos to show only frames where a specific track_id is visible.
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Scissors, Film, Clock, Download, Play, RefreshCw, AlertCircle } from 'lucide-react';
+import { Scissors, Film, Clock, Download, Play, RefreshCw, AlertCircle, Users } from 'lucide-react';
 import { footageAPI } from '../services/api';
 import useLivePoll from '../hooks/useLivePoll';
 
 export default function TrimPage() {
+    const [mode, setMode] = useState('track'); // 'track' | 'global'
     const [selectedLog, setSelectedLog] = useState('');
     const [trackIdInput, setTrackIdInput] = useState('');
+    const [globalIdInput, setGlobalIdInput] = useState('');
+    const [tracks, setTracks] = useState([]);
+    const [globalIds, setGlobalIds] = useState([]);
     const [paddingFrames, setPaddingFrames] = useState(5);
     const [trimming, setTrimming] = useState(false);
     const [trimResult, setTrimResult] = useState(null);
@@ -25,21 +29,57 @@ export default function TrimPage() {
         setSelectedLog(filename);
         setTrackIdInput('');
         setTrimResult(null);
+        setTracks([]);
+        setGlobalIds([]);
+        setError(null);
     };
 
+    // Discover available track_ids and global_ids in the selected log
+    useEffect(() => {
+        if (!selectedLog) return;
+        let cancel = false;
+        (async () => {
+            try {
+                const [t, g] = await Promise.all([
+                    footageAPI.logTracks(selectedLog),
+                    footageAPI.logGlobalIds(selectedLog),
+                ]);
+                if (cancel) return;
+                setTracks(t.data?.tracks || []);
+                setGlobalIds(g.data?.global_ids || []);
+            } catch (e) {
+                if (!cancel) setError(e?.response?.data?.detail || e.message);
+            }
+        })();
+        return () => { cancel = true; };
+    }, [selectedLog]);
+
     const handleTrim = async () => {
-        if (!selectedLog || !trackIdInput) return;
         setTrimming(true);
         setError(null);
         setTrimResult(null);
         try {
-            const res = await footageAPI.trimByTrack(
-                selectedLog,
-                parseInt(trackIdInput),
-                parseInt(paddingFrames)
-            );
-            setTrimResult(res.data);
-            // Auto-refresh logs to show the new trimmed video
+            if (mode === 'track') {
+                if (!selectedLog || trackIdInput === '' || trackIdInput == null) return;
+                const tid = parseInt(String(trackIdInput).trim(), 10);
+                if (Number.isNaN(tid)) {
+                    setError('Enter a valid numeric track ID.');
+                    return;
+                }
+                const res = await footageAPI.trimByTrack(
+                    selectedLog,
+                    tid,
+                    parseInt(paddingFrames, 10)
+                );
+                setTrimResult({ ...res.data, mode: 'track' });
+            } else {
+                if (!globalIdInput.trim()) return;
+                const res = await footageAPI.trimByGlobalId(
+                    globalIdInput.trim(),
+                    parseInt(paddingFrames, 10)
+                );
+                setTrimResult({ ...res.data, mode: 'global' });
+            }
             await refreshLogs();
         } catch (e) {
             setError(e?.response?.data?.detail || e.message);
@@ -51,6 +91,10 @@ export default function TrimPage() {
     const selectedLogInfo = useMemo(() => {
         return logs?.find(l => l.filename === selectedLog);
     }, [logs, selectedLog]);
+
+    const trimDisabled = trimming
+        || (mode === 'track' && (!selectedLog || trackIdInput === '' || trackIdInput == null))
+        || (mode === 'global' && !globalIdInput.trim());
 
     return (
         <div className="page-scroll">
@@ -80,6 +124,33 @@ export default function TrimPage() {
                     </div>
 
                     <div style={{ display: 'grid', gap: 16 }}>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                            <button
+                                type="button"
+                                className={`btn btn-xs ${mode === 'track' ? 'btn-primary' : 'btn-secondary'}`}
+                                onClick={() => {
+                                    setMode('track');
+                                    setTrimResult(null);
+                                    setError(null);
+                                    setGlobalIdInput('');
+                                }}
+                            >
+                                <Scissors size={12} /> By Track ID (single feed)
+                            </button>
+                            <button
+                                type="button"
+                                className={`btn btn-xs ${mode === 'global' ? 'btn-primary' : 'btn-secondary'}`}
+                                onClick={() => {
+                                    setMode('global');
+                                    setTrimResult(null);
+                                    setError(null);
+                                    setTrackIdInput('');
+                                }}
+                            >
+                                <Users size={12} /> By Global ID (cross-camera)
+                            </button>
+                        </div>
+
                         <div>
                             <label className="form-label">Detection Log</label>
                             <select
@@ -100,23 +171,74 @@ export default function TrimPage() {
                                     Camera {selectedLogInfo.camera_id} • {selectedLogInfo.model} • {selectedLogInfo.total_frames} frames
                                 </div>
                             )}
+                            {mode === 'global' && (
+                                <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)' }}>
+                                    Global mode searches across <strong>all</strong> recorded logs — selecting a log here only helps you discover available IDs.
+                                </div>
+                            )}
                         </div>
 
-                        <div>
-                            <label className="form-label">Track ID</label>
-                            <input
-                                type="number"
-                                className="form-input"
-                                placeholder="Enter track ID (e.g., 1, 2, 3...)"
-                                value={trackIdInput}
-                                onChange={(e) => setTrackIdInput(e.target.value)}
-                                disabled={!selectedLog}
-                                min={0}
-                            />
-                            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
-                                Type the track ID you want to extract from the video
+                        {mode === 'track' ? (
+                            <div>
+                                <label className="form-label">Track ID</label>
+                                <input
+                                    type="number"
+                                    className="form-input"
+                                    placeholder="Enter track ID (e.g., 1, 2, 3...)"
+                                    value={trackIdInput}
+                                    onChange={(e) => setTrackIdInput(e.target.value)}
+                                    disabled={!selectedLog}
+                                    min={0}
+                                />
+                                {tracks.length > 0 && (
+                                    <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                        {tracks.slice(0, 24).map((t) => (
+                                            <button
+                                                key={t.track_id}
+                                                type="button"
+                                                className="btn btn-secondary btn-xs"
+                                                onClick={() => setTrackIdInput(String(t.track_id))}
+                                                title={`Frames ${t.first_frame}-${t.last_frame} (${t.frame_count})${t.global_id ? ` · ${t.global_id}` : ''}`}
+                                            >
+                                                #{t.track_id} · {t.class_name}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 6 }}>
+                                    Trims the selected feed to frames where this track is visible.
+                                </div>
                             </div>
-                        </div>
+                        ) : (
+                            <div>
+                                <label className="form-label">Global ID (Re-ID)</label>
+                                <input
+                                    type="text"
+                                    className="form-input"
+                                    placeholder="PERSON-00042"
+                                    value={globalIdInput}
+                                    onChange={(e) => setGlobalIdInput(e.target.value)}
+                                />
+                                {globalIds.length > 0 && (
+                                    <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                        {globalIds.slice(0, 24).map((g) => (
+                                            <button
+                                                key={g.global_id}
+                                                type="button"
+                                                className="btn btn-secondary btn-xs"
+                                                onClick={() => setGlobalIdInput(g.global_id)}
+                                                title={`Frames ${g.first_frame}-${g.last_frame} (${g.frame_count}) in ${selectedLog}`}
+                                            >
+                                                {g.global_id}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 6 }}>
+                                    Produces one trimmed clip per source video that contains this person.
+                                </div>
+                            </div>
+                        )}
 
                         <div>
                             <label className="form-label">Padding Frames</label>
@@ -137,9 +259,10 @@ export default function TrimPage() {
                         </div>
 
                         <button
+                            type="button"
                             className="btn btn-primary"
                             onClick={handleTrim}
-                            disabled={!selectedLog || !trackIdInput || trimming}
+                            disabled={trimDisabled}
                         >
                             {trimming ? (
                                 <><RefreshCw size={14} className="spin" /> Trimming...</>
@@ -177,7 +300,46 @@ export default function TrimPage() {
                         </div>
                     )}
 
-                    {trimResult && (
+                    {trimResult && trimResult.mode === 'global' && (
+                        <div style={{ display: 'grid', gap: 16 }}>
+                            <div style={{
+                                background: 'var(--bg-glass)',
+                                borderRadius: 12,
+                                padding: 16,
+                                border: '1px solid var(--border)'
+                            }}>
+                                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>Global ID</div>
+                                <div style={{ fontWeight: 600, fontSize: 14 }}>{trimResult.global_id}</div>
+                                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
+                                    {trimResult.clips?.length || 0} clip(s) generated across cameras
+                                </div>
+                            </div>
+                            {(trimResult.clips || []).map((clip, idx) => (
+                                <div key={clip.trimmed_video} style={{
+                                    background: 'var(--bg-glass)', borderRadius: 12,
+                                    padding: 12, border: '1px solid var(--border)', display: 'grid', gap: 10,
+                                }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                                        <div>
+                                            <div style={{ fontSize: 13, fontWeight: 600 }}>Camera {clip.camera_id} · {clip.frames_written} frames</div>
+                                            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{clip.trimmed_video}</div>
+                                        </div>
+                                        <a
+                                            href={footageAPI.serveUrl(clip.trimmed_video)}
+                                            download={clip.trimmed_video}
+                                            className="btn btn-secondary btn-xs"
+                                        >
+                                            <Download size={12} /> Download
+                                        </a>
+                                    </div>
+                                    <video controls style={{ width: '100%', borderRadius: 8, background: '#000' }}
+                                        src={footageAPI.serveUrl(clip.trimmed_video)} />
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {trimResult && trimResult.mode !== 'global' && (
                         <div style={{ display: 'grid', gap: 16 }}>
                             <div style={{
                                 background: 'var(--bg-glass)',

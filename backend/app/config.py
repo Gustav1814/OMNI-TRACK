@@ -104,7 +104,9 @@ class Settings(BaseSettings):
     FOOTAGE_DIR: str = "storage/footage"      # Where uploaded/recorded clips are stored
 
     class Config:
-        env_file = ".env"
+        # Resolve against backend/ so MAX_CAMERAS and friends apply even when uvicorn
+        # is started from the repo root (cwd-relative ".env" would miss backend/.env).
+        env_file = str(_backend_dir() / ".env")
         env_file_encoding = "utf-8"
         case_sensitive = True
 
@@ -183,3 +185,14 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def resolved_footage_dir() -> Path:
+    """Absolute footage directory (backend-relative when FOOTAGE_DIR is relative)."""
+    p = Path(settings.FOOTAGE_DIR)
+    return p.resolve() if p.is_absolute() else (_backend_dir() / p).resolve()
+
+
+def resolved_logs_dir() -> Path:
+    """Detection JSON logs: backend/storage/logs."""
+    return (_backend_dir() / "storage" / "logs").resolve()

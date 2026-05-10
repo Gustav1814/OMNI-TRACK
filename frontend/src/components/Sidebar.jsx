@@ -111,6 +111,17 @@ export default function Sidebar() {
                     </span>
                     <span className="theme-toggle-text">{theme === 'dark' ? 'Dark' : 'Light'}</span>
                 </motion.button>
+                <motion.button
+                    type="button"
+                    className="sidebar-logout"
+                    onClick={handleLogout}
+                    whileHover={{ x: 2 }}
+                    whileTap={{ scale: 0.98 }}
+                    title={user?.username ? `Sign out @${user.username}` : 'Sign out'}
+                >
+                    <LogOut size={15} />
+                    <span>Sign out</span>
+                </motion.button>
             </div>
         </motion.aside>
     );

@@ -261,10 +261,16 @@ export const footageAPI = {
     logsList: () => api.get('/footage/logs/list'),
     logGet: (logFilename) => api.get(`/footage/logs/${encodeURIComponent(logFilename)}`),
     logTracks: (logFilename) => api.get(`/footage/logs/${encodeURIComponent(logFilename)}/tracks`),
-    // Trim video by track ID
+    logGlobalIds: (logFilename) => api.get(`/footage/logs/${encodeURIComponent(logFilename)}/global-ids`),
+    // Trim video by track ID (single recorded video)
     trimByTrack: (logFilename, trackId, paddingFrames = 5) =>
         api.post('/footage/trim/by-track', null, {
             params: { log_filename: logFilename, track_id: trackId, padding_frames: paddingFrames },
+        }),
+    // Trim across all recorded videos containing a Re-ID global_id (multi-camera)
+    trimByGlobalId: (globalId, paddingFrames = 5) =>
+        api.post('/footage/trim/by-global-id', null, {
+            params: { global_id: globalId, padding_frames: paddingFrames },
         }),
 };
 
