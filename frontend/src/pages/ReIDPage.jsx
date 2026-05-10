@@ -36,6 +36,8 @@ export default function ReIDPage() {
     const uniqueIds = reidModule.unique_identities ?? 0;
     const modelVersion = reidModule.model || 'osnet_x1_0';
     const threshold = reidModule.threshold ?? 0.6;
+    const embeddingDim = reidModule.embedding_dim ?? 512;
+    const showReidOffHint = reidModule.any_camera_enabled === false;
 
     const lookup = async (e) => {
         e?.preventDefault?.();
@@ -56,7 +58,14 @@ export default function ReIDPage() {
             <div className="page-header">
                 <div>
                     <h1 className="page-title">Re-Identification</h1>
-                    <p className="page-subtitle">Torchreid {modelVersion} · cosine similarity ≥ {threshold}</p>
+                    <p className="page-subtitle">
+                        Torchreid {modelVersion} · {embeddingDim}-D · cosine ≥ {threshold}
+                        {showReidOffHint && (
+                            <span style={{ marginLeft: 8, color: 'var(--accent-amber)' }}>
+                                (no feeds have Re-ID enabled — turn it on when adding a video feed)
+                            </span>
+                        )}
+                    </p>
                 </div>
             </div>
 
@@ -152,16 +161,45 @@ export default function ReIDPage() {
                         Waiting for Re-ID events…
                     </div>
                 ) : (
-                    <ul className="event-list">
+                    <ul className="event-list reid-match-list">
                         {matches.map((m, i) => (
-                            <li key={i}>
-                                <span className="pill pill-info">{m.global_id}</span>
-                                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                                    cam {m.previous_camera} <ArrowRight size={12} style={{ verticalAlign: -1 }} /> cam {m.current_camera}
-                                </span>
-                                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                                    {new Date(m.ts).toLocaleTimeString()}
-                                </span>
+                            <li key={`${m.global_id}-${m.ts}-${i}`} className="reid-match-item">
+                                <div className="reid-match-row">
+                                    <span className="pill pill-info">{m.global_id}</span>
+                                    <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                                        cam {m.previous_camera} <ArrowRight size={12} style={{ verticalAlign: -1 }} /> cam {m.current_camera}
+                                    </span>
+                                    {m.similarity != null && (
+                                        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                                            sim {Number(m.similarity).toFixed(3)}
+                                        </span>
+                                    )}
+                                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                                        {new Date(m.ts).toLocaleTimeString()}
+                                    </span>
+                                </div>
+                                {(m.snapshot_previous || m.snapshot_current) && (
+                                    <div className="reid-match-snaps">
+                                        {m.snapshot_previous && (
+                                            <figure>
+                                                <figcaption>Cam {m.previous_camera}</figcaption>
+                                                <img
+                                                    src={`data:image/jpeg;base64,${m.snapshot_previous}`}
+                                                    alt={`${m.global_id} previous`}
+                                                />
+                                            </figure>
+                                        )}
+                                        {m.snapshot_current && (
+                                            <figure>
+                                                <figcaption>Cam {m.current_camera}</figcaption>
+                                                <img
+                                                    src={`data:image/jpeg;base64,${m.snapshot_current}`}
+                                                    alt={`${m.global_id} current`}
+                                                />
+                                            </figure>
+                                        )}
+                                    </div>
+                                )}
                             </li>
                         ))}
                     </ul>

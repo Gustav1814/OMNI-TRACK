@@ -110,6 +110,7 @@ pipeline = ProcessingPipeline(
     reid_threshold=getattr(settings, "REID_SIMILARITY_THRESHOLD", 0.6),
     reid_embeddings_per_id=getattr(settings, "REID_EMBEDDINGS_PER_ID", 5),
 )
+pipeline.set_broadcast(broadcast)
 event_bus = NullBus()
 vector_store = PgVectorStore()
 memory_guard = MemoryGuard(pipeline, target_mb=getattr(settings, "MEMORY_GUARD_MB", 0))
@@ -475,6 +476,7 @@ async def add_pipeline_camera(
     fps: int = 30,
     skip_frames: int = 1,
     tracker: str = "botsort.yaml",
+    enable_reid: bool = True,
 ):
     """
     Add a camera to the live processing pipeline.
@@ -493,6 +495,7 @@ async def add_pipeline_camera(
             fps=fps,
             skip_frames=skip_frames,
             tracker_config=tracker,
+            enable_reid=enable_reid,
         )
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))

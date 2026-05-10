@@ -1601,6 +1601,76 @@ a:hover {
   gap: 16px;
 }
 
+.camera-grid-feed-lg {
+  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+}
+
+.camera-grid-feed-xl {
+  grid-template-columns: repeat(auto-fill, minmax(560px, 1fr));
+}
+
+.camera-tile-expanded {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 9999;
+  width: 100vw !important;
+  height: 100vh !important;
+  aspect-ratio: auto !important;
+  border-radius: 0 !important;
+  background: #000;
+}
+
+.camera-tile-expanded .camera-tile-video img {
+  object-fit: contain;
+  background: #000;
+}
+
+.reid-match-list .reid-match-item {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.reid-match-list .reid-match-item:last-child {
+  border-bottom: none;
+}
+
+.reid-match-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.reid-match-snaps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: flex-end;
+}
+
+.reid-match-snaps figure {
+  margin: 0;
+  max-width: min(200px, 42vw);
+}
+
+.reid-match-snaps figcaption {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.reid-match-snaps img {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: #000;
+}
+
 .camera-tile {
   position: relative;
   background: var(--bg-card);

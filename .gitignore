@@ -26,6 +26,8 @@ frontend/build/
 .env
 .env.local
 .env.*.local
+.venv/
+.venv311
 
 # AI Models — ignore by default; ship defaults under backend/model_weight for clone-and-run
 *.pt

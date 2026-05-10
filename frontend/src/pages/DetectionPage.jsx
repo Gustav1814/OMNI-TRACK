@@ -28,7 +28,9 @@ export default function DetectionPage() {
         fps: 30,
         model: '',
         tracker: 'botsort.yaml',
+        enableReid: true,
     });
+    const [feedTileScale, setFeedTileScale] = useState('md');
     const [models, setModels] = useState([]);
     const [selectedModelInfo, setSelectedModelInfo] = useState(null);
     const [busy, setBusy] = useState(false);
@@ -120,10 +122,10 @@ export default function DetectionPage() {
         e.preventDefault();
         setBusy(true); setError(null); setNotice(null);
         try {
-            const { cameraId, streamType, source, zone, fps, model, tracker } = form;
+            const { cameraId, streamType, source, zone, fps, model, tracker, enableReid } = form;
             if (!source?.toString().trim()) throw new Error('Pick a video source before adding the feed.');
             await pipelineAPI.addCamera(
-                Number(cameraId), source, streamType, zone || 'default', Number(fps) || 30, 1
+                Number(cameraId), source, streamType, zone || 'default', Number(fps) || 30, 1, enableReid
             );
             // Start detection with selected model
             await detectionAPI.start(Number(cameraId), {
@@ -134,6 +136,7 @@ export default function DetectionPage() {
                 tracker: tracker || 'botsort.yaml',
                 fps: Number(fps) || 30,
                 skip_frames: 1,
+                enable_reid: enableReid,
             });
             setNotice(`Camera ${cameraId} added with model ${model || 'default'}.`);
             await Promise.all([refreshPipeline(), refreshDet()]);
@@ -331,6 +334,25 @@ export default function DetectionPage() {
                             </select>
                         </div>
 
+                        <label
+                            style={{
+                                display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer',
+                                padding: '10px 12px', borderRadius: 10, border: '1px solid var(--border)',
+                                background: 'var(--bg-glass)',
+                            }}
+                        >
+                            <input
+                                type="checkbox"
+                                checked={form.enableReid}
+                                onChange={(e) => setForm({ ...form, enableReid: e.target.checked })}
+                                style={{ marginTop: 3 }}
+                            />
+                            <span style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.45 }}>
+                                <strong style={{ color: 'var(--text-primary)' }}>Cross-camera Re-ID</strong>
+                                {' '}(512-d OSNet embeddings + shared gallery). Disable on weaker hardware or when you only need per-feed tracking.
+                            </span>
+                        </label>
+
                         <div>
                             <label className="form-label">Input Type</label>
                             <select
@@ -430,8 +452,23 @@ export default function DetectionPage() {
                         <Video size={16} style={{ verticalAlign: -3, marginRight: 6 }} />
                         Active Video Feeds ({activeCameras.length})
                     </h3>
-                    <div className="card-subtitle">
-                        People counts update in real time; FPS refreshes every 2 seconds
+                    <div className="card-subtitle" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
+                        <span>People counts update in real time; FPS refreshes every 2 seconds</span>
+                        {activeCameras.length > 0 && (
+                            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
+                                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Tile size</span>
+                                <select
+                                    className="form-select"
+                                    style={{ width: 'auto', minWidth: 120, padding: '6px 10px', fontSize: 12 }}
+                                    value={feedTileScale}
+                                    onChange={(e) => setFeedTileScale(e.target.value)}
+                                >
+                                    <option value="md">Standard</option>
+                                    <option value="lg">Large</option>
+                                    <option value="xl">Extra large</option>
+                                </select>
+                            </label>
+                        )}
                     </div>
                 </div>
 
@@ -440,7 +477,7 @@ export default function DetectionPage() {
                         No active feeds. Upload a video and add it as a feed above.
                     </div>
                 ) : (
-                    <div className="camera-grid">
+                    <div className={`camera-grid${feedTileScale === 'xl' ? ' camera-grid-feed-xl' : feedTileScale === 'lg' ? ' camera-grid-feed-lg' : ''}`}>
                         {activeCameras.map((id) => {
                             const s = cameraStats[id] || cameraStats[String(id)] || {};
                             const live = cameraLive[id] || cameraLive[String(id)] || {};

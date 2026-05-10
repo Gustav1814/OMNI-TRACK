@@ -13,7 +13,7 @@ HOW IT WORKS:
 
 import asyncio
 import json
-from typing import Dict, List, Any, Set
+from typing import Dict, List, Any, Set, Optional
 from fastapi import WebSocket, WebSocketDisconnect
 from loguru import logger
 from datetime import datetime, timezone
@@ -132,13 +132,28 @@ class BroadcastService:
             "breakdown": breakdown,
         })
 
-    async def push_reid_match(self, global_id: str, camera_id: int, previous_camera: int):
-        """Broadcast cross-camera Re-ID match."""
-        await self.broadcast("detections", "reid_match", {
+    async def push_reid_match(
+        self,
+        global_id: str,
+        camera_id: int,
+        previous_camera: int,
+        similarity: Optional[float] = None,
+        snapshot_previous: Optional[str] = None,
+        snapshot_current: Optional[str] = None,
+    ):
+        """Broadcast cross-camera Re-ID match (optional base64 JPEG crops, no data: URL prefix)."""
+        payload: Dict[str, Any] = {
             "global_id": global_id,
             "current_camera": camera_id,
             "previous_camera": previous_camera,
-        })
+        }
+        if similarity is not None:
+            payload["similarity"] = round(float(similarity), 4)
+        if snapshot_previous:
+            payload["snapshot_previous"] = snapshot_previous
+        if snapshot_current:
+            payload["snapshot_current"] = snapshot_current
+        await self.broadcast("detections", "reid_match", payload)
 
     # ─────────────────────────────────────────────────────────
     # STATS

@@ -111,10 +111,10 @@ export const camerasAPI = {
 
 export const detectionAPI = {
     start: (cameraId, {
-        source = '0', stream_type = 'webcam', zone = 'default', model = null, tracker = 'botsort.yaml', fps = 30, skip_frames = 1,
+        source = '0', stream_type = 'webcam', zone = 'default', model = null, tracker = 'botsort.yaml', fps = 30, skip_frames = 1, enable_reid = true,
     } = {}) =>
         api.post(`/detection/start/${cameraId}`, null, {
-            params: { source, stream_type, zone, model, tracker, fps, skip_frames },
+            params: { source, stream_type, zone, model, tracker, fps, skip_frames, enable_reid },
         }),
     stop: (cameraId) => api.post(`/detection/stop/${cameraId}`),
     status: () => api.get('/detection/status'),
@@ -133,9 +133,11 @@ export const pipelineAPI = {
     status: () => api.get('/pipeline/status'),
     start: () => api.post('/pipeline/start'),
     stop: () => api.post('/pipeline/stop'),
-    addCamera: (cameraId, source, streamType = 'webcam', zone = 'default', fps = 30, skipFrames = 1) =>
+    addCamera: (cameraId, source, streamType = 'webcam', zone = 'default', fps = 30, skipFrames = 1, enableReid = true) =>
         api.post('/pipeline/cameras/add', null, {
-            params: { camera_id: cameraId, source, stream_type: streamType, zone, fps, skip_frames: skipFrames },
+            params: {
+                camera_id: cameraId, source, stream_type: streamType, zone, fps, skip_frames: skipFrames, enable_reid: enableReid,
+            },
         }),
     results: (cameraId) => api.get('/pipeline/results', {
         params: cameraId != null ? { camera_id: cameraId } : {},

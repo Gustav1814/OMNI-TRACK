@@ -40,11 +40,13 @@ WHAT YOU NEED:
 """
 
 import asyncio
+import base64
 import time
 import json
 import numpy as np
 import cv2
-from typing import Dict, List, Optional, Any, Callable, Tuple
+from collections import OrderedDict
+from typing import Dict, List, Optional, Any, Callable, Tuple, TYPE_CHECKING
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from loguru import logger
@@ -67,6 +69,12 @@ from app.services.stream_manager import StreamManager, StreamConfig, StreamType
 from app.config import settings
 from pathlib import Path
 from app.services.event_bus import EventBus, NullBus
+
+if TYPE_CHECKING:
+    from app.services.broadcast import BroadcastService
+
+_MAX_REID_SNAPSHOT_CACHE = 400
+_REID_WS_EMIT_MIN_INTERVAL_S = 1.5
 
 
 class PipelineState(str, Enum):
@@ -250,6 +258,12 @@ class ProcessingPipeline:
         self._pending_embeddings_lock = threading.Lock()
         # First-seen timestamps per global_id so journey legs get a real entry_time
         self._journey_leg_start: Dict[Tuple[str, int, str], float] = {}
+        # Live WS + Cross-feed UI: optional broadcaster, per-camera Re-ID toggle, transition tracking
+        self._broadcast: Optional["BroadcastService"] = None
+        self._camera_reid_enabled: Dict[int, bool] = {}
+        self._global_id_last_camera: Dict[str, int] = {}
+        self._reid_snapshots: "OrderedDict[Tuple[str, int], str]" = OrderedDict()
+        self._last_reid_ws_emit: Dict[str, float] = {}
 
         # Lifecycle hooks: external observers (e.g. audit log writer) register
         # callables that fire on pipeline events. Hooks are async-friendly.
@@ -285,6 +299,7 @@ class ProcessingPipeline:
         roi: Optional[Dict] = None,
         model_path: Optional[str] = None,
         tracker_config: Optional[str] = None,
+        enable_reid: bool = True,
     ):
         """
         Register a camera for processing.
@@ -297,6 +312,7 @@ class ProcessingPipeline:
             fps: Camera FPS
             skip_frames: Process every Nth frame (higher = faster but less accurate)
             roi: Optional region of interest crop
+            enable_reid: Run 512-d Torchreid embeddings + global gallery for this feed (GPU/CPU heavy).
         
         Example:
             # IP camera
@@ -326,8 +342,17 @@ class ProcessingPipeline:
             roi=roi,
         )
         self.stream_manager.add_camera(config)
+        # If the pipeline is already running, kick off the capture thread for this new
+        # camera; otherwise it would just sit idle and never produce frames (so multi-cam
+        # added after Start Session never multi-streamed).
+        if self.state == PipelineState.RUNNING:
+            try:
+                self.stream_manager.start_camera(camera_id)
+            except Exception as e:
+                logger.error(f"Failed to start newly added camera {camera_id}: {e}")
         self._frame_counts[camera_id] = 0
         self._camera_zones[camera_id] = zone
+        self._camera_reid_enabled[int(camera_id)] = bool(enable_reid)
         # Store model assignment for this camera (default if not specified)
         effective_model = model_path or self._detector_model
         self._camera_models[camera_id] = effective_model
@@ -345,7 +370,8 @@ class ProcessingPipeline:
         self.crowd.configure_zone(zone, camera_id=camera_id, max_capacity=50)
 
         logger.info(
-            f"Camera {camera_id} added → zone: {zone} | capture_fps_cap={fps_target} skip_frames={skip_n}"
+            f"Camera {camera_id} added → zone: {zone} | capture_fps_cap={fps_target} "
+            f"skip_frames={skip_n} reid={'on' if enable_reid else 'off'}"
         )
         # Fire-and-forget: audit log this camera addition on the running loop
         try:
@@ -366,6 +392,7 @@ class ProcessingPipeline:
         self._results_buffer.pop(camera_id, None)
         self._trackers.pop(camera_id, None)
         self._camera_models.pop(camera_id, None)  # Clean up model assignment
+        self._camera_reid_enabled.pop(int(camera_id), None)
         zone = self._camera_zones.pop(camera_id, None)
         self._last_global_by_track = {k: v for k, v in self._last_global_by_track.items() if k[0] != camera_id}
         try:
@@ -376,6 +403,68 @@ class ProcessingPipeline:
                 }))
         except RuntimeError:
             pass
+
+    def set_broadcast(self, svc: Optional["BroadcastService"]) -> None:
+        """Wire WebSocket broadcast for cross-camera Re-ID events."""
+        self._broadcast = svc
+
+    def _reid_on_for_camera(self, camera_id: int) -> bool:
+        return bool(self._camera_reid_enabled.get(camera_id, True))
+
+    @staticmethod
+    def _crop_to_jpeg_base64(crop_bgr: np.ndarray, max_side: int = 160) -> str:
+        """Encode a BGR crop as base64 JPEG (bounded size for WS payloads)."""
+        if crop_bgr is None or crop_bgr.size == 0:
+            return ""
+        h, w = crop_bgr.shape[:2]
+        m = max(h, w, 1)
+        scale = min(1.0, float(max_side) / float(m))
+        if scale < 1.0:
+            crop_bgr = cv2.resize(
+                crop_bgr,
+                (int(w * scale), int(h * scale)),
+                interpolation=cv2.INTER_AREA,
+            )
+        ok, buf = cv2.imencode(".jpg", crop_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 82])
+        if not ok:
+            return ""
+        return base64.b64encode(buf.tobytes()).decode("ascii")
+
+    def _store_reid_snapshot(self, global_id: str, cam_id: int, crop_bgr: np.ndarray) -> str:
+        """Remember last thumbnail per (global_id, camera) for cross-feed matching UI."""
+        b64 = self._crop_to_jpeg_base64(crop_bgr)
+        if not b64:
+            return ""
+        key = (global_id, int(cam_id))
+        if key in self._reid_snapshots:
+            self._reid_snapshots.move_to_end(key)
+        self._reid_snapshots[key] = b64
+        while len(self._reid_snapshots) > _MAX_REID_SNAPSHOT_CACHE:
+            self._reid_snapshots.popitem(last=False)
+        return b64
+
+    async def _emit_reid_camera_transition(
+        self,
+        global_id: str,
+        cam_id: int,
+        prev_cam: int,
+        current_thumb_b64: str,
+        similarity: Optional[float],
+    ) -> None:
+        if not self._broadcast or prev_cam == cam_id:
+            return
+        prev_thumb = self._reid_snapshots.get((global_id, prev_cam), "")
+        try:
+            await self._broadcast.push_reid_match(
+                global_id,
+                cam_id,
+                prev_cam,
+                similarity=similarity,
+                snapshot_previous=prev_thumb or None,
+                snapshot_current=current_thumb_b64 or None,
+            )
+        except Exception as e:
+            logger.debug(f"reid_match broadcast failed: {e}")
 
     def _stop_recording_impl(self, camera_id: int) -> Optional[str]:
         """Stop recording for a camera; return saved file path or None."""
@@ -817,72 +906,96 @@ class ProcessingPipeline:
                 tick_id=tick_id,
             )
 
-        # ── PHASE 2: Cross-Camera Re-ID (GLOBAL gallery) ──
-        # Body-based matching (works when face not visible). Multi-view: we store several
-        # embeddings per identity and use best similarity. Temporal consistency: same
-        # (camera, track) keeps same global_id to avoid flicker when pose changes.
-        # Each produced embedding is queued for pgvector persistence (drained by the
-        # PersistencePipelineCallback each tick).
+        # ── PHASE 2: Cross-Camera Re-ID (GLOBAL gallery, optional per camera) ──
+        # Body-based matching (512-d OSNet). Skipped entirely for feeds with enable_reid=False.
         new_embeddings: List[Dict[str, Any]] = []
-        async with self._reid_merge_lock:
-            for cam_id, (frame, timestamp) in frames.items():
+        reid_any = any(self._reid_on_for_camera(cid) for cid in frames.keys())
+        if not reid_any:
+            for cam_id in frames:
                 for det in all_detections.get(cam_id, []):
-                    try:
-                        bbox = det.get("bbox") or []
-                        if len(bbox) < 4:
-                            continue
-                        x, y, w, h = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
-                        x, y = max(0, x), max(0, y)
-                        crop = frame[y:y+h, x:x+w]
-                        if crop.size == 0:
-                            continue
-                        track_id = det.get("track_id")
-                        embedding = await asyncio.to_thread(
-                            self.reid.extract_embedding, crop
-                        )
-                        if embedding is None:
-                            continue
-                        key = (cam_id, track_id) if track_id is not None else None
-                        prev_global = self._last_global_by_track.get(key) if key else None
-                        matches = self.reid.search_gallery(
-                            embedding, top_k=1
-                        )
-                        if matches:
-                            global_id = matches[0]["id"]
-                            sim = matches[0].get("similarity", 0)
-                            # Store a different view (e.g. back/side) only when not already very similar
-                            if sim < 0.92:
-                                self.reid.add_embedding_to_id(global_id, embedding)
-                        elif prev_global and key:
-                            # Temporal consistency: same track on same camera keeps same id
-                            global_id = prev_global
-                        else:
-                            global_id = f"PERSON-{self.global_state.total_persons_tracked:05d}"
-                            self.reid.add_to_gallery(global_id, embedding)
-                            self.global_state.total_persons_tracked += 1
-                        if key:
-                            self._last_global_by_track[key] = global_id
-                        det["global_id"] = global_id
-                        results[cam_id].reid_matches.append({
-                            "global_id": global_id,
-                            "camera_id": cam_id,
-                            "track_id": track_id,
-                            "bbox": bbox,
-                            "timestamp": timestamp,
-                        })
-                        # Queue for pgvector persistence. Convert to list so we don't
-                        # carry numpy refs across the asyncio boundary.
-                        new_embeddings.append({
-                            "camera_id": cam_id,
-                            "track_id": track_id,
-                            "global_id": global_id,
-                            "embedding": [float(v) for v in embedding.tolist()],
-                            "confidence": float(det.get("confidence", 0.0)),
-                            "bbox": bbox,
-                            "timestamp": timestamp,
-                        })
-                    except Exception as e:
-                        logger.debug(f"Re-ID error cam {cam_id}: {e}")
+                    det["global_id"] = None
+        else:
+            async with self._reid_merge_lock:
+                for cam_id, (frame, timestamp) in frames.items():
+                    if not self._reid_on_for_camera(cam_id):
+                        for det in all_detections.get(cam_id, []):
+                            det["global_id"] = None
+                        continue
+                    for det in all_detections.get(cam_id, []):
+                        try:
+                            bbox = det.get("bbox") or []
+                            if len(bbox) < 4:
+                                continue
+                            x, y, w, h = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+                            x, y = max(0, x), max(0, y)
+                            crop = frame[y : y + h, x : x + w]
+                            if crop.size == 0:
+                                continue
+                            track_id = det.get("track_id")
+                            embedding = await asyncio.to_thread(
+                                self.reid.extract_embedding, crop
+                            )
+                            if embedding is None:
+                                continue
+                            key = (cam_id, track_id) if track_id is not None else None
+                            prev_global = self._last_global_by_track.get(key) if key else None
+                            matches = self.reid.search_gallery(embedding, top_k=1)
+                            match_sim: Optional[float] = None
+                            if matches:
+                                global_id = matches[0]["id"]
+                                match_sim = float(matches[0].get("similarity", 0.0))
+                                if match_sim < 0.92:
+                                    self.reid.add_embedding_to_id(global_id, embedding)
+                            elif prev_global and key:
+                                global_id = prev_global
+                                match_sim = None
+                            else:
+                                global_id = f"PERSON-{self.global_state.total_persons_tracked:05d}"
+                                self.reid.add_to_gallery(global_id, embedding)
+                                self.global_state.total_persons_tracked += 1
+                                match_sim = None
+                            if key:
+                                self._last_global_by_track[key] = global_id
+                            det["global_id"] = global_id
+                            thumb_b64 = self._store_reid_snapshot(global_id, cam_id, crop)
+                            prev_cam_seen = self._global_id_last_camera.get(global_id)
+                            if (
+                                prev_cam_seen is not None
+                                and int(prev_cam_seen) != int(cam_id)
+                                and self._broadcast
+                            ):
+                                now_ts = time.time()
+                                if (
+                                    now_ts - self._last_reid_ws_emit.get(global_id, 0.0)
+                                    >= _REID_WS_EMIT_MIN_INTERVAL_S
+                                ):
+                                    await self._emit_reid_camera_transition(
+                                        global_id,
+                                        int(cam_id),
+                                        int(prev_cam_seen),
+                                        thumb_b64,
+                                        match_sim if matches else None,
+                                    )
+                                    self._last_reid_ws_emit[global_id] = now_ts
+                            self._global_id_last_camera[global_id] = int(cam_id)
+                            results[cam_id].reid_matches.append({
+                                "global_id": global_id,
+                                "camera_id": cam_id,
+                                "track_id": track_id,
+                                "bbox": bbox,
+                                "timestamp": timestamp,
+                            })
+                            new_embeddings.append({
+                                "camera_id": cam_id,
+                                "track_id": track_id,
+                                "global_id": global_id,
+                                "embedding": [float(v) for v in embedding.tolist()],
+                                "confidence": float(det.get("confidence", 0.0)),
+                                "bbox": bbox,
+                                "timestamp": timestamp,
+                            })
+                        except Exception as e:
+                            logger.debug(f"Re-ID error cam {cam_id}: {e}")
         if new_embeddings:
             with self._pending_embeddings_lock:
                 self._pending_embeddings.extend(new_embeddings)
@@ -995,7 +1108,8 @@ class ProcessingPipeline:
                 count = result.crowd_status.get("person_count", len(result.detections))
                 self.global_state.zone_occupancy[zone] = count
 
-        # Active tracks across all cameras
+        # Active global IDs this tick only (avoids stale rows when Re-ID is off or people leave FOV)
+        self.global_state.active_tracks.clear()
         for cam_id, result in results.items():
             for match in result.reid_matches:
                 self.global_state.active_tracks[match["global_id"]] = {
@@ -1218,6 +1332,23 @@ class ProcessingPipeline:
     # STATUS & METRICS
     # ─────────────────────────────────────────────────────────────
 
+    def _reid_status_payload(self) -> Dict[str, Any]:
+        """Structured Re-ID stats for dashboard / Cross-feed page (512-d gallery)."""
+        gallery = getattr(self.reid, "_gallery", []) or []
+        unique_ids = len({g for g, _ in gallery})
+        cam_keys = list(self._frame_counts.keys())
+        any_on = any(self._reid_on_for_camera(cid) for cid in cam_keys) if cam_keys else False
+        return {
+            "backend_status": "loaded" if getattr(self.reid, "model", None) else "mock",
+            "gallery_size": len(gallery),
+            "unique_identities": unique_ids,
+            "threshold": float(getattr(self.reid, "similarity_threshold", 0.6)),
+            "model": str(getattr(self.reid, "model_name", "osnet_x1_0")),
+            "embedding_dim": int(getattr(self.reid, "EMBEDDING_DIM", 512)),
+            "any_camera_enabled": any_on,
+            "per_camera_enabled": {str(int(k)): self._reid_on_for_camera(k) for k in cam_keys},
+        }
+
     def get_status(self) -> Dict[str, Any]:
         """Get complete pipeline status for dashboard."""
         stream_stats = self.stream_manager.get_all_stats()
@@ -1242,8 +1373,8 @@ class ProcessingPipeline:
             "ai_modules": {
                 "detector": "loaded" if self.detector.model else "mock",
                 "tracker": "loaded" if (self._trackers and next(iter(self._trackers.values())).model) else "fallback" if self._trackers else "no cameras",
-                "reid": "loaded" if self.reid.model else "mock",
-                "reid_gallery_size": len(getattr(self.reid, "_gallery", [])),
+                "reid": self._reid_status_payload(),
+                "reid_gallery_size": len(getattr(self.reid, "_gallery", []) or []),
                 "emotion": "enabled" if self._enable_emotions else "disabled",
                 "fire": "enabled" if self._enable_fire else "disabled",
                 "shelf": "enabled" if self._enable_shelf else "disabled",
