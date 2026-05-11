@@ -7,9 +7,9 @@ import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
-    LayoutDashboard, Users, Scan, Video, ShoppingBag,
-    Flame, UsersRound, ShoppingCart, SmilePlus, ShieldCheck,
-    Activity, TrendingUp, BarChart3, LogOut, Sun, Moon, ShieldAlert, Scissors
+    LayoutDashboard, Users, Scan,
+    Flame, UsersRound,
+    LogOut, Sun, Moon, Scissors
 } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { tokenStore } from '../services/api';
@@ -17,20 +17,13 @@ import { tokenStore } from '../services/api';
 const navItems = [
     { section: 'Home' },
     { path: '/', icon: LayoutDashboard, label: 'Live Overview' },
-    { path: '/vibe', icon: Activity, label: 'Store Pulse' },
     { section: 'Video Workspace' },
     { path: '/detection', icon: Scan, label: 'Video Feeds' },
     { path: '/reid', icon: Users, label: 'Cross-Feed Match' },
-    { path: '/synopsis', icon: Video, label: 'Highlights Reel' },
     { path: '/trim', icon: Scissors, label: 'Video Trimmer' },
-    { section: 'Insights' },
-    { path: '/shelf', icon: ShoppingBag, label: 'Shelf Activity' },
+    { section: 'Safety & Analytics' },
     { path: '/fire', icon: Flame, label: 'Safety Watch' },
     { path: '/crowd', icon: UsersRound, label: 'Footfall' },
-    { path: '/checkout', icon: ShoppingCart, label: 'Queue Insights' },
-    { section: 'Business View' },
-    { path: '/peak-hours', icon: TrendingUp, label: 'Rush Hours' },
-    { path: '/demographics', icon: BarChart3, label: 'Audience Mix' },
 ];
 
 export default function Sidebar() {

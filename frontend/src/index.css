@@ -160,7 +160,14 @@ html.light .progress-bar { background: rgba(0, 0, 0, 0.08); }
 html.light .vibe-meter-ring { filter: brightness(0.95); }
 html.light .vibe-score-value { -webkit-text-fill-color: #4338ca; }
 html.light .vibe-score-label { color: #6b7280; }
-html.light .gradient-headline { background: linear-gradient(135deg, #111827 0%, #4338ca 40%, #0d9488 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+html.light .gradient-headline {
+  background: linear-gradient(135deg, #0f172a 0%, #312e81 42%, #4338ca 100%);
+  background-size: 100% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: none;
+}
 
 /* Premium custom cursor (hidden on touch devices via JS) */
 body.cursor-custom {
@@ -312,6 +319,7 @@ a:hover {
   flex-direction: column;
   overflow: hidden;
   min-width: 0;
+  min-height: 0;
   position: relative;
   z-index: 1;
   background: #0a0a0f;
@@ -319,13 +327,27 @@ a:hover {
 
 .page-content {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 24px 28px;
+  padding: 20px 22px 28px;
   scroll-behavior: smooth;
   background: #0a0a0f;
   position: relative;
   z-index: 1;
+}
+
+/* Grows with page content so .page-content scrollHeight includes long pages
+   (flex:1 + min-height:0 here would cap height and trap overflow). */
+.page-route-outlet {
+  flex: 0 0 auto;
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 /* --- Sidebar --- */
@@ -1912,24 +1934,25 @@ html.light .sidebar-logout:hover {
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 18px;
   position: relative;
   z-index: 1;
-  padding-right: 2px;
+  padding-right: 4px;
+  padding-bottom: 8px;
 }
 
 .two-col {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
-  gap: 14px;
-  margin-top: 12px;
+  gap: 18px;
+  margin-top: 4px;
   align-items: start;
 }
 
 .three-col {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 14px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
 }
 
 .stat-suffix {
@@ -2115,6 +2138,22 @@ html.light .sidebar-logout:hover {
   left: 36vw;
   bottom: -10vw;
   animation-delay: 5s;
+}
+
+html.light .ambient-blob-a {
+  background: radial-gradient(circle, rgba(71, 85, 105, 0.45) 0%, transparent 72%);
+  opacity: 0.16;
+}
+html.light .ambient-blob-b {
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.28) 0%, transparent 72%);
+  opacity: 0.12;
+}
+html.light .ambient-blob-c {
+  background: radial-gradient(circle, rgba(100, 116, 139, 0.35) 0%, transparent 72%);
+  opacity: 0.1;
+}
+html.light .ambient-grid {
+  opacity: 0.045;
 }
 
 .ambient-grid {
@@ -2329,24 +2368,22 @@ html.light .stat-value {
 }
 
 html.light .dashboard-hero {
-  border-color: rgba(67, 56, 202, 0.14);
-  background:
-    linear-gradient(120deg, rgba(255, 255, 255, 0.9), rgba(240, 245, 255, 0.92)),
-    radial-gradient(circle at 8% -20%, rgba(99, 102, 241, 0.28), transparent 42%);
-  box-shadow: 0 22px 40px -30px rgba(30, 41, 59, 0.45);
+  border-color: rgba(15, 23, 42, 0.08);
+  background: linear-gradient(180deg, #ffffff 0%, #fafafa 100%);
+  box-shadow: 0 18px 40px -28px rgba(15, 23, 42, 0.1);
 }
 
 html.light .hero-kpi-box {
-  border-color: rgba(15,23,42,0.12);
-  background: rgba(255,255,255,0.65);
+  border-color: rgba(15, 23, 42, 0.08);
+  background: #ffffff;
 }
 
 html.light .hero-kpi-value {
-  color: #4f46e5;
+  color: #0f172a;
 }
 
 html.light .hero-kpi-label {
-  color: #475569;
+  color: #64748b;
 }
 
 html.light .page-subtitle {
@@ -2357,11 +2394,9 @@ html.light .stat-card,
 html.light .card,
 html.light .chart-card,
 html.light .camera-tile {
-  background:
-    linear-gradient(160deg, rgba(255, 255, 255, 0.92), rgba(241, 245, 255, 0.92)),
-    radial-gradient(circle at 100% 0%, rgba(56, 189, 248, 0.12), transparent 50%);
-  border-color: rgba(15, 23, 42, 0.1);
-  box-shadow: 0 20px 34px -26px rgba(30, 41, 59, 0.35);
+  background: #ffffff;
+  border-color: rgba(15, 23, 42, 0.08);
+  box-shadow: 0 12px 32px -20px rgba(15, 23, 42, 0.1);
 }
 
 html.light .stat-trend-pill {
@@ -2490,14 +2525,23 @@ html, body, #root, .app-layout { background: var(--bg) !important; }
   background: radial-gradient(circle, rgba(34,211,238,0.08) 0%, transparent 70%);
 }
 
+/* Must not use overflow:hidden on .page-content — it overrides the main scroll
+   region and clips routed pages (e.g. Detection after adding feeds). */
 .main-content {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
 }
 .page-content {
   flex: 1;
-  overflow: hidden;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 16px 20px;
 }
 
@@ -2952,7 +2996,6 @@ html.light .dashboard-stats .stat-label { color: rgba(10,16,30,0.42); }
 .page-content {
   position: relative;
   isolation: isolate;
-  padding: 14px 14px 16px;
 }
 
 .page-content::before,
@@ -3059,18 +3102,16 @@ html.light .dashboard-stats .stat-label { color: rgba(10,16,30,0.42); }
 }
 
 html.light .page-content::before {
-  background: radial-gradient(circle, rgba(124,62,237,0.12) 0%, rgba(124,62,237,0) 70%);
+  background: radial-gradient(circle, rgba(79, 70, 229, 0.055) 0%, transparent 72%);
 }
 html.light .page-content::after {
-  background: radial-gradient(circle, rgba(34,211,238,0.08) 0%, rgba(34,211,238,0) 70%);
+  background: radial-gradient(circle, rgba(148, 163, 184, 0.07) 0%, transparent 72%);
 }
 
 html.light .card,
 html.light .stat-card {
-  background:
-    linear-gradient(165deg, rgba(255,255,255,0.92) 0%, rgba(245,248,255,0.78) 55%, rgba(238,244,255,0.72) 100%),
-    var(--card);
-  border-color: rgba(15,23,42,0.12);
+  background: #ffffff;
+  border-color: rgba(15, 23, 42, 0.1);
 }
 
 /* ============================================================
@@ -3330,11 +3371,7 @@ html.light .stat-card {
 /* --- Chart.js legend hide (we have custom inline legend) --- */
 .dashboard-panel-chart canvas + div { display: none; }
 
-/* --- Dashboard content scroll --- */
-.page-content {
-  overflow-y: auto !important;
-  overflow-x: hidden !important;
-}
+/* Scroll lives on .page-content (flex column); avoid double overflow rules here. */
 
 /* --- Responsive fix for hero KPIs --- */
 @media (max-width: 768px) {
@@ -3855,27 +3892,29 @@ html.light body {
 }
 
 /* ============================================================
-   Light mode — vibrant dashboard (contrast + accents)
+   Light mode — premium (cool neutrals + restrained indigo)
    ============================================================ */
 html.light .page-content {
   background:
-    radial-gradient(120% 65% at 0% 0%, rgba(99, 102, 241, 0.14), transparent 52%),
-    radial-gradient(90% 55% at 100% 0%, rgba(14, 165, 233, 0.12), transparent 48%),
-    linear-gradient(180deg, #f8f9ff 0%, #eef2ff 42%, #f1f5f9 100%) !important;
+    radial-gradient(100% 55% at 50% -12%, rgba(99, 102, 241, 0.04), transparent 52%),
+    linear-gradient(180deg, #fafafa 0%, #f4f4f5 55%, #f1f1f3 100%) !important;
 }
 
 html.light .dashboard-kicker {
-  color: #0e7490 !important;
+  color: #64748b !important;
+  letter-spacing: 0.18em !important;
+}
+
+html.light .kicker-dash {
+  color: #cbd5e1 !important;
 }
 
 html.light .dashboard-hero {
-  border-color: rgba(91, 33, 182, 0.22) !important;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(237, 233, 254, 0.9) 45%, rgba(224, 242, 254, 0.88) 100%),
-    radial-gradient(120% 100% at 0% 0%, rgba(99, 102, 241, 0.2), transparent 58%) !important;
+  border: 1px solid rgba(15, 23, 42, 0.07) !important;
+  background: linear-gradient(180deg, #ffffff 0%, #fafafa 100%) !important;
   box-shadow:
-    0 22px 48px -26px rgba(79, 70, 229, 0.28),
-    0 0 0 1px rgba(255, 255, 255, 0.9) inset !important;
+    0 24px 48px -32px rgba(15, 23, 42, 0.12),
+    0 1px 0 rgba(255, 255, 255, 1) inset !important;
 }
 
 html.light .dashboard-hero .dashboard-hero-title.page-title {
@@ -3883,99 +3922,169 @@ html.light .dashboard-hero .dashboard-hero-title.page-title {
 }
 
 html.light .dashboard-hero .hero-center-gradient {
-  background: linear-gradient(105deg, #5b21b6 0%, #4338ca 38%, #0d9488 100%) !important;
+  background: linear-gradient(115deg, #1e293b 0%, #4338ca 48%, #312e81 100%) !important;
   -webkit-background-clip: text !important;
   background-clip: text !important;
   -webkit-text-fill-color: transparent !important;
 }
 
 html.light .dashboard-hero .page-subtitle {
-  color: #475569 !important;
+  color: #64748b !important;
 }
 
 html.light .hero-kpi-box {
-  border-color: rgba(99, 102, 241, 0.22) !important;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 243, 255, 0.92)) !important;
-  box-shadow: 0 8px 22px -10px rgba(79, 70, 229, 0.22) !important;
+  border: 1px solid rgba(15, 23, 42, 0.07) !important;
+  background: #ffffff !important;
+  box-shadow: 0 6px 16px -8px rgba(15, 23, 42, 0.08) !important;
 }
 
-html.light .hero-kpi-value.hero-kpi-cyan { color: #0e7490 !important; }
-html.light .hero-kpi-value.hero-kpi-emerald { color: #047857 !important; }
-html.light .hero-kpi-value.hero-kpi-amber { color: #b45309 !important; }
+html.light .hero-kpi-value.hero-kpi-cyan,
+html.light .hero-kpi-value.hero-kpi-emerald,
+html.light .hero-kpi-value.hero-kpi-amber {
+  color: #0f172a !important;
+}
 
 html.light .hero-kpi-label {
   color: #64748b !important;
   font-weight: 600 !important;
 }
 
+/* KPI tiles — one calm surface; accent only as a slim left rail */
 html.light .dashboard-stats .stat-card {
-  border: 1px solid rgba(15, 23, 42, 0.1) !important;
-  box-shadow: 0 12px 32px -16px rgba(15, 23, 42, 0.14), 0 1px 0 rgba(255, 255, 255, 0.95) inset !important;
+  background: linear-gradient(180deg, #ffffff 0%, #fafafa 100%) !important;
+  border: 1px solid rgba(15, 23, 42, 0.07) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 1) inset,
+    0 10px 28px -14px rgba(15, 23, 42, 0.08) !important;
 }
 
 html.light .dashboard-stats .stat-card-violet {
-  background: linear-gradient(165deg, #ffffff 0%, rgba(243, 232, 255, 0.94) 100%) !important;
-  border-color: rgba(109, 40, 217, 0.28) !important;
-  box-shadow: 0 14px 34px -14px rgba(109, 40, 217, 0.25), 0 1px 0 #fff inset !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(15, 23, 42, 0.03),
+    inset 3px 0 0 0 rgba(67, 56, 202, 0.88),
+    0 1px 0 rgba(255, 255, 255, 1) inset,
+    0 10px 28px -14px rgba(15, 23, 42, 0.08) !important;
 }
 
 html.light .dashboard-stats .stat-card-cyan {
-  background: linear-gradient(165deg, #ffffff 0%, rgba(224, 242, 254, 0.94) 100%) !important;
-  border-color: rgba(8, 145, 178, 0.28) !important;
-  box-shadow: 0 14px 34px -14px rgba(8, 145, 178, 0.22), 0 1px 0 #fff inset !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(15, 23, 42, 0.03),
+    inset 3px 0 0 0 rgba(71, 85, 105, 0.65),
+    0 1px 0 rgba(255, 255, 255, 1) inset,
+    0 10px 28px -14px rgba(15, 23, 42, 0.08) !important;
 }
 
 html.light .dashboard-stats .stat-card-amber {
-  background: linear-gradient(165deg, #ffffff 0%, rgba(254, 243, 199, 0.92) 100%) !important;
-  border-color: rgba(217, 119, 6, 0.3) !important;
-  box-shadow: 0 14px 34px -14px rgba(217, 119, 6, 0.2), 0 1px 0 #fff inset !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(15, 23, 42, 0.03),
+    inset 3px 0 0 0 rgba(120, 53, 15, 0.5),
+    0 1px 0 rgba(255, 255, 255, 1) inset,
+    0 10px 28px -14px rgba(15, 23, 42, 0.08) !important;
 }
 
 html.light .dashboard-stats .stat-card-emerald {
-  background: linear-gradient(165deg, #ffffff 0%, rgba(209, 250, 229, 0.92) 100%) !important;
-  border-color: rgba(5, 150, 105, 0.28) !important;
-  box-shadow: 0 14px 34px -14px rgba(5, 150, 105, 0.2), 0 1px 0 #fff inset !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(15, 23, 42, 0.03),
+    inset 3px 0 0 0 rgba(5, 122, 85, 0.55),
+    0 1px 0 rgba(255, 255, 255, 1) inset,
+    0 10px 28px -14px rgba(15, 23, 42, 0.08) !important;
 }
 
 html.light .dashboard-stats .stat-card-rose {
-  background: linear-gradient(165deg, #ffffff 0%, rgba(254, 226, 226, 0.92) 100%) !important;
-  border-color: rgba(220, 38, 38, 0.26) !important;
-  box-shadow: 0 14px 34px -14px rgba(220, 38, 38, 0.18), 0 1px 0 #fff inset !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(15, 23, 42, 0.03),
+    inset 3px 0 0 0 rgba(185, 28, 28, 0.5),
+    0 1px 0 rgba(255, 255, 255, 1) inset,
+    0 10px 28px -14px rgba(15, 23, 42, 0.08) !important;
 }
 
 html.light .dashboard-stats .stat-card-sky {
-  background: linear-gradient(165deg, #ffffff 0%, rgba(219, 234, 254, 0.94) 100%) !important;
-  border-color: rgba(37, 99, 235, 0.28) !important;
-  box-shadow: 0 14px 34px -14px rgba(37, 99, 235, 0.2), 0 1px 0 #fff inset !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(15, 23, 42, 0.03),
+    inset 3px 0 0 0 rgba(30, 64, 175, 0.52),
+    0 1px 0 rgba(255, 255, 255, 1) inset,
+    0 10px 28px -14px rgba(15, 23, 42, 0.08) !important;
 }
 
-html.light .dashboard-stats .stat-card-violet .stat-value { color: #6d28d9 !important; }
-html.light .dashboard-stats .stat-card-cyan .stat-value { color: #0e7490 !important; }
-html.light .dashboard-stats .stat-card-amber .stat-value { color: #b45309 !important; }
-html.light .dashboard-stats .stat-card-emerald .stat-value { color: #047857 !important; }
-html.light .dashboard-stats .stat-card-rose .stat-value { color: #b91c1c !important; }
-html.light .dashboard-stats .stat-card-sky .stat-value { color: #1d4ed8 !important; }
+html.light .dashboard-stats .stat-card-violet .stat-value,
+html.light .dashboard-stats .stat-card-cyan .stat-value,
+html.light .dashboard-stats .stat-card-amber .stat-value,
+html.light .dashboard-stats .stat-card-emerald .stat-value,
+html.light .dashboard-stats .stat-card-rose .stat-value,
+html.light .dashboard-stats .stat-card-sky .stat-value {
+  color: #0f172a !important;
+}
 
 html.light .dashboard-stats .stat-label {
-  color: #475569 !important;
+  color: #64748b !important;
 }
 
 html.light .dashboard-stats .stat-chip {
-  background: rgba(255, 255, 255, 0.82) !important;
-  border-color: rgba(15, 23, 42, 0.12) !important;
+  background: rgba(248, 250, 252, 0.95) !important;
+  border-color: rgba(15, 23, 42, 0.1) !important;
+  color: #475569 !important;
   font-weight: 600 !important;
 }
 
 html.light .dashboard-stats .stat-trend-pill {
-  color: #334155 !important;
-  background: rgba(15, 23, 42, 0.06) !important;
+  color: #475569 !important;
+  background: rgba(241, 245, 249, 0.95) !important;
   border: 1px solid rgba(15, 23, 42, 0.08) !important;
 }
 
+html.light .dashboard-stats .stat-card-orb {
+  opacity: 0 !important;
+}
+
+html.light .dashboard-stats .stat-icon-violet {
+  background: rgba(67, 56, 202, 0.09) !important;
+  color: #4338ca !important;
+}
+
+html.light .dashboard-stats .stat-icon-cyan {
+  background: rgba(51, 65, 85, 0.08) !important;
+  color: #475569 !important;
+}
+
+html.light .dashboard-stats .stat-icon-amber {
+  background: rgba(120, 53, 15, 0.08) !important;
+  color: #92400e !important;
+}
+
+html.light .dashboard-stats .stat-icon-emerald {
+  background: rgba(5, 122, 85, 0.09) !important;
+  color: #047857 !important;
+}
+
+html.light .dashboard-stats .stat-icon-rose {
+  background: rgba(185, 28, 28, 0.08) !important;
+  color: #b91c1c !important;
+}
+
+html.light .dashboard-stats .stat-icon-sky {
+  background: rgba(30, 64, 175, 0.09) !important;
+  color: #1d4ed8 !important;
+}
+
+html.light .dashboard-stats .stat-card:hover,
+html.light .dashboard-stats .stat-card-violet:hover,
+html.light .dashboard-stats .stat-card-cyan:hover,
+html.light .dashboard-stats .stat-card-amber:hover,
+html.light .dashboard-stats .stat-card-emerald:hover,
+html.light .dashboard-stats .stat-card-rose:hover,
+html.light .dashboard-stats .stat-card-sky:hover {
+  border-color: rgba(15, 23, 42, 0.11) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 1) inset,
+    0 18px 36px -16px rgba(15, 23, 42, 0.12) !important;
+}
+
 html.light .dashboard-panel.card {
-  border: 1px solid rgba(91, 33, 182, 0.12) !important;
-  background: linear-gradient(165deg, #ffffff 0%, rgba(248, 250, 255, 0.96) 50%, rgba(241, 245, 249, 0.94) 100%) !important;
-  box-shadow: 0 18px 40px -22px rgba(51, 65, 85, 0.18) !important;
+  border: 1px solid rgba(15, 23, 42, 0.07) !important;
+  background: #ffffff !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 1) inset,
+    0 14px 36px -20px rgba(15, 23, 42, 0.1) !important;
 }
 
 html.light .dashboard-panel .card-title {
@@ -3991,28 +4100,47 @@ html.light .chart-sublabel {
   color: #0f172a !important;
 }
 
+html.light .legend-energy {
+  color: #4338ca !important;
+  font-weight: 600 !important;
+}
+
+html.light .legend-engagement {
+  color: #64748b !important;
+  font-weight: 500 !important;
+}
+
+html.light .health-status-pill {
+  color: #047857 !important;
+}
+
+html.light .health-status-dot {
+  background: #059669 !important;
+  box-shadow: 0 0 0 2px rgba(5, 150, 105, 0.12) !important;
+}
+
 html.light .health-row {
-  background: rgba(248, 250, 252, 0.85) !important;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.4) !important;
+  background: rgba(255, 255, 255, 0.72) !important;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.06) !important;
 }
 
 html.light .health-row:hover {
-  background: rgba(99, 102, 241, 0.08) !important;
+  background: rgba(248, 250, 252, 0.98) !important;
 }
 
 html.light .health-row-value.ok { color: #047857 !important; }
 html.light .health-row-value.warn { color: #b45309 !important; }
 
 html.light .health-empty-box {
-  border-color: rgba(99, 102, 241, 0.28) !important;
-  background: rgba(248, 250, 252, 0.95) !important;
+  border-color: rgba(15, 23, 42, 0.1) !important;
+  background: rgba(248, 250, 252, 0.9) !important;
   color: #64748b !important;
 }
 
 html.light .dashboard-empty-note {
-  border: 1px dashed rgba(99, 102, 241, 0.28) !important;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(241, 245, 249, 0.88)) !important;
-  color: #475569 !important;
+  border: 1px dashed rgba(15, 23, 42, 0.12) !important;
+  background: rgba(248, 250, 252, 0.95) !important;
+  color: #64748b !important;
   border-radius: 14px !important;
 }
 
@@ -4029,9 +4157,7 @@ html.light .topbar-pill-good {
 }
 
 html.light .topbar-pill-primary {
-  box-shadow:
-    0 10px 28px -8px rgba(91, 33, 182, 0.45),
-    0 6px 20px -10px rgba(8, 145, 178, 0.35) !important;
+  box-shadow: 0 10px 26px -10px rgba(67, 56, 202, 0.35) !important;
 }
 
 html.light .topbar-live-chip {
@@ -4040,27 +4166,25 @@ html.light .topbar-live-chip {
   background: rgba(16, 185, 129, 0.12) !important;
 }
 
-/* --- Light sidebar: vibrant + elegant final pass --- */
+/* --- Light sidebar: calm surface + indigo thread --- */
 html.light .sidebar {
   background:
-    radial-gradient(120% 55% at 0% 0%, rgba(99, 102, 241, 0.14), transparent 52%),
-    radial-gradient(85% 45% at 100% 100%, rgba(34, 211, 238, 0.12), transparent 50%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(243, 247, 255, 0.95)) !important;
-  border-right: 1px solid rgba(99, 102, 241, 0.2) !important;
-  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.88);
+    radial-gradient(100% 60% at 0% 0%, rgba(79, 70, 229, 0.06), transparent 50%),
+    linear-gradient(180deg, #ffffff 0%, #f8fafc 100%) !important;
+  border-right: 1px solid rgba(15, 23, 42, 0.08) !important;
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.9);
 }
 
 html.light .sidebar-header {
-  border-bottom: 1px solid rgba(99, 102, 241, 0.14) !important;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08) !important;
 }
 
 html.light .sidebar-logo {
-  background: linear-gradient(135deg, #6d28d9, #0ea5e9) !important;
+  background: linear-gradient(145deg, #4338ca 0%, #6366f1 55%, #4f46e5 100%) !important;
   color: #ffffff !important;
   box-shadow:
-    0 8px 20px -6px rgba(109, 40, 217, 0.42),
-    0 8px 22px -10px rgba(14, 165, 233, 0.35),
-    0 0 0 1px rgba(255, 255, 255, 0.75) inset !important;
+    0 8px 22px -8px rgba(67, 56, 202, 0.38),
+    0 0 0 1px rgba(255, 255, 255, 0.2) inset !important;
 }
 
 html.light .sidebar-title {
@@ -4069,8 +4193,8 @@ html.light .sidebar-title {
 }
 
 html.light .sidebar-subtitle {
-  color: #6366f1 !important;
-  opacity: 0.88;
+  color: #64748b !important;
+  opacity: 1;
   font-weight: 600 !important;
   letter-spacing: 0.07em;
 }
@@ -4091,8 +4215,8 @@ html.light .nav-item svg {
 }
 
 html.light .nav-item:hover {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(56, 189, 248, 0.1)) !important;
-  border-color: rgba(99, 102, 241, 0.22) !important;
+  background: rgba(99, 102, 241, 0.08) !important;
+  border-color: rgba(99, 102, 241, 0.16) !important;
   color: #1f2937 !important;
 }
 
@@ -4101,9 +4225,9 @@ html.light .nav-item:hover svg {
 }
 
 html.light .nav-item.active {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(34, 211, 238, 0.14)) !important;
-  border-color: rgba(99, 102, 241, 0.34) !important;
-  box-shadow: 0 10px 22px -14px rgba(79, 70, 229, 0.45);
+  background: rgba(99, 102, 241, 0.12) !important;
+  border-color: rgba(79, 70, 229, 0.22) !important;
+  box-shadow: 0 8px 20px -14px rgba(15, 23, 42, 0.12);
 }
 
 html.light .nav-item.active span {
@@ -4149,6 +4273,16 @@ html.light .theme-toggle-text {
   box-shadow:
     0 16px 34px -24px rgba(0,0,0,0.96),
     0 1px 0 rgba(255,255,255,0.07) inset;
+  min-width: 0;
+}
+
+.page-scroll .chart-card,
+.page-scroll .camera-tile {
+  overflow: hidden;
+}
+
+.page-scroll .card {
+  overflow: visible;
 }
 
 .page-scroll .card:hover,
@@ -4161,7 +4295,21 @@ html.light .theme-toggle-text {
 }
 
 .page-scroll .card-header {
-  padding-bottom: 10px;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  align-items: flex-start;
+  padding: 18px 20px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.page-scroll .card-body {
+  padding: 18px 20px 20px;
+}
+
+.page-scroll .card > .card-header + *:not(.card-body) {
+  padding-left: 20px;
+  padding-right: 20px;
+  padding-bottom: 20px;
 }
 
 .page-scroll .card-title {
@@ -4243,22 +4391,20 @@ html.light .page-scroll .page-subtitle {
 html.light .page-scroll .card,
 html.light .page-scroll .chart-card,
 html.light .page-scroll .camera-tile {
-  border: 1px solid rgba(99, 102, 241, 0.18);
-  background:
-    linear-gradient(165deg, rgba(255,255,255,0.96) 0%, rgba(243,246,255,0.93) 48%, rgba(236,243,255,0.9) 100%),
-    rgba(255,255,255,0.9);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: linear-gradient(180deg, #ffffff 0%, #fafbfc 100%);
   box-shadow:
-    0 18px 34px -22px rgba(51,65,85,0.18),
-    0 1px 0 rgba(255,255,255,0.95) inset;
+    0 12px 28px -20px rgba(15, 23, 42, 0.12),
+    0 1px 0 rgba(255, 255, 255, 0.98) inset;
 }
 
 html.light .page-scroll .card:hover,
 html.light .page-scroll .chart-card:hover,
 html.light .page-scroll .camera-tile:hover {
-  border-color: rgba(79, 70, 229, 0.32);
+  border-color: rgba(79, 70, 229, 0.22);
   box-shadow:
-    0 22px 40px -20px rgba(79,70,229,0.2),
-    0 1px 0 rgba(255,255,255,0.96) inset;
+    0 18px 36px -22px rgba(15, 23, 42, 0.14),
+    0 0 0 1px rgba(99, 102, 241, 0.06) inset;
 }
 
 html.light .page-scroll .card-title {
@@ -4277,8 +4423,8 @@ html.light .page-scroll input[type='email'],
 html.light .page-scroll input[type='password'],
 html.light .page-scroll textarea,
 html.light .page-scroll select {
-  border-color: rgba(99,102,241,0.2);
-  background: rgba(255,255,255,0.95);
+  border-color: rgba(15, 23, 42, 0.12);
+  background: rgba(255,255,255,0.98);
   color: #0f172a;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.95);
 }

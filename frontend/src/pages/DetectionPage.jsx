@@ -446,6 +446,12 @@ export default function DetectionPage() {
                                 : 0} />
                         <Row label="People detections"
                             value={pipeState?.total_detections_processed ?? 0} />
+                        <Row
+                            label="Product YOLO (overlay)"
+                            value={profileInfo?.product_yolo?.enabled
+                                ? `on · every ${profileInfo.product_yolo.every_n_frames}f · max ${profileInfo.product_yolo.max_boxes}`
+                                : 'off'}
+                        />
                         <Row label="Cross-feed memory size"
                             value={pipeState?.ai_modules?.reid?.gallery_size ?? 0} />
                         <Row label="Recording"

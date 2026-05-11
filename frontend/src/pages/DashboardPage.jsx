@@ -21,6 +21,7 @@ import {
 import useLivePoll from '../hooks/useLivePoll';
 import useWebSocket from '../hooks/useWebSocket';
 import CameraStream from '../components/CameraStream';
+import { useTheme } from '../contexts/ThemeContext';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler, Legend);
 
@@ -33,10 +34,25 @@ const ACCENT_BY_KEY = {
     sky: { rgb: '56,189,248' },
 };
 
+/** Muted RGB for progress fills in light mode (dashboard KPIs) */
+const ACCENT_MUTED_RGB = {
+    violet: '67,56,202',
+    cyan: '71,85,105',
+    amber: '120,53,15',
+    rose: '185,28,28',
+    emerald: '5,122,85',
+    sky: '30,64,175',
+};
+
 function KPI({
     icon: Icon, label, value, suffix, trend, accent = 'violet', progress = 0, tag = 'Live',
 }) {
+    const { theme } = useTheme();
+    const isLight = theme === 'light';
     const rgb = ACCENT_BY_KEY[accent]?.rgb || ACCENT_BY_KEY.violet.rgb;
+    const progressRgb = isLight
+        ? (ACCENT_MUTED_RGB[accent] || ACCENT_MUTED_RGB.violet)
+        : rgb;
     const [tilt, setTilt] = useState({ x: 0, y: 0 });
     const onMove = (e) => {
         const rect = e.currentTarget.getBoundingClientRect();
@@ -74,7 +90,7 @@ function KPI({
                     <div className="stat-progress">
                         <span style={{
                             width: `${Math.max(8, Math.min(100, progress))}%`,
-                            background: `linear-gradient(90deg, rgba(${rgb},0.95), rgba(${rgb},0.45))`,
+                            background: `linear-gradient(90deg, rgba(${progressRgb},0.92), rgba(${progressRgb},0.35))`,
                         }}
                         />
                     </div>
@@ -85,6 +101,9 @@ function KPI({
 }
 
 export default function DashboardPage() {
+    const { theme } = useTheme();
+    const isLight = theme === 'light';
+
     const { data: overview, refresh: refreshOverview } = useLivePoll(
         () => dashboardAPI.overview(), { intervalMs: 5000 }
     );
@@ -131,60 +150,107 @@ export default function DashboardPage() {
 
     const occupancySeries = trendData.map((d) => Math.max(0, Math.min(100, d.score - 8)));
 
-    const chartData = {
+    const chartData = useMemo(() => ({
         labels: trendData.map((_, i) => {
             const h = trendData.length - i;
             return `${h}h`;
         }),
-        datasets: [
-            {
-                label: 'Energy',
-                data: trendData.map((d) => d.score),
-                borderColor: 'rgba(124,62,237,0.9)',
-                backgroundColor: (ctx) => {
-                    const chart = ctx.chart;
-                    const { ctx: canvas, chartArea } = chart;
-                    if (!chartArea) return 'rgba(124,62,237,0.25)';
-                    const gradient = canvas.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
-                    gradient.addColorStop(0, 'rgba(124,62,237,0.35)');
-                    gradient.addColorStop(1, 'rgba(124,62,237,0.02)');
-                    return gradient;
+        datasets: isLight
+            ? [
+                {
+                    label: 'Energy',
+                    data: trendData.map((d) => d.score),
+                    borderColor: 'rgba(67, 56, 202, 0.9)',
+                    backgroundColor: (ctx) => {
+                        const chart = ctx.chart;
+                        const { ctx: canvas, chartArea } = chart;
+                        if (!chartArea) return 'rgba(67, 56, 202, 0.08)';
+                        const gradient = canvas.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+                        gradient.addColorStop(0, 'rgba(67, 56, 202, 0.14)');
+                        gradient.addColorStop(1, 'rgba(67, 56, 202, 0)');
+                        return gradient;
+                    },
+                    fill: true,
+                    tension: 0.45,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    pointHoverBackgroundColor: 'rgba(67, 56, 202, 1)',
+                    pointHoverBorderColor: '#fff',
+                    pointHoverBorderWidth: 2,
+                    borderWidth: 2,
                 },
-                fill: true,
-                tension: 0.45,
-                pointRadius: 0,
-                pointHoverRadius: 4,
-                pointHoverBackgroundColor: 'rgba(167,139,250,1)',
-                pointHoverBorderColor: '#000',
-                pointHoverBorderWidth: 2,
-                borderWidth: 2.2,
-            },
-            {
-                label: 'Engagement',
-                data: occupancySeries,
-                borderColor: 'rgba(34,211,238,0.7)',
-                backgroundColor: (ctx) => {
-                    const chart = ctx.chart;
-                    const { ctx: canvas, chartArea } = chart;
-                    if (!chartArea) return 'rgba(34,211,238,0.12)';
-                    const gradient = canvas.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
-                    gradient.addColorStop(0, 'rgba(34,211,238,0.18)');
-                    gradient.addColorStop(1, 'rgba(34,211,238,0.01)');
-                    return gradient;
+                {
+                    label: 'Engagement',
+                    data: occupancySeries,
+                    borderColor: 'rgba(71, 85, 105, 0.45)',
+                    backgroundColor: (ctx) => {
+                        const chart = ctx.chart;
+                        const { ctx: canvas, chartArea } = chart;
+                        if (!chartArea) return 'rgba(71, 85, 105, 0.04)';
+                        const gradient = canvas.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+                        gradient.addColorStop(0, 'rgba(71, 85, 105, 0.1)');
+                        gradient.addColorStop(1, 'rgba(71, 85, 105, 0)');
+                        return gradient;
+                    },
+                    fill: true,
+                    tension: 0.42,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    pointHoverBackgroundColor: 'rgba(51, 65, 85, 0.9)',
+                    pointHoverBorderColor: '#fff',
+                    pointHoverBorderWidth: 2,
+                    borderWidth: 1.5,
                 },
-                fill: true,
-                tension: 0.42,
-                pointRadius: 0,
-                pointHoverRadius: 4,
-                pointHoverBackgroundColor: 'rgba(34,211,238,0.95)',
-                pointHoverBorderColor: '#000',
-                pointHoverBorderWidth: 2,
-                borderWidth: 1.8,
-            },
-        ],
-    };
+            ]
+            : [
+                {
+                    label: 'Energy',
+                    data: trendData.map((d) => d.score),
+                    borderColor: 'rgba(124,62,237,0.9)',
+                    backgroundColor: (ctx) => {
+                        const chart = ctx.chart;
+                        const { ctx: canvas, chartArea } = chart;
+                        if (!chartArea) return 'rgba(124,62,237,0.25)';
+                        const gradient = canvas.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+                        gradient.addColorStop(0, 'rgba(124,62,237,0.35)');
+                        gradient.addColorStop(1, 'rgba(124,62,237,0.02)');
+                        return gradient;
+                    },
+                    fill: true,
+                    tension: 0.45,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    pointHoverBackgroundColor: 'rgba(167,139,250,1)',
+                    pointHoverBorderColor: '#000',
+                    pointHoverBorderWidth: 2,
+                    borderWidth: 2.2,
+                },
+                {
+                    label: 'Engagement',
+                    data: occupancySeries,
+                    borderColor: 'rgba(34,211,238,0.7)',
+                    backgroundColor: (ctx) => {
+                        const chart = ctx.chart;
+                        const { ctx: canvas, chartArea } = chart;
+                        if (!chartArea) return 'rgba(34,211,238,0.12)';
+                        const gradient = canvas.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+                        gradient.addColorStop(0, 'rgba(34,211,238,0.18)');
+                        gradient.addColorStop(1, 'rgba(34,211,238,0.01)');
+                        return gradient;
+                    },
+                    fill: true,
+                    tension: 0.42,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    pointHoverBackgroundColor: 'rgba(34,211,238,0.95)',
+                    pointHoverBorderColor: '#000',
+                    pointHoverBorderWidth: 2,
+                    borderWidth: 1.8,
+                },
+            ],
+    }), [isLight, trendData, occupancySeries]);
 
-    const chartOptions = {
+    const chartOptions = useMemo(() => ({
         responsive: true,
         maintainAspectRatio: false,
         interaction: { intersect: false, mode: 'index' },
@@ -193,11 +259,11 @@ export default function DashboardPage() {
                 display: false,
             },
             tooltip: {
-                backgroundColor: 'rgba(10,10,20,0.95)',
-                borderColor: 'rgba(255,255,255,0.1)',
+                backgroundColor: isLight ? 'rgba(255, 255, 255, 0.97)' : 'rgba(10,10,20,0.95)',
+                borderColor: isLight ? 'rgba(15, 23, 42, 0.1)' : 'rgba(255,255,255,0.1)',
                 borderWidth: 1,
-                titleColor: 'rgba(255,255,255,0.9)',
-                bodyColor: 'rgba(255,255,255,0.78)',
+                titleColor: isLight ? '#0f172a' : 'rgba(255,255,255,0.9)',
+                bodyColor: isLight ? '#475569' : 'rgba(255,255,255,0.78)',
                 padding: 10,
                 cornerRadius: 8,
                 displayColors: false,
@@ -205,19 +271,27 @@ export default function DashboardPage() {
         },
         scales: {
             x: {
-                grid: { color: 'rgba(255,255,255,0.03)' },
-                ticks: { color: 'rgba(255,255,255,0.2)', maxTicksLimit: 10, font: { size: 9 } },
-                border: { color: 'rgba(255,255,255,0.06)' },
+                grid: { color: isLight ? 'rgba(15, 23, 42, 0.06)' : 'rgba(255,255,255,0.03)' },
+                ticks: {
+                    color: isLight ? '#94a3b8' : 'rgba(255,255,255,0.2)',
+                    maxTicksLimit: 10,
+                    font: { size: 9 },
+                },
+                border: { color: isLight ? 'rgba(15, 23, 42, 0.08)' : 'rgba(255,255,255,0.06)' },
             },
             y: {
                 min: 0,
                 max: 100,
-                grid: { color: 'rgba(255,255,255,0.03)' },
-                ticks: { color: 'rgba(255,255,255,0.2)', stepSize: 20, font: { size: 9 } },
-                border: { color: 'rgba(255,255,255,0.06)' },
+                grid: { color: isLight ? 'rgba(15, 23, 42, 0.06)' : 'rgba(255,255,255,0.03)' },
+                ticks: {
+                    color: isLight ? '#94a3b8' : 'rgba(255,255,255,0.2)',
+                    stepSize: 20,
+                    font: { size: 9 },
+                },
+                border: { color: isLight ? 'rgba(15, 23, 42, 0.08)' : 'rgba(255,255,255,0.06)' },
             },
         },
-    };
+    }), [isLight]);
 
     const togglePipeline = async () => {
         setBusy(true);

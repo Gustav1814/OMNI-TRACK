@@ -17,16 +17,10 @@ import RegisterPage from './pages/RegisterPage';
 import DashboardPage from './pages/DashboardPage';
 import DetectionPage from './pages/DetectionPage';
 import ReIDPage from './pages/ReIDPage';
-import SynopsisPage from './pages/SynopsisPage';
-import ShelfPage from './pages/ShelfPage';
 import FirePage from './pages/FirePage';
 import CrowdPage from './pages/CrowdPage';
-import CheckoutPage from './pages/CheckoutPage';
 import EmotionPage from './pages/EmotionPage';
 import AuditPage from './pages/AuditPage';
-import VibePage from './pages/VibePage';
-import PeakHoursPage from './pages/PeakHoursPage';
-import DemographicsPage from './pages/DemographicsPage';
 import SecurityPage from './pages/SecurityPage';
 import TrimPage from './pages/TrimPage';
 
@@ -34,17 +28,11 @@ const pageTitles = {
     '/': 'Live Overview',
     '/detection': 'Video Feeds',
     '/reid': 'Cross-Feed Matching',
-    '/synopsis': 'Highlights Reel',
     '/trim': 'Video Trimmer',
-    '/shelf': 'Shelf Activity',
     '/fire': 'Safety Watch',
     '/crowd': 'Footfall',
-    '/checkout': 'Queue Insights',
     '/emotion': 'Mood Trends',
     '/audit': 'Activity Log',
-    '/vibe': 'Store Pulse',
-    '/peak-hours': 'Rush Hours',
-    '/demographics': 'Audience Mix',
     '/security': 'Model Health',
 };
 
@@ -108,26 +96,20 @@ function ProtectedLayout() {
                 <div className="page-content">
                     <motion.div
                         key={location.pathname}
-                        initial={{ opacity: 0, y: 6 }}
+                        className="page-route-outlet"
+                        initial={{ opacity: 0, y: 4 }}
                         animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.25, ease: [0.25, 0.46, 0.45, 0.94] }}
-                        style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
+                        transition={{ duration: 0.22, ease: [0.25, 0.46, 0.45, 0.94] }}
                     >
                         <Routes>
                             <Route path="/" element={<DashboardPage />} />
                             <Route path="/detection" element={<DetectionPage />} />
                             <Route path="/reid" element={<ReIDPage />} />
-                            <Route path="/synopsis" element={<SynopsisPage />} />
                             <Route path="/trim" element={<TrimPage />} />
-                            <Route path="/shelf" element={<ShelfPage />} />
                             <Route path="/fire" element={<FirePage />} />
                             <Route path="/crowd" element={<CrowdPage />} />
-                            <Route path="/checkout" element={<CheckoutPage />} />
                             <Route path="/emotion" element={<EmotionPage />} />
                             <Route path="/audit" element={<AuditPage />} />
-                            <Route path="/vibe" element={<VibePage />} />
-                            <Route path="/peak-hours" element={<PeakHoursPage />} />
-                            <Route path="/demographics" element={<DemographicsPage />} />
                             <Route path="/security" element={<SecurityPage />} />
                             <Route path="*" element={<Navigate to="/" />} />
                         </Routes>
