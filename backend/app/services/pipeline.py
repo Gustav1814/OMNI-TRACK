@@ -43,6 +43,7 @@ import asyncio
 import base64
 import time
 import json
+import inspect
 import numpy as np
 import cv2
 from collections import OrderedDict
@@ -170,14 +171,13 @@ class ProcessingPipeline:
         self,
         detector_model: str = "yolov8n.pt",
         reid_model: str = "osnet_x1_0",
-        fire_model: str = "yolov8n.pt",
+        fire_model: str = "fire-smoke.pt",
         device: str = "auto",
         confidence: float = 0.5,
         processing_fps: int = 15,     # How many frames/sec to process per camera
         reid_threshold: float = 0.6,
         reid_embeddings_per_id: int = 5,
         enable_emotions: bool = True,
-        enable_fire: bool = True,
         enable_shelf: bool = True,
         enable_checkout: bool = True,
     ):
@@ -213,12 +213,16 @@ class ProcessingPipeline:
 
         # Optional modules
         self._enable_emotions = enable_emotions
-        self._enable_fire = enable_fire
         self._enable_shelf = enable_shelf
         self._enable_checkout = enable_checkout
 
+        # Fire/smoke: lazy-loaded per checkpoint path; inference only when enable_fire=True for that camera.
+        self._fire_model_path = fire_model  # default from settings when no per-feed override
+        self._camera_fire_enabled: Dict[int, bool] = {}
+        self._camera_fire_weights_path: Dict[int, str] = {}  # camera_id -> resolved .pt path
+        self._fire_detectors: Dict[str, FireSmokeDetector] = {}  # resolved path -> detector
+
         self.emotion = EmotionRecognizer() if enable_emotions else None
-        self.fire_detector = FireSmokeDetector(model_path=fire_model) if enable_fire else None
         self.shelf_tracker = ShelfEngagementTracker() if enable_shelf else None
         self.checkout = CheckoutAnalyzer() if enable_checkout else None
         self.crowd = CrowdDensityEstimator()
@@ -243,6 +247,8 @@ class ProcessingPipeline:
         # is pre-downscale and would corrupt MP4 if used for VideoWriter).
         self._recorders: Dict[int, tuple] = {}
         self._recorder_target_wh: Dict[int, Tuple[int, int]] = {}
+        # Product YOLO overlay cache (throttled inference; boxes persist between runs)
+        self._last_product_overlay: Dict[int, List[Dict[str, Any]]] = {}
         # Per-camera detection logs: camera_id -> {"log_path": Path, "frames": []}
         self._detection_logs: Dict[int, Dict[str, Any]] = {}
         # Ensure logs directory exists (backend-relative, not process cwd)
@@ -250,6 +256,9 @@ class ProcessingPipeline:
         self._logs_dir.mkdir(parents=True, exist_ok=True)
         # camera_id -> zone_name (set at add_camera, used by analytics snapshot)
         self._camera_zones: Dict[int, str] = {}
+        # Persisted for DB FK ensure on each tick (detections/embeddings reference cameras.id)
+        self._camera_sources: Dict[int, str] = {}
+        self._camera_fps: Dict[int, float] = {}
         # Detections counter — powers dashboard "total_detections_today"
         self._total_detections: int = 0
         # Last-computed store vibe dict, so routers can serve without recomputing
@@ -273,7 +282,7 @@ class ProcessingPipeline:
         self._lifecycle_hooks: List[Callable[[str, Dict[str, Any]], Any]] = []
 
         logger.info(f"Pipeline initialized | device={device} | modules: "
-                     f"emotion={enable_emotions} fire={enable_fire} "
+                     f"emotion={enable_emotions} fire=lazy-per-feed "
                      f"shelf={enable_shelf} checkout={enable_checkout}")
 
     # ─────────────────────────────────────────────────────────────
@@ -288,8 +297,61 @@ class ProcessingPipeline:
                 model_path=model_path,
                 confidence=self._detector_confidence,
                 device=self._detector_device,
+                person_class_only=True,
             )
         return self._detectors[model_path]
+
+    def _get_product_detector(self) -> Optional[PersonDetector]:
+        """Second YOLO for retail/product classes; None if PRODUCT_YOLO_PATH unset."""
+        path = (getattr(settings, "PRODUCT_YOLO_PATH", None) or "").strip()
+        if not path:
+            return None
+        cache_key = f"__product_yolo__:{path}"
+        if cache_key not in self._detectors:
+            conf = float(getattr(settings, "PRODUCT_YOLO_CONFIDENCE", 0.45))
+            nms = float(getattr(settings, "NMS_THRESHOLD", 0.45))
+            self._detectors[cache_key] = PersonDetector(
+                model_path=path,
+                confidence=conf,
+                nms_threshold=nms,
+                device=self._detector_device,
+                person_class_only=False,
+            )
+        return self._detectors[cache_key]
+
+    def _get_or_create_fire_detector(self, path: str) -> Optional[FireSmokeDetector]:
+        """Load/cache a fire/smoke YOLO by resolved path (supports multiple weights across feeds)."""
+        if not path:
+            return None
+        if path in self._fire_detectors:
+            return self._fire_detectors[path]
+        conf = float(getattr(settings, "FIRE_DETECTION_CONFIDENCE", 0.58))
+        logger.info(f"Loading fire/smoke model ({path}, conf={conf})…")
+        det = FireSmokeDetector(
+            model_path=path,
+            confidence=conf,
+            device=self._detector_device,
+        )
+        self._fire_detectors[path] = det
+        return det
+
+    def any_fire_detector(self) -> Optional[FireSmokeDetector]:
+        """First loaded fire detector (for /api/fire/status when any feed uses fire)."""
+        if not self._fire_detectors:
+            return None
+        return next(iter(self._fire_detectors.values()))
+
+    def merged_fire_alert_history(self, limit: int = 50) -> List[Dict[str, Any]]:
+        rows: List[Dict[str, Any]] = []
+        for fd in self._fire_detectors.values():
+            rows.extend(fd.get_alert_history(limit=limit))
+        rows.sort(key=lambda x: str(x.get("timestamp") or ""), reverse=True)
+        return rows[:limit]
+
+    @staticmethod
+    def _person_stream_dets(dets: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Person / tracking stream only (excludes product overlay boxes)."""
+        return [d for d in dets if (d or {}).get("det_stream", "person") == "person"]
 
     def add_camera(
         self,
@@ -301,8 +363,10 @@ class ProcessingPipeline:
         skip_frames: int = 1,
         roi: Optional[Dict] = None,
         model_path: Optional[str] = None,
+        fire_model_path: Optional[str] = None,
         tracker_config: Optional[str] = None,
         enable_reid: bool = True,
+        enable_fire: bool = False,
     ):
         """
         Register a camera for processing.
@@ -316,6 +380,8 @@ class ProcessingPipeline:
             skip_frames: Process every Nth frame (higher = faster but less accurate)
             roi: Optional region of interest crop
             enable_reid: Run 512-d Torchreid embeddings + global gallery for this feed (GPU/CPU heavy).
+            enable_fire: Run fire/smoke YOLO on this feed. Optional fire_model_path selects the .pt file (defaults to FIRE_MODEL_PATH).
+            fire_model_path: Resolved absolute path to fire/smoke weights for this camera (person detection uses model_path separately).
         
         Example:
             # IP camera
@@ -355,18 +421,32 @@ class ProcessingPipeline:
                 logger.error(f"Failed to start newly added camera {camera_id}: {e}")
         self._frame_counts[camera_id] = 0
         self._camera_zones[camera_id] = zone
+        self._camera_sources[int(camera_id)] = (str(source).strip()[:500] or "pipeline://unknown")
+        self._camera_fps[int(camera_id)] = float(fps_target)
         self._camera_reid_enabled[int(camera_id)] = bool(enable_reid)
-        # Store model assignment for this camera (default if not specified)
-        effective_model = model_path or self._detector_model
-        self._camera_models[camera_id] = effective_model
+        self._camera_fire_enabled[int(camera_id)] = bool(enable_fire)
+        if enable_fire:
+            fp = fire_model_path or self._fire_model_path
+            self._camera_fire_weights_path[int(camera_id)] = fp
+            self._get_or_create_fire_detector(fp)
+        else:
+            self._camera_fire_weights_path.pop(int(camera_id), None)
+        # Person/tracker YOLO (never use fire-only weights here — those belong in fire_model_path).
+        effective_person_model = model_path or self._detector_model
+        self._camera_models[camera_id] = effective_person_model
         # Create detector for this model if not exists
-        self._get_or_create_detector(effective_model)
+        self._get_or_create_detector(effective_person_model)
         
         # One tracker per camera so local track IDs are per-feed; Re-ID assigns global_id across cameras.
+        # The pipeline tracks PERSONS only (class 0 in COCO) — cross-camera Re-ID,
+        # crowd density, journeys etc. are all person-centric. Other models can
+        # still be loaded via this tracker class outside the pipeline by passing
+        # `classes=None` (track all) or a custom list.
         if camera_id not in self._trackers:
             self._trackers[camera_id] = MultiObjectTracker(
-                model_path=effective_model,
+                model_path=effective_person_model,
                 tracker_config=tracker_config or getattr(settings, "TRACKER_DEFAULT", "botsort.yaml"),
+                classes=[0],
             )
 
         # Register zone in crowd density (one zone per camera).
@@ -374,7 +454,8 @@ class ProcessingPipeline:
 
         logger.info(
             f"Camera {camera_id} added → zone: {zone} | capture_fps_cap={fps_target} "
-            f"skip_frames={skip_n} reid={'on' if enable_reid else 'off'}"
+            f"skip_frames={skip_n} reid={'on' if enable_reid else 'off'} "
+            f"fire_smoke={'on' if enable_fire else 'off'}"
         )
         # Fire-and-forget: audit log this camera addition on the running loop
         try:
@@ -396,8 +477,13 @@ class ProcessingPipeline:
         self._trackers.pop(camera_id, None)
         self._camera_models.pop(camera_id, None)  # Clean up model assignment
         self._camera_reid_enabled.pop(int(camera_id), None)
+        self._camera_fire_enabled.pop(int(camera_id), None)
+        self._camera_fire_weights_path.pop(int(camera_id), None)
         zone = self._camera_zones.pop(camera_id, None)
+        self._camera_sources.pop(int(camera_id), None)
+        self._camera_fps.pop(int(camera_id), None)
         self._last_global_by_track = {k: v for k, v in self._last_global_by_track.items() if k[0] != camera_id}
+        self._last_product_overlay.pop(camera_id, None)
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
@@ -679,6 +765,8 @@ class ProcessingPipeline:
           - Save detections to database
           - Trigger alerts (fire, overcrowding)
         """
+        if callback in self._callbacks:
+            return
         self._callbacks.append(callback)
 
     def set_event_bus(self, bus: EventBus) -> None:
@@ -849,10 +937,9 @@ class ProcessingPipeline:
                 # Step 7: Fire callbacks
                 for cb in self._callbacks:
                     try:
-                        if asyncio.iscoroutinefunction(cb):
-                            await cb(cycle_results, self.global_state)
-                        else:
-                            cb(cycle_results, self.global_state)
+                        out = cb(cycle_results, self.global_state)
+                        if inspect.isawaitable(out):
+                            await out
                     except Exception as e:
                         logger.error(f"Callback error: {e}")
 
@@ -864,7 +951,7 @@ class ProcessingPipeline:
                         payload={
                             "tick_id": tick_id,
                             "camera_id": cam_id,
-                            "person_count": len(r.detections or []),
+                            "person_count": len(self._person_stream_dets(r.detections or [])),
                             "active_tracks": len(r.tracks or []),
                             "ts": r.timestamp,
                         },
@@ -925,36 +1012,60 @@ class ProcessingPipeline:
             camera_model = self._camera_models.get(cam_id, self._detector_model)
             detector = self._get_or_create_detector(camera_model)
             
-            # Detect persons
-            raw_detections = await asyncio.to_thread(
+            # Detect persons (primary YOLO; class 0 only)
+            raw_person = await asyncio.to_thread(
                 detector.detect, frame
             )
 
-            # Track persons (per-camera ByteTrack: local IDs for this feed only)
+            # Track persons (per-camera ByteTrack/BoT-SORT: local IDs for this feed only)
             tracker = self._trackers.get(cam_id)
             if tracker is None:
-                tracker = MultiObjectTracker(model_path=camera_model)
+                tracker = MultiObjectTracker(model_path=camera_model, classes=[0])
                 self._trackers[cam_id] = tracker
             tracks = await asyncio.to_thread(tracker.update, frame)
             all_tracks[cam_id] = tracks
 
-            # Normalize detections → dicts; attach track_id via IoU match against tracks.
+            # Normalize person detections → dicts; attach track_id via IoU match against tracks.
             norm_dets: List[Dict[str, Any]] = []
-            for raw in raw_detections:
+            for raw in raw_person:
                 if isinstance(raw, BBox):
                     bbox = [float(raw.x), float(raw.y), float(raw.w), float(raw.h)]
                 else:
                     bbox = raw.get("bbox") or raw.get("box") or []
                 tid = self._match_det_to_track(bbox, tracks) if len(bbox) >= 4 else None
-                norm_dets.append(self._detection_to_dict(raw, track_id=tid))
-            all_detections[cam_id] = norm_dets
+                d = self._detection_to_dict(raw, track_id=tid)
+                d["det_stream"] = "person"
+                norm_dets.append(d)
+
+            # Optional product YOLO: throttled + cached overlay (no tracker / Re-ID / gallery load)
+            prod_detector = self._get_product_detector()
+            interval = max(1, int(getattr(settings, "PRODUCT_DETECT_EVERY_N_FRAMES", 3)))
+            max_prod = max(1, int(getattr(settings, "PRODUCT_MAX_DETECTIONS_PER_FRAME", 25)))
+            if prod_detector is not None:
+                if (frame_num - 1) % interval == 0:
+                    raw_prod = await asyncio.to_thread(prod_detector.detect, frame)
+                    raw_prod = sorted(raw_prod, key=lambda b: -b.confidence)[:max_prod]
+                    product_dicts: List[Dict[str, Any]] = []
+                    for raw in raw_prod:
+                        pd = self._detection_to_dict(raw, track_id=None)
+                        pd["det_stream"] = "product"
+                        pd["global_id"] = None
+                        product_dicts.append(pd)
+                    self._last_product_overlay[cam_id] = product_dicts
+                else:
+                    product_dicts = list(self._last_product_overlay.get(cam_id) or [])
+                merged = norm_dets + product_dicts
+            else:
+                merged = norm_dets
+
+            all_detections[cam_id] = merged
             self._total_detections += len(norm_dets)
 
             results[cam_id] = CameraResult(
                 camera_id=cam_id,
                 timestamp=timestamp,
                 frame_number=frame_num,
-                detections=norm_dets,
+                detections=merged,
                 tracks=tracks,
                 tick_id=tick_id,
             )
@@ -976,6 +1087,9 @@ class ProcessingPipeline:
                         continue
                     for det in all_detections.get(cam_id, []):
                         try:
+                            if (det or {}).get("det_stream") == "product":
+                                det["global_id"] = None
+                                continue
                             bbox = det.get("bbox") or []
                             if len(bbox) < 4:
                                 continue
@@ -1055,7 +1169,7 @@ class ProcessingPipeline:
 
         # ── PHASE 3: Analytics (parallel across modules) ──
         for cam_id, (frame, timestamp) in frames.items():
-            dets = all_detections.get(cam_id, [])
+            dets = self._person_stream_dets(all_detections.get(cam_id, []))
             zone = self._camera_zones.get(cam_id, "default")
 
             # Crowd density (always on; cheap)
@@ -1065,18 +1179,21 @@ class ProcessingPipeline:
             except Exception as e:
                 logger.debug(f"Crowd update error cam {cam_id}: {e}")
 
-            # Fire detection (safety-first — always runs)
-            if self._enable_fire and self.fire_detector:
-                try:
-                    fire_results = await asyncio.to_thread(
-                        self.fire_detector.detect, frame, cam_id, zone
-                    )
-                    results[cam_id].fire_alerts = fire_results
-                    if fire_results:
-                        self.global_state.fire_alert_active = True
-                        logger.warning(f"FIRE/SMOKE ALERT on Camera {cam_id}!")
-                except Exception as e:
-                    logger.debug(f"Fire detect error cam {cam_id}: {e}")
+            # Fire/smoke — separate YOLO; per-feed weights in _fire_detectors.
+            if self._camera_fire_enabled.get(int(cam_id), False):
+                fp = self._camera_fire_weights_path.get(int(cam_id)) or self._fire_model_path
+                fd = self._fire_detectors.get(fp) if fp else None
+                if fd is not None:
+                    try:
+                        fire_results = await asyncio.to_thread(
+                            fd.detect, frame, cam_id, zone
+                        )
+                        results[cam_id].fire_alerts = fire_results
+                        if fire_results:
+                            self.global_state.fire_alert_active = True
+                            logger.warning(f"FIRE/SMOKE ALERT on Camera {cam_id}!")
+                    except Exception as e:
+                        logger.debug(f"Fire detect error cam {cam_id}: {e}")
 
             # Emotion recognition — returns a single summary dict per frame.
             if self._enable_emotions and self.emotion:
@@ -1106,7 +1223,7 @@ class ProcessingPipeline:
 
         # ── PHASE 4: Store Vibe Score (aggregate everything) ──
         try:
-            total_people = sum(len(d) for d in all_detections.values())
+            total_people = sum(len(self._person_stream_dets(d)) for d in all_detections.values())
             sentiment_samples = 0
             avg_sentiment = 0.0
             engagement_accum = 0.0
@@ -1158,7 +1275,10 @@ class ProcessingPipeline:
         for cam_id, result in results.items():
             if result.crowd_status:
                 zone = result.crowd_status.get("zone", f"cam-{cam_id}")
-                count = result.crowd_status.get("person_count", len(result.detections))
+                count = result.crowd_status.get(
+                    "person_count",
+                    len(self._person_stream_dets(result.detections or [])),
+                )
                 self.global_state.zone_occupancy[zone] = count
 
         # Active global IDs this tick only (avoids stale rows when Re-ID is off or people leave FOV)
@@ -1209,6 +1329,7 @@ class ProcessingPipeline:
                                 "bbox": d.get("bbox", []),
                                 "global_id": reid_match.get("global_id") if reid_match else None,
                                 "region": self._camera_zones.get(cam_id, "global"),
+                                "det_stream": d.get("det_stream", "person"),
                             })
                         frame_log["detection_count"] = len(frame_log["detections"])
                         log_entry["frames"].append(frame_log)
@@ -1303,6 +1424,7 @@ class ProcessingPipeline:
         gid_by_tid = {m.get("track_id"): m.get("global_id") for m in result.reid_matches if m.get("track_id") is not None}
 
         for det in result.detections:
+            is_product = False
             if hasattr(det, "x"):
                 x, y, bw, bh = int(det.x), int(det.y), int(det.w), int(det.h)
                 conf = float(getattr(det, "confidence", 0))
@@ -1318,6 +1440,7 @@ class ProcessingPipeline:
                 track_id = det.get("track_id")
                 class_name = det.get("class_name", "object")
                 keypoints = det.get("keypoints")
+                is_product = det.get("det_stream") == "product"
 
             x, y = max(0, x), max(0, y)
             if bw < 1 or bh < 1:
@@ -1326,23 +1449,29 @@ class ProcessingPipeline:
             bh = min(int(bh), max(1, h - y))
             if x >= w or y >= h:
                 continue
-            color = self._color_for_track(track_id)
+            color = (0, 140, 255) if is_product else self._color_for_track(track_id)
+            box_thick = 1 if is_product else 2
 
-            # Bounding box
-            cv2.rectangle(frame, (x, y), (x + bw, y + bh), color, 2)
-
-            # Label: "ClassName #ID  87%"
-            tid_str = f"#{track_id}" if track_id is not None else ""
-            label = f"{class_name} {tid_str} {conf:.0%}".strip()
+            # Label: product boxes have no track id / Re-ID
+            tid_str = "" if is_product else (f"#{track_id} " if track_id is not None else "")
+            label = f"{class_name} {tid_str}{conf:.0%}".strip()
 
             # Filled label background for readability
             font = cv2.FONT_HERSHEY_SIMPLEX
-            font_scale = 0.55
+            font_scale = 0.5 if is_product else 0.55
             thickness = 1
             (tw, th), baseline = cv2.getTextSize(label, font, font_scale, thickness)
             label_y = max(th + 6, y)
             label_bg_top = label_y - th - 6
             label_bg_bottom = label_y
+            cv2.rectangle(
+                frame,
+                (x, y),
+                (x + bw, y + bh),
+                color,
+                box_thick,
+                cv2.LINE_AA,
+            )
             cv2.rectangle(
                 frame,
                 (x, label_bg_top),
@@ -1354,17 +1483,18 @@ class ProcessingPipeline:
                 font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA
             )
 
-            # Pose skeleton if available
-            if keypoints:
+            # Pose skeleton if available (person stream only)
+            if keypoints and not is_product:
                 self._draw_pose_skeleton(frame, keypoints, color)
 
-            # Global ID below bbox (from Re-ID)
-            gid = gid_by_tid.get(track_id) if track_id is not None else None
-            if gid:
-                cv2.putText(
-                    frame, str(gid), (x, min(h - 5, y + bh + 18)),
-                    font, 0.45, (255, 200, 0), 1, cv2.LINE_AA
-                )
+            # Global ID below bbox (from Re-ID) — persons only
+            if not is_product:
+                gid = gid_by_tid.get(track_id) if track_id is not None else None
+                if gid:
+                    cv2.putText(
+                        frame, str(gid), (x, min(h - 5, y + bh + 18)),
+                        font, 0.45, (255, 200, 0), 1, cv2.LINE_AA
+                    )
 
         if result.fire_alerts:
             cv2.putText(
@@ -1426,9 +1556,19 @@ class ProcessingPipeline:
                 "reid": self._reid_status_payload(),
                 "reid_gallery_size": len(getattr(self.reid, "_gallery", []) or []),
                 "emotion": "enabled" if self._enable_emotions else "disabled",
-                "fire": "enabled" if self._enable_fire else "disabled",
+                "fire": (
+                    "armed"
+                    if self._fire_detectors and any(self._camera_fire_enabled.values())
+                    else "off"
+                ),
                 "shelf": "enabled" if self._enable_shelf else "disabled",
                 "checkout": "enabled" if self._enable_checkout else "disabled",
+                "product_yolo": {
+                    "enabled": bool((getattr(settings, "PRODUCT_YOLO_PATH", None) or "").strip()),
+                    "path": (getattr(settings, "PRODUCT_YOLO_PATH", None) or "") or None,
+                    "every_n_frames": int(getattr(settings, "PRODUCT_DETECT_EVERY_N_FRAMES", 3)),
+                    "max_boxes": int(getattr(settings, "PRODUCT_MAX_DETECTIONS_PER_FRAME", 25)),
+                },
             },
             "global_state": {
                 "total_persons_tracked": self.global_state.total_persons_tracked,
@@ -1481,7 +1621,7 @@ class ProcessingPipeline:
         total_detections_snapshot = 0
 
         for cam_id, r in self._results_buffer.items():
-            total_detections_snapshot += len(r.detections or [])
+            total_detections_snapshot += len(self._person_stream_dets(r.detections or []))
             if r.crowd_status:
                 crowd_zones.append(r.crowd_status)
             if r.fire_alerts:
@@ -1508,11 +1648,8 @@ class ProcessingPipeline:
             self.shelf_tracker.get_zone_rankings() if self.shelf_tracker else []
         )
 
-        # Fire alert history — last 50
-        fire_history = (
-            self.fire_detector.get_alert_history(limit=50)
-            if self.fire_detector else []
-        )
+        # Fire alert history — last 50 (merged across loaded fire checkpoints)
+        fire_history = self.merged_fire_alert_history(limit=50)
 
         current_vibe = self._latest_vibe or self.vibe_engine.get_current() or {
             "overall_score": 0.0,

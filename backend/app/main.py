@@ -25,13 +25,14 @@ import os
 import warnings
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from loguru import logger
 import sys
 import time
 from datetime import datetime, timezone
+from typing import Optional
 
 # Reduce verbose third-party startup noise (TensorFlow / torchreid warnings).
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
@@ -49,8 +50,9 @@ warnings.filterwarnings(
 logging.getLogger("tensorflow").setLevel(logging.ERROR)
 
 # Database
-from sqlalchemy import text
-from app.database import engine, Base, get_db
+from sqlalchemy import text, select, func
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.database import engine, Base, get_db, AsyncSessionLocal
 
 # Middleware
 from app.middleware import (
@@ -69,6 +71,7 @@ from app.services.event_bus import KafkaBus, RedisStreamBus, NullBus
 from app.services.vector_store import PgVectorStore, QdrantStore, FaissStore
 from app.services.memory_guard import MemoryGuard
 from app.services.storage_guard import StorageGuard
+from app.services.crud import CameraService
 
 # Routers
 from app.routers import auth, cameras, detection, reid, footage, model
@@ -91,6 +94,10 @@ from app.config import settings
 from app.security.adversarial_eval import get_robustness_status
 from app.security.dependencies import get_current_user
 from app.models.user import User
+from app.models.camera import Camera
+from app.models.detection import Detection
+from app.models.embedding import Embedding
+from app.models.analytics import FootTraffic
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -103,7 +110,7 @@ broadcast = BroadcastService()
 pipeline = ProcessingPipeline(
     detector_model=settings.YOLO_MODEL_PATH,
     reid_model=settings.REID_MODEL,
-    fire_model=getattr(settings, "FIRE_MODEL_PATH", settings.FIRE_MODEL),
+    fire_model=settings.FIRE_MODEL_PATH,
     confidence=settings.DETECTION_CONFIDENCE,
     device=settings.DEVICE,
     processing_fps=settings.PROCESSING_FPS,
@@ -192,7 +199,7 @@ async def lifespan(app: FastAPI):
         event_bus = NullBus()
         logger.warning("⚠️ Event bus backend fallback: null")
 
-    vector_backend = getattr(settings, "VECTOR_STORE_BACKEND", "faiss").lower()
+    vector_backend = getattr(settings, "VECTOR_STORE_BACKEND", "pgvector").lower()
     if vector_backend == "qdrant":
         vector_store = QdrantStore(
             url=getattr(settings, "QDRANT_URL", "http://localhost:6333"),
@@ -345,6 +352,17 @@ app.include_router(dashboard_router)
 
 
 # ═══════════════════════════════════════════════════════════════
+# DATABASE ADMIN PANEL  (/admin — admin-role users only)
+# ═══════════════════════════════════════════════════════════════
+try:
+    from app.admin import setup_admin
+    setup_admin(app)
+    logger.info("✅ DB admin panel mounted at /admin")
+except Exception as _admin_err:
+    logger.warning(f"⚠️  Admin panel disabled: {_admin_err}")
+
+
+# ═══════════════════════════════════════════════════════════════
 # CORE ENDPOINTS
 # ═══════════════════════════════════════════════════════════════
 
@@ -431,10 +449,55 @@ async def system_profile():
         "processing_fps": pipeline.processing_fps,
         "capture_decode_imgsz": getattr(settings, "DECODE_IMGSZ", 0),
         "event_bus_backend": getattr(settings, "EVENT_BUS_BACKEND", "redis"),
-        "vector_store_backend": getattr(settings, "VECTOR_STORE_BACKEND", "faiss"),
+        "vector_store_backend": getattr(settings, "VECTOR_STORE_BACKEND", "pgvector"),
         "enable_mediapipe": getattr(settings, "ENABLE_MEDIAPIPE", True),
         "memory": status.get("runtime", {}).get("memory", {}),
         "max_cameras": getattr(settings, "MAX_CAMERAS", 16),
+        "product_yolo": {
+            "enabled": bool((getattr(settings, "PRODUCT_YOLO_PATH", None) or "").strip()),
+            "every_n_frames": int(getattr(settings, "PRODUCT_DETECT_EVERY_N_FRAMES", 3)),
+            "max_boxes": int(getattr(settings, "PRODUCT_MAX_DETECTIONS_PER_FRAME", 25)),
+        },
+    }
+
+
+@app.get("/api/system/database-stats", tags=["System"])
+async def database_stats(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Row counts in Postgres + pipeline persistence counters.
+    Use this when /admin tables look empty: confirms whether the pipeline is writing
+    or whether no feed is running / inserts are failing.
+    """
+    _ = current_user
+    n_cam = await db.scalar(select(func.count(Camera.id)))
+    n_det = await db.scalar(select(func.count(Detection.id)))
+    n_emb = await db.scalar(select(func.count(Embedding.id)))
+    n_ft = await db.scalar(select(func.count(FootTraffic.id)))
+    persist = getattr(request.app.state, "persistence", None)
+    p_stats = persist.get_stats() if persist else {}
+    st = pipeline.get_status()
+    return {
+        "table_row_counts": {
+            "cameras": int(n_cam or 0),
+            "detections": int(n_det or 0),
+            "embeddings": int(n_emb or 0),
+            "foot_traffic": int(n_ft or 0),
+        },
+        "persistence_since_process_start": p_stats,
+        "pipeline": {
+            "state": st.get("state"),
+            "active_cameras": st.get("cameras", {}).get("active", 0),
+            "total_cameras": st.get("cameras", {}).get("total", 0),
+        },
+        "hints": (
+            "Embeddings require Re-ID enabled on the feed. All backends persist vectors to Postgres; "
+            "faiss/qdrant add a secondary search index. Foot traffic buckets every 60s while the pipeline runs. "
+            "Detections need visible people (or valid boxes) in the video."
+        ),
     }
 
 
@@ -477,6 +540,8 @@ async def add_pipeline_camera(
     skip_frames: int = 1,
     tracker: str = "botsort.yaml",
     enable_reid: bool = True,
+    enable_fire: bool = False,
+    fire_model_path: Optional[str] = None,
 ):
     """
     Add a camera to the live processing pipeline.
@@ -487,6 +552,18 @@ async def add_pipeline_camera(
       - Webcam: 0  (device index)
     """
     try:
+        async with AsyncSessionLocal() as db:
+            await CameraService.ensure_for_pipeline(
+                db,
+                camera_id=camera_id,
+                stream_url=source,
+                zone=zone,
+                fps=float(fps),
+            )
+            await db.commit()
+    except Exception as e:
+        logger.warning(f"ensure camera row before pipeline add failed: {e}")
+    try:
         pipeline.add_camera(
             camera_id=camera_id,
             source=source,
@@ -496,6 +573,8 @@ async def add_pipeline_camera(
             skip_frames=skip_frames,
             tracker_config=tracker,
             enable_reid=enable_reid,
+            enable_fire=enable_fire,
+            fire_model_path=(fire_model_path.strip() if fire_model_path and enable_fire else None),
         )
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))

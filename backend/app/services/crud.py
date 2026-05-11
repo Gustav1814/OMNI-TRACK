@@ -137,6 +137,67 @@ class CameraService:
         return camera
 
     @staticmethod
+    async def ensure_for_pipeline(
+        db: AsyncSession,
+        camera_id: int,
+        stream_url: str,
+        zone: Optional[str] = None,
+        fps: float = 30.0,
+    ) -> Camera:
+        """
+        Guarantee a `cameras` row for this id so detection/embedding/analytics FK inserts succeed.
+        Called when a feed is registered without going through POST /api/cameras first.
+        """
+        from app.config import settings
+
+        stream_url = (stream_url or "").strip() or "pipeline://unknown"
+        stream_url = stream_url[:500]
+        zone_val = ((zone or "default").strip()[:100] or "default")
+
+        existing = await CameraService.get_by_id(db, camera_id)
+        if existing:
+            if stream_url and existing.stream_url != stream_url:
+                existing.stream_url = stream_url
+            if zone_val and existing.zone != zone_val:
+                existing.zone = zone_val
+            if fps is not None and float(fps) != float(existing.fps or 0):
+                existing.fps = float(fps)
+            await db.flush()
+            await db.refresh(existing)
+            return existing
+
+        camera = Camera(
+            id=camera_id,
+            name=f"Camera {camera_id}",
+            stream_url=stream_url,
+            location=None,
+            zone=zone_val,
+            resolution_w=1920,
+            resolution_h=1080,
+            fps=float(fps),
+            is_active=True,
+            camera_type="general",
+            roi_config=None,
+        )
+        db.add(camera)
+        await db.flush()
+        await db.refresh(camera)
+        logger.info(f"Camera row auto-created for pipeline persistence: id={camera_id}")
+
+        if str(settings.DATABASE_URL).startswith("postgresql"):
+            try:
+                await db.execute(
+                    text(
+                        "SELECT setval(pg_get_serial_sequence('cameras', 'id'), "
+                        "(SELECT COALESCE(MAX(id), 1) FROM cameras))"
+                    )
+                )
+            except Exception as e:
+                logger.debug(f"cameras id sequence sync skipped: {e}")
+
+        return camera
+
+    @staticmethod
     async def update(db: AsyncSession, camera_id: int, **kwargs) -> Optional[Camera]:
         camera = await CameraService.get_by_id(db, camera_id)
         if camera:
@@ -169,6 +230,17 @@ class CameraService:
 # DETECTION CRUD
 # ═══════════════════════════════════════════════════════════════
 
+
+def _scalar_int_or_none(val: Any) -> Optional[int]:
+    """SQLAlchemy/asyncpg rejects numpy int64 for Integer columns."""
+    if val is None:
+        return None
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return None
+
+
 class DetectionService:
     """Async operations for saving and querying detections."""
 
@@ -196,8 +268,8 @@ class DetectionService:
                 bbox_h=float(bbox[3]),
                 confidence=float(det.get("confidence", 0.0)),
                 class_name=str(det.get("class_name") or det.get("class") or "person"),
-                track_id=det.get("track_id"),
-                global_id=det.get("global_id"),
+                track_id=_scalar_int_or_none(det.get("track_id")),
+                global_id=(str(det["global_id"]) if det.get("global_id") is not None else None),
                 zone=det.get("zone") or zone,
             ))
         if not objects:
@@ -230,8 +302,8 @@ class DetectionService:
                 bbox_h=float(bbox[3]),
                 confidence=float(det.get("confidence", 0.0)),
                 class_name=str(det.get("class_name") or det.get("class") or "person"),
-                track_id=det.get("track_id"),
-                global_id=det.get("global_id"),
+                track_id=_scalar_int_or_none(det.get("track_id")),
+                global_id=(str(det["global_id"]) if det.get("global_id") is not None else None),
                 zone=det.get("zone") or zone,
             ))
         if not objects:
@@ -288,7 +360,7 @@ class EmbeddingService:
         emb = Embedding(
             detection_id=detection_id,
             camera_id=camera_id,
-            track_id=track_id,
+            track_id=_scalar_int_or_none(track_id),
             global_id=global_id,
             vector=list(embedding_vector),
             confidence=confidence,
@@ -314,11 +386,14 @@ class EmbeddingService:
             vec = r.get("vector")
             if not vec:
                 continue
+            gid = r.get("global_id")
+            if gid is not None:
+                gid = str(gid)
             objs.append(Embedding(
                 detection_id=r.get("detection_id"),
                 camera_id=int(r.get("camera_id", 0)),
-                track_id=r.get("track_id"),
-                global_id=r.get("global_id"),
+                track_id=_scalar_int_or_none(r.get("track_id")),
+                global_id=gid,
                 vector=list(vec),
                 confidence=r.get("confidence"),
                 model_version=model_version,
@@ -566,6 +641,52 @@ class AnalyticsService:
         db.add(entry)
         await db.flush()
         return entry
+
+    @staticmethod
+    async def get_latest_zone_counts(
+        db: AsyncSession,
+        within_minutes: int = 60,
+    ) -> List[Dict]:
+        """
+        Latest FootTraffic row per (camera_id, zone) within the lookback window.
+        Used to surface the most recent stored crowd state when the live pipeline
+        snapshot is empty (e.g. server just restarted but DB has history).
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=max(1, within_minutes))
+        # Sub-query: most recent timestamp per (camera_id, zone)
+        latest = (
+            select(
+                FootTraffic.camera_id.label("camera_id"),
+                FootTraffic.zone.label("zone"),
+                func.max(FootTraffic.timestamp).label("ts"),
+            )
+            .where(FootTraffic.timestamp >= cutoff)
+            .group_by(FootTraffic.camera_id, FootTraffic.zone)
+            .subquery()
+        )
+        query = (
+            select(FootTraffic)
+            .join(
+                latest,
+                and_(
+                    FootTraffic.camera_id == latest.c.camera_id,
+                    FootTraffic.zone == latest.c.zone,
+                    FootTraffic.timestamp == latest.c.ts,
+                ),
+            )
+        )
+        result = await db.execute(query)
+        rows = result.scalars().all()
+        return [
+            {
+                "camera_id": r.camera_id,
+                "zone": r.zone,
+                "person_count": int(r.person_count or 0),
+                "avg_dwell_time": float(r.avg_dwell_time or 0.0),
+                "timestamp": r.timestamp.isoformat() if r.timestamp else None,
+            }
+            for r in rows
+        ]
 
     @staticmethod
     async def get_hourly_traffic(

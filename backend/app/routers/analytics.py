@@ -335,11 +335,43 @@ async def fire_status(
     snapshot = _snapshot(request)
     fire = snapshot.get("fire") or {}
     cameras = snapshot.get("cameras") or {}
+
+    # Surface the underlying detector state so the Safety Watch UI can show
+    # whether a fire-trained model is actually loaded.
+    pipeline = getattr(request.app.state, "pipeline", None)
+    detector = pipeline.any_fire_detector() if pipeline else None
+    det_status: Dict[str, Any] = {}
+    if detector is not None:
+        try:
+            det_status = detector.get_status() or {}
+        except Exception:
+            det_status = {}
+
+    model_loaded = bool(det_status.get("is_loaded", False))
+    is_fire_specific = bool(det_status.get("is_fire_specific", False))
+
+    if not detector:
+        system_status = "disabled"
+    elif not model_loaded:
+        system_status = "model_not_loaded"
+    elif not is_fire_specific:
+        system_status = "generic_model_suppressed"
+    elif fire.get("active"):
+        system_status = "alert"
+    else:
+        system_status = "monitoring"
+
     return {
         "active_alerts": len(fire.get("active_alerts") or []),
         "total_today": len(fire.get("history") or []),
-        "system_status": "monitoring",
+        "system_status": system_status,
         "cameras_covered": cameras.get("active", 0),
+        "model_loaded": model_loaded,
+        "is_fire_specific": is_fire_specific,
+        "model_path": det_status.get("model_path"),
+        "classes": det_status.get("classes") or {},
+        "confidence_threshold": det_status.get("confidence_threshold"),
+        "history_size": det_status.get("history_size", 0),
     }
 
 
@@ -350,8 +382,15 @@ crowd_router = APIRouter(prefix="/api/crowd", tags=["Crowd Density"])
 @crowd_router.get("/status", response_model=List[CrowdStatus])
 async def get_crowd_status(
     request: Request,
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """
+    Returns live per-zone crowd state from the pipeline. If the pipeline
+    snapshot is empty (e.g. just restarted), falls back to the latest stored
+    FootTraffic rows from the DB. Returns an empty list if neither source has
+    data — never returns seeded/demo zones.
+    """
     snapshot = _snapshot(request)
     zones = (snapshot.get("crowd") or {}).get("zones") or []
     if zones:
@@ -366,23 +405,43 @@ async def get_crowd_status(
             )
             for z in zones
         ]
-    demo = [
-        ("Entrance", 12, "medium"), ("Main Floor", 45, "high"),
-        ("Food Court", 8, "low"), ("Electronics", 22, "medium"),
-        ("Checkout Area", 35, "high"), ("Parking", 5, "low"),
-    ]
+
+    # Stored fallback — latest FootTraffic per zone in the last hour.
+    try:
+        rows = await AnalyticsService.get_latest_zone_counts(db, within_minutes=60)
+    except Exception:
+        rows = []
+    if not rows:
+        return []
+
+    def _classify(count: int) -> str:
+        if count >= 40:
+            return "critical"
+        if count >= 25:
+            return "high"
+        if count >= 10:
+            return "medium"
+        if count > 0:
+            return "low"
+        return "empty"
+
     return [
         CrowdStatus(
-            zone=name, person_count=count, density=round(count / 50, 3),
-            classification=cls, threshold=50.0, camera_id=i + 1,
+            zone=r["zone"],
+            person_count=r["person_count"],
+            density=round(r["person_count"] / 50.0, 3),
+            classification=_classify(r["person_count"]),
+            threshold=50.0,
+            camera_id=int(r["camera_id"]),
         )
-        for i, (name, count, cls) in enumerate(demo)
+        for r in rows
     ]
 
 
 @crowd_router.get("/history/{zone}")
 async def crowd_history(
     zone: str, request: Request, limit: int = 24,
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     pipeline = getattr(request.app.state, "pipeline", None)
@@ -392,9 +451,30 @@ async def crowd_history(
             {"hour": i, "count": h.get("count", 0), "classification": h.get("classification", "empty")}
             for i, h in enumerate(history)
         ]
+    # Stored fallback — today's hourly FootTraffic rows for this zone.
+    try:
+        rows = await AnalyticsService.get_hourly_traffic(db, zone=zone)
+    except Exception:
+        rows = []
+
+    def _classify(count: int) -> str:
+        if count >= 40:
+            return "critical"
+        if count >= 25:
+            return "high"
+        if count >= 10:
+            return "medium"
+        if count > 0:
+            return "low"
+        return "empty"
+
     return [
-        {"hour": h, "count": random.randint(5, 50), "classification": random.choice(["low", "medium", "high"])}
-        for h in range(limit)
+        {
+            "hour": int(r["hour"]),
+            "count": int(r["count"]),
+            "classification": _classify(int(r["count"])),
+        }
+        for r in rows[-limit:]
     ]
 
 

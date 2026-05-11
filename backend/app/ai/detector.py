@@ -44,12 +44,19 @@ class PersonDetector:
         nms_threshold: float = 0.45,
         device: str = "auto",
         classes: Optional[List[int]] = None,
+        person_class_only: bool = True,
     ):
         self.model_path = model_path
         self.confidence = confidence
         self.nms_threshold = nms_threshold
         self.device = device
-        self.classes = classes or [0]  # COCO class 0 = person
+        self.person_class_only = person_class_only
+        if classes is not None:
+            self.classes = list(classes)
+        elif person_class_only:
+            self.classes = [0]
+        else:
+            self.classes = []
         self.model = None
         self._load_model()
 
@@ -87,7 +94,8 @@ class PersonDetector:
             verbose=False,
         )
         if not getattr(self, "is_pose_model", False):
-            predict_kwargs["classes"] = self.classes
+            if self.person_class_only and self.classes:
+                predict_kwargs["classes"] = self.classes
         results = self.model.predict(**predict_kwargs)
 
         detections = []

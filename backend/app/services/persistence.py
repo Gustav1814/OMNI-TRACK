@@ -5,7 +5,8 @@ This is the bridge that makes the backend PRODUCTION instead of SIMULATION.
 
 Registered as a pipeline callback, it runs after every processing tick and:
   1. Persists detections (per-camera batched inserts)
-  2. Persists Re-ID embeddings to pgvector (with detection_id join)
+  2. Persists Re-ID embeddings to Postgres/pgvector (with detection_id join); Faiss/Qdrant
+     only add a secondary index — SQL rows are always written when vectors exist.
   3. Persists foot traffic aggregates (every `FOOT_INTERVAL_S`)
   4. Persists Store Vibe scores (every `VIBE_INTERVAL_S`)
   5. Persists customer journey legs as Re-ID global_ids move across zones
@@ -22,19 +23,22 @@ the pipeline keeps running for live viewing even during an outage.
 
 from __future__ import annotations
 
-import asyncio
 import time
+from copy import deepcopy
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal
+from app.config import settings
 from app.services.crud import (
     AnalyticsService,
     AuditService,
+    CameraService,
     DetectionService,
     EmbeddingService,
+    _scalar_int_or_none,
 )
 
 
@@ -65,37 +69,83 @@ class PersistencePipelineCallback:
         self._active_legs: Dict[Tuple[str, int, str], Tuple[float, float]] = {}
         # rolling counter of DB failures so we can log at WARNING once per N skips
         self._consecutive_failures: int = 0
+        # In-memory counters for /api/system/database-stats (explains empty admin tables)
+        self._persist_stats: Dict[str, Any] = {
+            "ticks_committed": 0,
+            "ticks_failed": 0,
+            "detection_rows_written": 0,
+            "embedding_rows_written": 0,
+            "last_tick_wall_s": None,
+            "last_commit_detection_rows": 0,
+            "last_commit_embedding_rows": 0,
+            "last_error": None,
+        }
 
     # ─────────────────────────────────────────────────────────────
     # Tick callback (invoked after every pipeline cycle)
     # ─────────────────────────────────────────────────────────────
 
     async def __call__(self, results: Dict[int, Any], global_state: Any) -> None:
+        self._persist_stats["last_tick_wall_s"] = time.time()
         try:
             async with self._session_maker() as db:
                 try:
-                    await self._persist_tick(db, results, global_state)
+                    det_n, emb_n = await self._persist_tick(db, results, global_state)
                     await db.commit()
                     self._consecutive_failures = 0
+                    self._persist_stats["ticks_committed"] += 1
+                    self._persist_stats["detection_rows_written"] += det_n
+                    self._persist_stats["embedding_rows_written"] += emb_n
+                    self._persist_stats["last_commit_detection_rows"] = det_n
+                    self._persist_stats["last_commit_embedding_rows"] = emb_n
+                    self._persist_stats["last_error"] = None
                 except Exception:
                     await db.rollback()
                     raise
         except Exception as e:
             self._consecutive_failures += 1
+            self._persist_stats["ticks_failed"] += 1
+            self._persist_stats["last_error"] = str(e)
             if self._consecutive_failures == 1 or self._consecutive_failures % 50 == 0:
                 logger.warning(
                     f"Persistence skipped (DB unavailable?): {e} "
                     f"[consecutive_failures={self._consecutive_failures}]"
                 )
 
+    def get_stats(self) -> Dict[str, Any]:
+        """Snapshot for diagnostics (e.g. GET /api/system/database-stats)."""
+        return deepcopy(self._persist_stats)
+
     async def _persist_tick(
         self,
         db: AsyncSession,
         results: Dict[int, Any],
         global_state: Any,
-    ) -> None:
+    ) -> Tuple[int, int]:
+        """
+        Returns (detection_rows_inserted_this_tick, embedding_rows_inserted_this_tick).
+        """
         now = time.time()
         pipeline = self._pipeline
+        det_inserted = 0
+        emb_inserted = 0
+
+        # Guarantee `cameras` rows so FK inserts never silently fail (race / alternate API paths).
+        if results:
+            try:
+                for cam_id in results.keys():
+                    src = getattr(pipeline, "_camera_sources", {}).get(int(cam_id)) or "pipeline://running"
+                    zone = pipeline._camera_zones.get(cam_id, "default")
+                    fps_v = float(getattr(pipeline, "_camera_fps", {}).get(int(cam_id), 30.0))
+                    await CameraService.ensure_for_pipeline(
+                        db,
+                        camera_id=int(cam_id),
+                        stream_url=src,
+                        zone=zone,
+                        fps=fps_v,
+                    )
+            except Exception as e:
+                logger.warning(f"Camera FK preflight failed (detections/embeddings may not save): {e}")
 
         # ── 1. Detections ─────────────────────────────────────────
         detection_rows_by_cam: Dict[int, List[Any]] = {}
@@ -108,19 +158,28 @@ class PersistencePipelineCallback:
                     db, cam_id, r.detections, zone=zone
                 )
                 detection_rows_by_cam[cam_id] = rows
+                det_inserted += len(rows)
             except Exception as e:
-                logger.debug(f"DetectionService batch failed for cam {cam_id}: {e}")
+                err = str(e).lower()
+                if "foreign key" in err or "integrity" in err:
+                    logger.warning(
+                        f"Detections not saved for camera_id={cam_id}: {e}. "
+                        f"Ensure a row exists in table `cameras` with id={cam_id} "
+                        f"(POST /api/cameras/ as admin/operator, then use that id in /api/detection/start/{{id}})."
+                    )
+                else:
+                    logger.warning(f"DetectionService batch failed for cam {cam_id}: {e}")
 
-        # ── 2. Embeddings (pgvector) ──────────────────────────────
+        # ── 2. Embeddings (Postgres always; Faiss/Qdrant are extra indexes only) ──
         pending = pipeline.get_and_clear_pending_embeddings()
         if pending:
             det_map: Dict[Tuple[int, Optional[int]], int] = {}
             for cam_id, det_rows in detection_rows_by_cam.items():
                 for row in det_rows:
-                    det_map[(cam_id, row.track_id)] = row.id
+                    det_map[(cam_id, _scalar_int_or_none(row.track_id))] = row.id
             emb_rows: List[Dict[str, Any]] = []
             for e in pending:
-                det_id = det_map.get((e.get("camera_id"), e.get("track_id")))
+                det_id = det_map.get((e.get("camera_id"), _scalar_int_or_none(e.get("track_id"))))
                 emb_rows.append({
                     "detection_id": det_id,
                     "camera_id": e.get("camera_id"),
@@ -130,13 +189,24 @@ class PersistencePipelineCallback:
                     "confidence": e.get("confidence"),
                 })
             try:
+                n = await EmbeddingService.store_batch(
+                    db, emb_rows, model_version=self._model_version
+                )
+                emb_inserted += int(n or 0)
+
+                backend = str(
+                    getattr(settings, "VECTOR_STORE_BACKEND", "pgvector") or "pgvector"
+                ).lower()
                 vector_store = getattr(self._pipeline, "vector_store", None)
-                if vector_store is not None:
-                    await vector_store.upsert_batch(db, emb_rows, model_version=self._model_version)
-                else:
-                    await EmbeddingService.store_batch(db, emb_rows, model_version=self._model_version)
+                if vector_store is not None and backend in ("faiss", "qdrant"):
+                    try:
+                        await vector_store.upsert_batch(
+                            db, emb_rows, model_version=self._model_version
+                        )
+                    except Exception as e:
+                        logger.debug(f"Secondary vector index ({backend}) upsert failed: {e}")
             except Exception as e:
-                logger.debug(f"EmbeddingService/vector store batch failed: {e}")
+                logger.warning(f"Embedding / vector store batch failed: {e}")
 
         # ── 3. Foot traffic (bucketed every FOOT_INTERVAL_S) ──────
         if now - self._last_foot_write >= self.FOOT_INTERVAL_S:
@@ -151,7 +221,14 @@ class PersistencePipelineCallback:
                         db, camera_id=cam_id, zone=zone, person_count=count,
                     )
                 except Exception as e:
-                    logger.debug(f"FootTraffic save failed: {e}")
+                    err = str(e).lower()
+                    if "foreign key" in err or "integrity" in err:
+                        logger.warning(
+                            f"Foot traffic not saved for camera_id={cam_id}: {e}. "
+                            "Ensure `cameras` has this id (start a feed once or create in /admin)."
+                        )
+                    else:
+                        logger.debug(f"FootTraffic save failed: {e}")
             self._last_foot_write = now
 
         # ── 4. Store Vibe score (bucketed every VIBE_INTERVAL_S) ──
@@ -206,6 +283,8 @@ class PersistencePipelineCallback:
                     )
                 except Exception as e:
                     logger.debug(f"AuditService fire_alert failed: {e}")
+
+        return det_inserted, emb_inserted
 
     async def _update_journey_legs(
         self,

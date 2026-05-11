@@ -40,6 +40,54 @@ except Exception:  # pragma: no cover
 _FIRE_KEYWORDS: Set[str] = {"fire", "flame", "flames"}
 _SMOKE_KEYWORDS: Set[str] = {"smoke", "smog", "fog-smoke"}
 
+# Standard COCO / generic Ultralytics checkpoints — never load these for fire alerts
+# (even if misconfigured in .env); use a dedicated fire/smoke-trained .pt only.
+_FORBIDDEN_FIRE_WEIGHT_BASENAMES: frozenset[str] = frozenset(
+    {
+        "yolo11n.pt",
+        "yolo11s.pt",
+        "yolo11m.pt",
+        "yolo11l.pt",
+        "yolo11x.pt",
+        "yolov8n.pt",
+        "yolov8s.pt",
+        "yolov8m.pt",
+        "yolov8l.pt",
+        "yolov8x.pt",
+        "yolov9t.pt",
+        "yolov9s.pt",
+        "yolov9m.pt",
+        "yolov9c.pt",
+        "yolov9e.pt",
+        "yolov10n.pt",
+        "yolov10s.pt",
+        "yolov10m.pt",
+        "yolov10b.pt",
+        "yolov10l.pt",
+        "yolov10x.pt",
+        "yolo26n.pt",
+        "yolo26s.pt",
+        "yolo26m.pt",
+        "yolo26l.pt",
+        "yolo26x.pt",
+        "yolov5n.pt",
+        "yolov5s.pt",
+        "yolov5m.pt",
+        "yolov5l.pt",
+        "yolov5x.pt",
+        "yolov5nu.pt",
+        "yolov5su.pt",
+        "yolov5mu.pt",
+        "yolov5lu.pt",
+        "yolov5xu.pt",
+        "yolo12n.pt",
+        "yolo12s.pt",
+        "yolo12m.pt",
+        "yolo12l.pt",
+        "yolo12x.pt",
+    }
+)
+
 
 @dataclass
 class FireAlert:
@@ -62,8 +110,8 @@ class FireDetector:
 
     def __init__(
         self,
-        model_path: str = "fire_smoke.pt",
-        confidence: float = 0.4,
+        model_path: str = "fire-smoke.pt",
+        confidence: float = 0.58,
         device: str = "auto",
         history_limit: int = 500,
     ):
@@ -87,6 +135,15 @@ class FireDetector:
             return
 
         path = self.model_path
+        base = os.path.basename(path).lower()
+        if base in _FORBIDDEN_FIRE_WEIGHT_BASENAMES:
+            logger.warning(
+                f"[FireDetector] Refusing to load generic YOLO weights as fire model ({base!r}). "
+                "Set FIRE_MODEL_PATH to a dedicated fire/smoke-trained checkpoint."
+            )
+            self.model = None
+            return
+
         if not os.path.isabs(path):
             # Allow looking inside CWD first, then `backend/` for dev convenience
             if not os.path.isfile(path) and os.path.isfile(os.path.join(os.getcwd(), path)):

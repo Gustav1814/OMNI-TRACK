@@ -254,7 +254,7 @@ export default function TrimPage() {
                                 <span style={{ fontSize: 14, fontWeight: 500, minWidth: 30 }}>{paddingFrames}</span>
                             </div>
                             <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
-                                Extra frames before/after each appearance for context
+                                Extra log frames before / after each appearance (same 1-based index as the detection log and saved clip).
                             </div>
                         </div>
 

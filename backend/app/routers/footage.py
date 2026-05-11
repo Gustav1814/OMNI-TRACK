@@ -7,8 +7,10 @@ import os
 import re
 import json
 import time
+import shutil
+import subprocess
 from pathlib import Path
-from typing import Any, List, Optional, Set
+from typing import Any, List, Optional, Set, Tuple
 
 import cv2
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
@@ -193,7 +195,7 @@ async def get_log_tracks(
     log_filename: str,
     current_user: User = Depends(get_current_user),
 ):
-    """Get summary of all unique track_ids in a log with their frame ranges and class names."""
+    """Unique track_ids in a log. first_frame / last_frame are 1-based indices in log order (same as the saved video)."""
     log_filename = os.path.basename(log_filename)
     path = LOGS_DIR / log_filename
     if not path.is_file():
@@ -201,8 +203,8 @@ async def get_log_tracks(
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
     tracks = {}
-    for frame in data.get("frames", []):
-        fn = frame.get("frame_number", 0)
+    for i, frame in enumerate(data.get("frames") or []):
+        file_idx = i + 1
         for det in frame.get("detections", []):
             tid = det.get("track_id")
             if tid is None:
@@ -212,20 +214,15 @@ async def get_log_tracks(
                     "track_id": tid,
                     "class_name": det.get("class_name", "unknown"),
                     "global_id": det.get("global_id"),
-                    "first_frame": fn,
-                    "last_frame": fn,
+                    "first_frame": file_idx,
+                    "last_frame": file_idx,
                     "frame_count": 0,
-                    "frames": [],
                 }
-            tracks[tid]["last_frame"] = max(tracks[tid]["last_frame"], fn)
-            tracks[tid]["first_frame"] = min(tracks[tid]["first_frame"], fn)
+            tracks[tid]["last_frame"] = max(tracks[tid]["last_frame"], file_idx)
+            tracks[tid]["first_frame"] = min(tracks[tid]["first_frame"], file_idx)
             tracks[tid]["frame_count"] += 1
-            tracks[tid]["frames"].append(fn)
             if det.get("global_id") and not tracks[tid]["global_id"]:
                 tracks[tid]["global_id"] = det["global_id"]
-    # Remove raw frames list to keep response compact, keep the range info
-    for t in tracks.values():
-        t.pop("frames", None)
     return {"video_file": data.get("video_file"), "tracks": list(tracks.values())}
 
 
@@ -262,65 +259,281 @@ def _resolve_stored_video_path(video_file: Optional[str]) -> Optional[Path]:
     return None
 
 
-def _segments_from_frames(frames: List[int], padding_frames: int) -> List[tuple]:
-    """Merge sorted frame numbers into continuous (start,end) segments with padding."""
+def _merge_hit_clusters(sorted_unique_hits: List[int], padding_frames: int) -> List[Tuple[int, int]]:
+    """
+    Group 1-based log hit indices into clusters. Two hits belong to the same cluster when
+    the gap between them is <= 2*padding+1 (same bridge as the legacy trim merge, expressed on hits).
+    """
+    if not sorted_unique_hits:
+        return []
+    p = max(0, int(padding_frames))
+    gap_merge = 2 * p + 1
+    a = b = sorted_unique_hits[0]
+    clusters: List[Tuple[int, int]] = []
+    for x in sorted_unique_hits[1:]:
+        if x - b <= gap_merge:
+            b = x
+        else:
+            clusters.append((a, b))
+            a = b = x
+    clusters.append((a, b))
+    return clusters
+
+
+def _merge_adjacent_intervals(segments: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
+    """Merge sorted inclusive [s,e] intervals that touch or overlap."""
+    if not segments:
+        return []
+    segs = sorted((int(s), int(e)) for s, e in segments if int(e) >= int(s))
+    out: List[Tuple[int, int]] = [segs[0]]
+    for s, e in segs[1:]:
+        ps, pe = out[-1]
+        if s <= pe + 1:
+            out[-1] = (ps, max(pe, e))
+        else:
+            out.append((s, e))
+    return out
+
+
+def _segments_from_frames(
+    frames: List[int],
+    padding_frames: int,
+    max_log_frame: Optional[int] = None,
+) -> List[tuple]:
+    """
+    Build inclusive (start,end) segments in log / file 1-based frame space:
+      1) merge hit frames that are within (2*padding+1) of each other into clusters
+      2) expand each cluster by padding_frames before the first hit and after the last hit
+      3) clamp ends to max_log_frame (len(log frames)) when given so padding never exceeds the log
+      4) merge overlapping or touching segments after expansion
+    """
     if not frames:
         return []
-    sorted_frames = sorted(set(frames))
-    segments: List[tuple] = []
-    seg_start = max(1, sorted_frames[0] - padding_frames)
-    seg_end = sorted_frames[0] + padding_frames
-    for fn in sorted_frames[1:]:
-        if fn <= seg_end + padding_frames + 1:
-            seg_end = fn + padding_frames
-        else:
-            segments.append((seg_start, seg_end))
-            seg_start = max(1, fn - padding_frames)
-            seg_end = fn + padding_frames
-    segments.append((seg_start, seg_end))
-    return segments
+    hits = sorted({int(x) for x in frames if int(x) >= 1})
+    if not hits:
+        return []
+    p = max(0, int(padding_frames))
+    clusters = _merge_hit_clusters(hits, p)
+    hi = int(max_log_frame) if (max_log_frame is not None and int(max_log_frame) > 0) else None
+
+    raw: List[Tuple[int, int]] = []
+    for a, b in clusters:
+        s = max(1, a - p)
+        e = b + p
+        if hi is not None:
+            e = min(e, hi)
+        if e >= s:
+            raw.append((s, e))
+    return _merge_adjacent_intervals(raw)
 
 
-def _write_segments_to_clip(video_file: Path, segments: List[tuple], out_path: Path) -> int:
+def _file_frame_indices_for_track(log_frames: List[dict], track_id: int) -> List[int]:
+    """
+    1-based indices into the stored video, in log order.
+
+    Logs store pipeline `frame_number` (monotonic per camera across the whole session).
+    The recorded file only contains frames from recording start, so `frame_number` often
+    does not match OpenCV's frame index. Ordinal position in `frames[]` matches the file.
+    """
+    out: List[int] = []
+    for i, frame in enumerate(log_frames):
+        for det in frame.get("detections", []):
+            if _det_track_id_equals(det.get("track_id"), track_id):
+                out.append(i + 1)
+                break
+    return out
+
+
+def _file_frame_indices_for_global_id(log_frames: List[dict], global_id: str) -> List[int]:
+    out: List[int] = []
+    for i, frame in enumerate(log_frames):
+        for det in frame.get("detections", []):
+            if _global_id_matches(det.get("global_id"), global_id):
+                out.append(i + 1)
+                break
+    return out
+
+
+def _get_ffmpeg_exe() -> Optional[str]:
+    """System ffmpeg preferred; else imageio-ffmpeg wheel (no separate install)."""
+    exe = shutil.which("ffmpeg")
+    if exe:
+        return exe
+    try:
+        import imageio_ffmpeg  # type: ignore[import-not-found]
+
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return None
+
+
+def _clamp_segments_to_video(segments: List[tuple], total_frames: int) -> List[Tuple[int, int]]:
+    """Clamp 1-based inclusive (start,end) segments to valid video frame numbers."""
+    out: List[Tuple[int, int]] = []
+    for s, e in segments:
+        s2 = max(1, int(s))
+        e2 = int(e)
+        if total_frames > 0:
+            e2 = min(e2, total_frames)
+        if e2 >= s2:
+            out.append((s2, e2))
+    return out
+
+
+def _ffmpeg_trim_h264(ffmpeg_exe: str, video_file: Path, clamped: List[Tuple[int, int]], out_path: Path) -> int:
+    """
+    Build a browser-safe MP4 (H.264 yuv420p + faststart) from disjoint frame ranges.
+    Frame indices are 1-based positions in the log / saved video (same convention as /tracks).
+    """
+    select_parts: List[str] = []
+    expected = 0
+    for s, e in clamped:
+        if e < s:
+            continue
+        a = s - 1
+        b = e - 1
+        if b < a:
+            continue
+        select_parts.append(f"between(n\\,{a}\\,{b})")
+        expected += e - s + 1
+    if not select_parts or expected <= 0:
+        raise HTTPException(500, "No valid frame ranges to export after clamping")
+
+    inner = "+".join(select_parts)
+    vf = f"select='{inner}',setpts=PTS-STARTPTS"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        ffmpeg_exe,
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-i",
+        str(video_file.resolve()),
+        "-vf",
+        vf,
+        "-an",
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        "-crf",
+        "23",
+        "-preset",
+        "fast",
+        "-movflags",
+        "+faststart",
+        str(out_path.resolve()),
+    ]
+    kwargs: dict = {}
+    if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW"):
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=7200,
+            check=False,
+            **kwargs,
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(504, "Trim operation timed out")
+    if proc.returncode != 0:
+        msg = (proc.stderr or proc.stdout or "").strip() or f"exit {proc.returncode}"
+        raise HTTPException(500, f"ffmpeg could not build the clip: {msg[:1200]}")
+    if not out_path.is_file() or out_path.stat().st_size < 64:
+        raise HTTPException(500, "Trim produced an empty or unreadable file")
+    return expected
+
+
+def _write_segments_via_opencv_fallback(
+    video_file: Path, clamped: List[Tuple[int, int]], out_path: Path, fps: float, w: int, h: int
+) -> int:
+    """
+    Last resort when ffmpeg is unavailable: write with OpenCV (often mp4v / partial MP4).
+    May not play in all browsers; prefer installing ffmpeg or imageio-ffmpeg.
+    """
     src = str(video_file.resolve())
     cap = cv2.VideoCapture(src)
     if not cap.isOpened():
         raise HTTPException(500, f"Cannot open video: {src}")
-    fps = cap.get(cv2.CAP_PROP_FPS) or 15
+    writer: Optional[cv2.VideoWriter] = None
+    for codec in ("avc1", "H264", "mp4v"):
+        fourcc = cv2.VideoWriter_fourcc(*codec)
+        wrt = cv2.VideoWriter(str(out_path), fourcc, float(fps or 15), (w, h))
+        if wrt.isOpened():
+            writer = wrt
+            break
+        wrt.release()
+    if writer is None or not writer.isOpened():
+        cap.release()
+        raise HTTPException(500, "Failed to create output video (no ffmpeg and OpenCV writer failed)")
+    written = 0
+    try:
+        for seg_start, seg_end in clamped:
+            if seg_end < seg_start:
+                continue
+            cap.set(cv2.CAP_PROP_POS_FRAMES, seg_start - 1)
+            frames_to_read = max(0, int(seg_end - seg_start + 1))
+            for _ in range(frames_to_read):
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                writer.write(frame)
+                written += 1
+    finally:
+        writer.release()
+        cap.release()
+    return written
+
+
+def _write_segments_to_clip(
+    video_file: Path,
+    segments: List[tuple],
+    out_path: Path,
+    *,
+    log_frame_count: Optional[int] = None,
+) -> int:
+    src = str(video_file.resolve())
+    cap = cv2.VideoCapture(src)
+    if not cap.isOpened():
+        raise HTTPException(500, f"Cannot open video: {src}")
+    fps = float(cap.get(cv2.CAP_PROP_FPS) or 15)
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    # OpenCV may report total=0 for valid MP4s on some builds/codecs.
-    # In that case, keep requested segment bounds and read until EOF.
-    if total > 0:
-        clamped = [(max(1, s), min(e, total)) for s, e in segments]
-    else:
-        clamped = [(max(1, s), max(1, e)) for s, e in segments]
-    writer = None
-    for codec in ("avc1", "H264", "mp4v"):
-        fourcc = cv2.VideoWriter_fourcc(*codec)
-        writer = cv2.VideoWriter(str(out_path), fourcc, fps, (w, h))
-        if writer.isOpened():
-            break
-        writer.release()
-    if writer is None or not writer.isOpened():
-        cap.release()
-        raise HTTPException(500, "Failed to create output video")
-    written = 0
-    for seg_start, seg_end in clamped:
-        if seg_end < seg_start:
-            continue
-        cap.set(cv2.CAP_PROP_POS_FRAMES, seg_start - 1)
-        frames_to_read = max(0, int(seg_end - seg_start + 1))
-        for _ in range(frames_to_read):
-            ret, frame = cap.read()
-            if not ret:
-                break
-            writer.write(frame)
-            written += 1
-    writer.release()
     cap.release()
-    return written
+
+    cap_total = total
+    if log_frame_count is not None and int(log_frame_count) > 0:
+        lf = int(log_frame_count)
+        if cap_total > 0:
+            cap_total = min(cap_total, lf)
+        else:
+            cap_total = lf
+
+    if cap_total > 0:
+        clamped = _clamp_segments_to_video(segments, cap_total)
+    else:
+        clamped = [(max(1, int(s)), max(1, int(e))) for s, e in segments if int(e) >= max(1, int(s))]
+    # OpenCV often under-reports MP4 frame counts; if clamp wiped everything, widen bound.
+    if not clamped and segments:
+        max_need = max(max(int(s), int(e)) for s, e in segments)
+        if cap_total > 0 and max_need > cap_total:
+            clamped = _clamp_segments_to_video(segments, max_need)
+        if not clamped:
+            clamped = [(max(1, int(s)), max(1, int(e))) for s, e in segments if int(e) >= max(1, int(s))]
+    if not clamped:
+        raise HTTPException(
+            500,
+            "No frames fall within the video duration (log vs file length mismatch).",
+        )
+
+    ffmpeg_exe = _get_ffmpeg_exe()
+    if ffmpeg_exe:
+        return _ffmpeg_trim_h264(ffmpeg_exe, video_file, clamped, out_path)
+    return _write_segments_via_opencv_fallback(video_file, clamped, out_path, fps, w, h)
 
 
 @router.get("/logs/{log_filename}/global-ids")
@@ -328,7 +541,7 @@ async def get_log_global_ids(
     log_filename: str,
     current_user: User = Depends(get_current_user),
 ):
-    """Unique global_ids in a single log with their frame ranges and local track ids."""
+    """Unique global_ids in a single log. first_frame / last_frame are 1-based indices in log order (same as the saved video)."""
     log_filename = os.path.basename(log_filename)
     path = LOGS_DIR / log_filename
     if not path.is_file():
@@ -336,8 +549,8 @@ async def get_log_global_ids(
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
     gids: dict = {}
-    for frame in data.get("frames", []):
-        fn = int(frame.get("frame_number", 0))
+    for i, frame in enumerate(data.get("frames") or []):
+        file_idx = i + 1
         for det in frame.get("detections", []):
             gid = det.get("global_id")
             if not gid:
@@ -345,13 +558,13 @@ async def get_log_global_ids(
             entry = gids.setdefault(gid, {
                 "global_id": gid,
                 "class_name": det.get("class_name", "unknown"),
-                "first_frame": fn,
-                "last_frame": fn,
+                "first_frame": file_idx,
+                "last_frame": file_idx,
                 "frame_count": 0,
                 "track_ids": set(),
             })
-            entry["first_frame"] = min(entry["first_frame"], fn)
-            entry["last_frame"] = max(entry["last_frame"], fn)
+            entry["first_frame"] = min(entry["first_frame"], file_idx)
+            entry["last_frame"] = max(entry["last_frame"], file_idx)
             entry["frame_count"] += 1
             tid = det.get("track_id")
             if tid is not None:
@@ -389,20 +602,18 @@ async def trim_by_global_id(
         video_path = _resolve_stored_video_path(video_file)
         if not video_path:
             continue
-        target_frames = []
-        for frame in data.get("frames", []):
-            for det in frame.get("detections", []):
-                if _global_id_matches(det.get("global_id"), global_id):
-                    target_frames.append(int(frame.get("frame_number", 0)))
-                    break
+        frames_list = data.get("frames") or []
+        target_frames = _file_frame_indices_for_global_id(frames_list, global_id)
         if not target_frames:
             continue
-        segments = _segments_from_frames(target_frames, padding_frames)
+        segments = _segments_from_frames(target_frames, padding_frames, len(frames_list))
         stem = video_path.stem
         out_name = f"{stem}_{re.sub(r'[^a-zA-Z0-9_-]', '_', global_id)}.mp4"
         out_path = FOOTAGE_DIR / out_name
         try:
-            written = _write_segments_to_clip(video_path, segments, out_path)
+            written = _write_segments_to_clip(
+                video_path, segments, out_path, log_frame_count=len(frames_list)
+            )
         except HTTPException:
             continue
         results.append({
@@ -443,21 +654,19 @@ async def trim_by_track(
     if not video_path:
         raise HTTPException(404, f"Original video not found: {video_file}")
 
-    target_frames: List[int] = []
-    for frame in log_data.get("frames", []):
-        for det in frame.get("detections", []):
-            if _det_track_id_equals(det.get("track_id"), track_id):
-                target_frames.append(int(frame.get("frame_number", 0)))
-                break
+    log_frames = log_data.get("frames") or []
+    target_frames = _file_frame_indices_for_track(log_frames, track_id)
     if not target_frames:
         raise HTTPException(404, f"Track ID {track_id} not found in log")
 
-    segments = _segments_from_frames(target_frames, padding_frames)
+    segments = _segments_from_frames(target_frames, padding_frames, len(log_frames))
     _ensure_footage_dir()
     stem = video_path.stem
     out_name = f"{stem}_track{track_id}.mp4"
     out_path = FOOTAGE_DIR / out_name
-    frames_written = _write_segments_to_clip(video_path, segments, out_path)
+    frames_written = _write_segments_to_clip(
+        video_path, segments, out_path, log_frame_count=len(log_frames)
+    )
 
     return {
         "trimmed_video": out_name,

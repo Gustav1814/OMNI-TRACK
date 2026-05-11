@@ -1,9 +1,11 @@
 # ============================================================
-# OmniTrack AI — Python 3.14 only (reduced stack)
+# OmniTrack AI — Python 3.14 dependency set (reduced)
 # ============================================================
-# Use this ONLY if you must run on Python 3.14. TensorFlow has no 3.14 wheel,
-# so DeepFace cannot be installed — emotion runs in fallback mode (not full standard).
-# For full proposal standard: use Python 3.11 or 3.12 and requirements.txt.
+# Use this ONLY if you must run on Python 3.14.
+# TensorFlow has no 3.14 wheel yet, so DeepFace cannot be installed —
+# emotion recognition runs in fallback mode (does NOT meet the full
+# proposal standard for that module).
+# For the full standard, use Python 3.11 or 3.12 with requirements.txt.
 
 # --- Core Framework ---
 fastapi>=0.115.0
@@ -19,6 +21,10 @@ pgvector>=0.3.0
 alembic>=1.14.0
 greenlet>=3.0.0
 
+# --- DB Admin Panel (browser UI at /admin) ---
+sqladmin>=0.20.1
+itsdangerous>=2.2.0
+
 # --- Auth & Security ---
 python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
@@ -27,10 +33,12 @@ pycryptodome>=3.21.0
 
 # --- AI / Computer Vision (no deepface on 3.14) ---
 ultralytics>=8.3.0
+lap>=0.5.12
 torch>=2.1.0
 torchvision>=0.16.0
 torchreid>=0.2.5
 opencv-python-headless>=4.10.0
+imageio-ffmpeg>=0.5.1
 numpy>=1.24.0
 scipy>=1.11.0
 Pillow>=10.0.0
@@ -45,3 +53,11 @@ httpx>=0.28.0
 aiofiles>=24.0.0
 loguru>=0.7.0
 psutil>=5.9.8
+
+# ============================================================
+# Optional extras — install only if wheels exist for 3.14
+# ============================================================
+# faiss-cpu>=1.8.0
+# mediapipe>=0.10.14
+# aiokafka>=0.11.0
+# qdrant-client>=1.10.0

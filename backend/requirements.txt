@@ -1,10 +1,74 @@
 # ============================================================
-# OmniTrack AI — Python Dependencies (Proposal-compliant)
+# OmniTrack AI — Python Dependencies (full standard)
 # ============================================================
-# Full project standard: Emotion recognition uses DeepFace/FER (proposal).
-# For full install use Python 3.11 or 3.12. TensorFlow has no wheel for 3.14.
-# See README "Project standard (dependencies)" and requirements-py314.txt if using 3.14.
+# Recommended runtime: Python 3.11 or 3.12.
+# If you must use Python 3.14, install from `requirements-py314.txt`
+# instead — TensorFlow / DeepFace have no 3.14 wheels yet.
+#
+# Optional integrations (Kafka / Qdrant / FastReID / etc.) are listed at
+# the bottom of this file, commented out. Uncomment the lines you need.
 
--r requirements-core.txt
+# --- Core Framework ---
+fastapi>=0.115.0
+uvicorn[standard]>=0.34.0
+pydantic>=2.10.0
+pydantic-settings>=2.7.0
+python-multipart>=0.0.20
 
+# --- Database ---
+sqlalchemy[asyncio]>=2.0.30
+asyncpg>=0.29.0
+pgvector>=0.3.0
+alembic>=1.14.0
+greenlet>=3.0.0
+
+# --- DB Admin Panel (browser UI at /admin) ---
+sqladmin>=0.20.1
+itsdangerous>=2.2.0
+
+# --- Auth & Security ---
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+# passlib 1.7.x expects bcrypt.__about__; removed in bcrypt 4.1+
+bcrypt>=4.0.1,<4.1
+pycryptodome>=3.21.0
+
+# --- AI / Computer Vision ---
+ultralytics>=8.3.0
+lap>=0.5.12
+torch>=2.1.0
+torchvision>=0.16.0
+torchreid>=0.2.5
+opencv-python-headless>=4.10.0
+# Bundled ffmpeg binary for H.264 trim/export (footage trim) when system ffmpeg is absent
+imageio-ffmpeg>=0.5.1
+numpy>=1.24.0
+scipy>=1.11.0
+Pillow>=10.0.0
 deepface>=0.0.90
+faiss-cpu>=1.8.0
+mediapipe>=0.10.14
+
+# --- Real-time & Caching ---
+redis>=5.2.0
+websockets>=14.0
+
+# --- Utilities ---
+python-dotenv>=1.0.0
+httpx>=0.28.0
+aiofiles>=24.0.0
+loguru>=0.7.0
+psutil>=5.9.8
+
+# ============================================================
+# Optional extras — uncomment only what you need
+# ============================================================
+# Kafka event bus (set EVENT_BUS_BACKEND=kafka)
+# aiokafka>=0.11.0
+#
+# Qdrant vector store (set VECTOR_STORE_BACKEND=qdrant)
+# qdrant-client>=1.10.0
+#
+# FastReID backend (set REID_BACKEND=fastreid)
+# cython>=3.0.0
+# FastReID itself: install from source — https://github.com/JDAI-CV/fast-reid

@@ -29,6 +29,7 @@ export default function DetectionPage() {
         model: '',
         tracker: 'botsort.yaml',
         enableReid: true,
+        enableFireDetection: false,
     });
     const [feedTileScale, setFeedTileScale] = useState('md');
     const [models, setModels] = useState([]);
@@ -122,7 +123,7 @@ export default function DetectionPage() {
         e.preventDefault();
         setBusy(true); setError(null); setNotice(null);
         try {
-            const { cameraId, streamType, source, zone, fps, model, tracker, enableReid } = form;
+            const { cameraId, streamType, source, zone, fps, model, tracker, enableReid, enableFireDetection } = form;
             if (!source?.toString().trim()) throw new Error('Pick a video source before adding the feed.');
             // Single registration path: detection/start already calls pipeline.add_camera and
             // starts the session when idle. Calling pipeline add + detection start doubled
@@ -136,6 +137,7 @@ export default function DetectionPage() {
                 fps: Number(fps) || 30,
                 skip_frames: 1,
                 enable_reid: enableReid,
+                enable_fire: enableFireDetection,
             });
             setNotice(`Camera ${cameraId} added with model ${model || 'default'}.`);
             await Promise.all([refreshPipeline(), refreshDet()]);
@@ -358,6 +360,25 @@ export default function DetectionPage() {
                             <span style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.45 }}>
                                 <strong style={{ color: 'var(--text-primary)' }}>Cross-camera Re-ID</strong>
                                 {' '}(512-d OSNet embeddings + shared gallery). Disable on weaker hardware or when you only need per-feed tracking.
+                            </span>
+                        </label>
+
+                        <label
+                            style={{
+                                display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer',
+                                padding: '10px 12px', borderRadius: 10, border: '1px solid var(--border)',
+                                background: 'var(--bg-glass)',
+                            }}
+                        >
+                            <input
+                                type="checkbox"
+                                checked={form.enableFireDetection}
+                                onChange={(e) => setForm({ ...form, enableFireDetection: e.target.checked })}
+                                style={{ marginTop: 3 }}
+                            />
+                            <span style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.45 }}>
+                                <strong style={{ color: 'var(--text-primary)' }}>Fire / smoke safety model</strong>
+                                {' '}(separate YOLO weights from <code>FIRE_MODEL_PATH</code>, not your person detector). Off by default — enable only when you need smoke/fire alerts.
                             </span>
                         </label>
 

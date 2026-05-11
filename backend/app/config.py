@@ -49,7 +49,6 @@ class Settings(BaseSettings):
     MODEL_WEIGHTS_DIR: str = "model_weight"  # Directory containing YOLO .pt files
     DEFAULT_YOLO_MODEL: str = "yolo11n.pt"   # Default model if none selected
     YOLO_MODEL: str = "yolo11n.pt"           # YOLO person detection model (legacy)
-    FIRE_MODEL: str = "yolo11n.pt"           # Fire/smoke detection model (you can train custom)
     REID_MODEL: str = "osnet_x0_25"          # Re-ID model (from torchreid)
     REID_SIMILARITY_THRESHOLD: float = 0.6   # Cosine similarity threshold (higher = stricter; use 0.65–0.75 if many similar-looking people)
     REID_EMBEDDINGS_PER_ID: int = 5          # Max embeddings per global_id for multi-view (back/front/side) when face not visible
@@ -61,7 +60,16 @@ class Settings(BaseSettings):
     YOLO_MODEL_PATH: str = "yolo11n.pt"
     YOLO_CONFIDENCE: float = 0.5
     YOLO_NMS_THRESHOLD: float = 0.45
-    FIRE_MODEL_PATH: str = "fire_smoke.pt"
+    FIRE_MODEL_PATH: str = "fire-smoke.pt"
+    # Fire/smoke YOLO runs only when a feed is started with enable_fire=true, or ENABLE_FIRE_DETECTION=true as API default.
+    ENABLE_FIRE_DETECTION: bool = False
+    # Minimum confidence for fire/smoke boxes (raise to reduce false positives on normal CCTV).
+    FIRE_DETECTION_CONFIDENCE: float = 0.58
+    # Optional second YOLO (products/SKUs). Empty = off. Throttled; not tracked / Re-ID'd.
+    PRODUCT_YOLO_PATH: str = ""
+    PRODUCT_YOLO_CONFIDENCE: float = 0.45
+    PRODUCT_DETECT_EVERY_N_FRAMES: int = 3
+    PRODUCT_MAX_DETECTIONS_PER_FRAME: int = 25
     REID_MODEL_NAME: str = "osnet_x0_25"
     REID_BACKEND: str = "torchreid"          # torchreid | fastreid
     REID_WEIGHTS: str = ""                   # Optional FastReID checkpoint path
@@ -81,7 +89,7 @@ class Settings(BaseSettings):
 
     # --- Pluggable backends ---
     EVENT_BUS_BACKEND: str = "redis"         # redis | kafka
-    VECTOR_STORE_BACKEND: str = "faiss"      # faiss | pgvector | qdrant
+    VECTOR_STORE_BACKEND: str = "pgvector"   # pgvector (Postgres) | faiss (RAM only) | qdrant
     ENABLE_MEDIAPIPE: bool = True
 
     KAFKA_BOOTSTRAP_SERVERS: str = "localhost:9092"
@@ -164,21 +172,56 @@ class Settings(BaseSettings):
             if p.is_file():
                 return str(p.resolve())
             name = p.name
-            for candidate in (
-                backend / ref,
-                weights_dir / name,
-                Path(ref),
-            ):
-                try:
-                    if candidate.is_file():
-                        return str(candidate.resolve())
-                except OSError:
-                    continue
+            # Try the original name plus dash/underscore variants so
+            # `fire_smoke.pt` and `fire-smoke.pt` both work.
+            name_variants = {name}
+            if "_" in name:
+                name_variants.add(name.replace("_", "-"))
+            if "-" in name:
+                name_variants.add(name.replace("-", "_"))
+            search_dirs = (backend, weights_dir, Path("."))
+            for n in name_variants:
+                for d in search_dirs:
+                    candidate = d / n
+                    try:
+                        if candidate.is_file():
+                            return str(candidate.resolve())
+                    except OSError:
+                        continue
             return ref
 
         object.__setattr__(self, "YOLO_MODEL", resolve(self.YOLO_MODEL))
         object.__setattr__(self, "YOLO_MODEL_PATH", resolve(self.YOLO_MODEL_PATH))
         object.__setattr__(self, "FIRE_MODEL_PATH", resolve(self.FIRE_MODEL_PATH))
+        object.__setattr__(self, "PRODUCT_YOLO_PATH", resolve(self.PRODUCT_YOLO_PATH))
+
+        # Fire/smoke must use its own checkpoint — never share person/product YOLO weights.
+        fire_path = self.FIRE_MODEL_PATH
+        yolo_path = self.YOLO_MODEL_PATH
+        prod_path = (self.PRODUCT_YOLO_PATH or "").strip()
+        pairs = [("YOLO_MODEL_PATH", yolo_path)]
+        if prod_path:
+            pairs.append(("PRODUCT_YOLO_PATH", prod_path))
+        for label, other in pairs:
+            if not other or not fire_path:
+                continue
+            if fire_path == other:
+                raise ValueError(
+                    f"FIRE_MODEL_PATH must not match {label} ({other!r}). "
+                    "Use a dedicated fire/smoke-trained .pt file."
+                )
+            try:
+                pf, po = Path(fire_path), Path(other)
+                if pf.is_file() and po.is_file() and pf.resolve() == po.resolve():
+                    raise ValueError(
+                        f"FIRE_MODEL_PATH resolves to the same file as {label}. "
+                        "Fire detection must not reuse person or product YOLO weights."
+                    )
+            except ValueError:
+                raise
+            except OSError:
+                pass
+
         object.__setattr__(self, "REID_WEIGHTS", resolve(self.REID_WEIGHTS))
         object.__setattr__(self, "SAM2_WEIGHTS", resolve(self.SAM2_WEIGHTS))
         return self

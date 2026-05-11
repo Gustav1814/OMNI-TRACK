@@ -17,8 +17,11 @@ from app.models.user import User
 from app.security.dependencies import get_current_user
 from app.schemas.schemas import DetectionResult, DetectionFrame
 from app.config import settings
+from app.database import AsyncSessionLocal
+from app.services.crud import CameraService
 from app.ai.segmenter import SAM2Segmenter
 from app.ai.pose_mediapipe import MediaPipePose
+from loguru import logger
 
 router = APIRouter(prefix="/api/detection", tags=["Detection"])
 
@@ -85,6 +88,7 @@ async def start_detection(
     fps: int = 30,
     skip_frames: int = 1,
     enable_reid: bool = True,
+    enable_fire: Optional[bool] = None,
     current_user: User = Depends(get_current_user),
     pipeline=Depends(get_pipeline),
 ):
@@ -92,15 +96,35 @@ async def start_detection(
     Start person detection on a camera feed.
     - source: "0" (webcam), path to .mp4, RTSP URL, or "footage:filename.mp4" (stored CCTV)
     - model: Model filename from /api/models (e.g., "yolo11n.pt"). Uses default if not specified.
+      Selecting **fire-smoke.pt** (or the file configured as FIRE_MODEL_PATH) uses that weight for
+      fire/smoke only and keeps person detection on YOLO_MODEL_PATH.
     - fps: Max capture rate for this feed (applied in the stream reader; clamped 1–240).
     - skip_frames: Process every (skip_frames+1)th captured frame (0 = all captured frames).
     - enable_reid: Enable 512-d Torchreid + global gallery for this feed (CPU/GPU heavy). Disable for lighter multi-cam runs.
+    - enable_fire: Run fire/smoke safety model (FIRE_MODEL_PATH) on this feed. Omit to use ENABLE_FIRE_DETECTION from .env (default false).
     - Use footage: for prototype: run full CV on downloaded store clips as live cameras.
     """
     source, stream_type = _resolve_source(source, stream_type)
-    
+
+    # Ensure a `cameras` row exists so persistence (detections/embeddings) FK succeeds.
+    try:
+        async with AsyncSessionLocal() as db:
+            await CameraService.ensure_for_pipeline(
+                db,
+                camera_id=camera_id,
+                stream_url=source,
+                zone=zone,
+                fps=float(fps),
+            )
+            await db.commit()
+    except Exception as e:
+        logger.warning(f"ensure camera row before detection start failed: {e}")
+
     # Resolve model path (filename from model_weight, absolute path, or URL)
     model_path = None
+    fire_model_path_arg: Optional[str] = None
+    split_fire_weights = False
+
     if model:
         if model.startswith(("http://", "https://")):
             # Cache URL downloads under model_weight
@@ -121,14 +145,37 @@ async def start_detection(
                     raise HTTPException(status_code=404, detail=f"Model {model} not found in {settings.MODEL_WEIGHTS_DIR}")
                 model_path = str(model_file.resolve())
 
+        # Fire/smoke checkpoints must not drive person detection — split into person YOLO + fire path.
+        mp_resolved = str(Path(model_path).resolve())
+        try:
+            fire_cfg_resolved = str(Path(settings.FIRE_MODEL_PATH).resolve())
+        except Exception:
+            fire_cfg_resolved = ""
+        name_lower = Path(model_path).name.lower()
+        if name_lower in ("fire-smoke.pt", "fire_smoke.pt") or (
+            fire_cfg_resolved and mp_resolved == fire_cfg_resolved
+        ):
+            split_fire_weights = True
+            fire_model_path_arg = mp_resolved
+            model_path = str(Path(settings.YOLO_MODEL_PATH).resolve())
+
         # Validate model load up-front so pipeline doesn't crash later.
         try:
             from ultralytics import YOLO
 
             YOLO(model_path)
+            if split_fire_weights and fire_model_path_arg:
+                YOLO(fire_model_path_arg)
         except Exception as e:
             raise HTTPException(status_code=422, detail=f"Failed to load model {model}: {e}")
-    
+
+    if split_fire_weights:
+        eff_enable_fire = True
+    elif enable_fire is None:
+        eff_enable_fire = bool(getattr(settings, "ENABLE_FIRE_DETECTION", False))
+    else:
+        eff_enable_fire = bool(enable_fire)
+
     try:
         pipeline.add_camera(
             camera_id=camera_id,
@@ -138,8 +185,10 @@ async def start_detection(
             fps=fps,
             skip_frames=skip_frames,
             model_path=model_path,
+            fire_model_path=fire_model_path_arg if eff_enable_fire else None,
             tracker_config=tracker,
             enable_reid=enable_reid,
+            enable_fire=eff_enable_fire,
         )
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
@@ -151,6 +200,7 @@ async def start_detection(
         "source": source,
         "model": model or settings.DEFAULT_YOLO_MODEL,
         "tracker": tracker,
+        "enable_fire": eff_enable_fire,
     }
 
 

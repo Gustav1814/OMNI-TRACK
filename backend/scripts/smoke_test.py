@@ -92,6 +92,7 @@ async def _run() -> int:
         zone="smoke_zone",
         fps=15,
         skip_frames=1,
+        enable_fire=True,
     )
     await pipeline.start()
     print("[3/6] Pipeline started (camera 999 attached)")
