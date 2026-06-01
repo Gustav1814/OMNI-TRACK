@@ -88,6 +88,7 @@ from app.plugins import PluginContext, PluginManager
 from app.security.adversarial_eval import get_robustness_status
 from app.security.dependencies import get_current_user, get_user_from_token
 from app.models.user import User
+from app.admin import setup_admin
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -261,6 +262,8 @@ app = FastAPI(
 if plugin_manager.enabled:
     plugin_manager.load()
     plugin_manager.register_routes(app)
+
+setup_admin(app)
 
 
 # ═══════════════════════════════════════════════════════════════
