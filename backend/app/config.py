@@ -6,8 +6,10 @@ ALL CONFIGURATION LIVES HERE.
 Change values by creating .env file in /backend/ (never hardcode secrets!)
 """
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
+
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -71,6 +73,7 @@ class Settings(BaseSettings):
     DETECTION_CONFIDENCE: float = 0.5        # Min confidence to count a detection
     NMS_THRESHOLD: float = 0.45              # Non-max suppression (reduces duplicate boxes)
     DEVICE: str = "auto"                     # "auto", "cpu", "cuda", "mps" (for Apple M-series)
+    ALLOW_MOCK_AI: bool = False              # If false, unavailable models return empty output instead of fake detections
 
     # Old aliases for backward compatibility
     YOLO_MODEL_PATH: str = "yolov8n.pt"
@@ -90,6 +93,18 @@ class Settings(BaseSettings):
     MAX_PARALLEL_CAMERA_PROCESSORS: int = 2  # Camera frames processed concurrently per tick
     MAX_REID_DETECTIONS_PER_FRAME: int = 8   # Avoid ReID crops exploding on crowded frames
     HEAVY_ANALYTICS_INTERVAL: int = 3        # Fire/emotion every N processed frames per camera
+    ENABLE_ADAPTIVE_MODEL_GATING: bool = True # Run expensive models only when the frame/zone needs them
+    AUTO_CAMERA_ROLE_DETECTION: bool = True   # Infer per-camera role and module policy from zone/source/activity
+    REID_INTERVAL_FRAMES: int = 5             # Re-ID refresh cadence for known tracks
+    FIRE_ACTIVE_INTERVAL_FRAMES: int = 12     # Fire scan cadence when people/activity are visible
+    FIRE_IDLE_INTERVAL_FRAMES: int = 45       # Slow safety pulse when no people/activity are visible
+    SHELF_ANALYTICS_INTERVAL_FRAMES: int = 3  # Shelf dwell/cart hints cadence when shoppers are present
+    EMOTION_ANALYTICS_INTERVAL_FRAMES: int = 12 # Emotion cadence; never runs on empty frames
+    CHECKOUT_ANALYTICS_INTERVAL_FRAMES: int = 3 # Checkout cadence in checkout/counter zones
+    CHECKOUT_ZONE_KEYWORDS: str = "checkout,counter,cashier,billing,pos"
+    SHELF_ZONE_KEYWORDS: str = "shelf,aisle,rack,product,fridge,cooler"
+    ENTRANCE_ZONE_KEYWORDS: str = "entrance,entry,exit,door,gate"
+    SAFETY_ZONE_KEYWORDS: str = "kitchen,storage,warehouse,electrical,stockroom"
     CALLBACK_TIMEOUT_MS: int = 750           # Keep slow DB/WS/plugin callbacks off the hot path
 
     # --- Plugins / Integrations ---
@@ -107,6 +122,17 @@ class Settings(BaseSettings):
     # --- CCTV Footage storage ---
     FOOTAGE_DIR: str = "storage/footage"      # Where uploaded/recorded clips are stored
     MAX_UPLOAD_MB: int = 512                  # Hard API cap for uploaded footage
+
+    @field_validator("DEBUG", mode="before")
+    @classmethod
+    def parse_debug_mode(cls, value):
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"release", "prod", "production", "off", "false", "0", "no"}:
+                return False
+            if normalized in {"debug", "dev", "development", "on", "true", "1", "yes"}:
+                return True
+        return value
 
 
 settings = Settings()

@@ -58,16 +58,16 @@ html.light {
    DARK MODE ENHANCED VARIABLES
    ================================================================ */
 html.dark, :root {
-  --bg-primary: #030304;
-  --bg-secondary: #08080c;
-  --bg-tertiary: #0c0c10;
-  --bg-card: rgba(10, 10, 14, 0.85);
-  --bg-card-hover: rgba(18, 18, 24, 0.95);
-  --bg-glass: rgba(255, 255, 255, 0.02);
-  --bg-glass-hover: rgba(255, 255, 255, 0.05);
+  --bg-primary: #000000;
+  --bg-secondary: #000000;
+  --bg-tertiary: #000000;
+  --bg-card: #000000;
+  --bg-card-hover: rgba(255, 255, 255, 0.02);
+  --bg-glass: rgba(255, 255, 255, 0.01);
+  --bg-glass-hover: rgba(255, 255, 255, 0.02);
   
-  --glass-bg: rgba(8, 8, 12, 0.75);
-  --glass-border: rgba(255, 255, 255, 0.05);
+  --glass-bg: #000000;
+  --glass-border: rgba(255, 255, 255, 0.06);
   
   --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.5);
   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5);

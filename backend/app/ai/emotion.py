@@ -8,6 +8,7 @@ import numpy as np
 from typing import List, Dict, Any, Optional
 from collections import defaultdict
 from loguru import logger
+from app.config import settings
 
 try:
     from deepface import DeepFace
@@ -19,7 +20,7 @@ except Exception as _deepface_err:
     DeepFace = None  # type: ignore
     logger.warning(
         f"DeepFace not available ({type(_deepface_err).__name__}). "
-        "Emotion module will run in mock mode."
+        "Emotion module will return empty output unless ALLOW_MOCK_AI=true."
     )
 
 
@@ -44,6 +45,8 @@ class EmotionRecognizer:
         Returns list of emotion results per detected face.
         """
         if not DEEPFACE_AVAILABLE:
+            if not settings.ALLOW_MOCK_AI:
+                return []
             return self._mock_analyze(camera_id, zone)
 
         try:
@@ -131,6 +134,8 @@ class EmotionRecognizer:
         Extended analysis: age + gender + emotion (for Store Vibe).
         """
         if not DEEPFACE_AVAILABLE:
+            if not settings.ALLOW_MOCK_AI:
+                return []
             return self._mock_demographics()
 
         try:

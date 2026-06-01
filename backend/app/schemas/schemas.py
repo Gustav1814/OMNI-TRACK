@@ -315,6 +315,197 @@ class CustomerJourneyResponse(BaseModel):
     journey_data: List[Dict[str, Any]]
 
 
+# ---- Humanless Store / Virtual Cart ----
+
+class ProductCreate(BaseModel):
+    sku: str = Field(..., min_length=1, max_length=80)
+    name: str = Field(..., min_length=1, max_length=160)
+    category: Optional[str] = None
+    price: float = Field(0.0, ge=0)
+    unit: str = "item"
+    image_url: Optional[str] = None
+    product_metadata: Optional[Dict[str, Any]] = None
+
+
+class ProductUpdate(BaseModel):
+    sku: Optional[str] = None
+    name: Optional[str] = None
+    category: Optional[str] = None
+    price: Optional[float] = Field(None, ge=0)
+    unit: Optional[str] = None
+    image_url: Optional[str] = None
+    is_active: Optional[bool] = None
+    product_metadata: Optional[Dict[str, Any]] = None
+
+
+class ProductResponse(BaseModel):
+    id: int
+    sku: str
+    name: str
+    category: Optional[str]
+    price: float
+    unit: str
+    image_url: Optional[str]
+    is_active: bool
+    product_metadata: Optional[Dict[str, Any]]
+    created_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+class ShelfZoneCreate(BaseModel):
+    zone_id: str = Field(..., min_length=1, max_length=100)
+    name: str = Field(..., min_length=1, max_length=160)
+    camera_id: Optional[int] = None
+    product_id: Optional[int] = None
+    bbox: Optional[List[float]] = None
+    current_stock: int = 0
+    low_stock_threshold: int = 3
+
+
+class ShelfZoneUpdate(BaseModel):
+    zone_id: Optional[str] = None
+    name: Optional[str] = None
+    camera_id: Optional[int] = None
+    product_id: Optional[int] = None
+    bbox: Optional[List[float]] = None
+    current_stock: Optional[int] = None
+    low_stock_threshold: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class ShelfZoneResponse(BaseModel):
+    id: int
+    zone_id: str
+    name: str
+    camera_id: Optional[int]
+    product_id: Optional[int]
+    bbox: Optional[List[float]]
+    current_stock: int
+    low_stock_threshold: int
+    is_active: bool
+    created_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+class CartEventCreate(BaseModel):
+    session_id: Optional[int] = None
+    global_id: Optional[str] = None
+    product_id: Optional[int] = None
+    shelf_zone_id: Optional[int] = None
+    camera_id: Optional[int] = None
+    event_type: str = Field("pickup", pattern="^(pickup|putback|adjustment|checkout|uncertain)$")
+    quantity_delta: int = 1
+    confidence: float = Field(1.0, ge=0, le=1)
+    rule_source: str = "manual"
+    evidence: Optional[Dict[str, Any]] = None
+
+
+class CartEventResponse(BaseModel):
+    id: int
+    cart_id: int
+    session_id: int
+    product_id: Optional[int]
+    shelf_zone_id: Optional[int]
+    camera_id: Optional[int]
+    global_id: Optional[str]
+    event_type: str
+    quantity_delta: int
+    confidence: float
+    rule_source: str
+    evidence: Optional[Dict[str, Any]]
+    timestamp: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class VirtualCartItemResponse(BaseModel):
+    id: int
+    product_id: int
+    sku: str
+    name: str
+    quantity: int
+    unit_price: float
+    line_total: float
+    confidence: float
+
+
+class VirtualCartResponse(BaseModel):
+    id: int
+    session_id: int
+    status: str
+    subtotal: float
+    item_count: int
+    confidence: float
+    items: List[VirtualCartItemResponse] = []
+    recent_events: List[CartEventResponse] = []
+
+
+class StoreSessionResponse(BaseModel):
+    id: int
+    global_id: str
+    status: str
+    entry_time: datetime
+    exit_time: Optional[datetime]
+    last_seen: datetime
+    entry_camera_id: Optional[int]
+    last_camera_id: Optional[int]
+    entry_zone: Optional[str]
+    last_zone: Optional[str]
+    checkout_confidence: float
+    payment_status: str
+    cart: Optional[VirtualCartResponse] = None
+
+
+class HumanlessOverview(BaseModel):
+    active_sessions: int
+    open_carts: int
+    subtotal_open: float
+    low_stock_zones: int
+    open_alerts: int
+    sessions: List[StoreSessionResponse]
+
+
+class CheckoutSimulationResponse(BaseModel):
+    session_id: int
+    cart_id: int
+    status: str
+    subtotal: float
+    item_count: int
+    confidence: float
+    receipt: Dict[str, Any]
+
+
+class CounterArrivalRequest(BaseModel):
+    counter_id: Optional[str] = "checkout"
+    confidence: float = Field(1.0, ge=0, le=1)
+
+
+class CashierQueueItem(StoreSessionResponse):
+    cashier_ready: bool = True
+    counter_id: Optional[str] = None
+
+
+class LossPreventionAlertResponse(BaseModel):
+    id: int
+    session_id: Optional[int]
+    cart_id: Optional[int]
+    alert_type: str
+    severity: str
+    status: str
+    description: Optional[str]
+    confidence: float
+    evidence: Optional[Dict[str, Any]]
+    timestamp: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # ---- Dashboard Overview ----
 
 class DashboardOverview(BaseModel):

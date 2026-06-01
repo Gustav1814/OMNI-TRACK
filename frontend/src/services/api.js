@@ -206,6 +206,27 @@ export const peakHoursAPI = {
     today: (zone) => api.get('/peak-hours/today', { params: zone ? { zone } : {} }),
 };
 
+export const humanlessAPI = {
+    overview: (limit = 20) => api.get('/humanless/overview', { params: { limit } }),
+    products: (activeOnly = false) => api.get('/humanless/products', { params: { active_only: activeOnly } }),
+    createProduct: (data) => api.post('/humanless/products', data),
+    updateProduct: (id, data) => api.put(`/humanless/products/${id}`, data),
+    shelfZones: (activeOnly = false) => api.get('/humanless/shelf-zones', { params: { active_only: activeOnly } }),
+    createShelfZone: (data) => api.post('/humanless/shelf-zones', data),
+    updateShelfZone: (id, data) => api.put(`/humanless/shelf-zones/${id}`, data),
+    createCartEvent: (data) => api.post('/humanless/cart-events', data),
+    cashierQueue: (zone = null, limit = 20) => api.get('/humanless/cashier/queue', {
+        params: { ...(zone ? { zone } : {}), limit },
+    }),
+    counterArrival: (sessionId, counterId = 'checkout', confidence = 1.0) =>
+        api.post(`/humanless/sessions/${sessionId}/counter-arrival`, { counter_id: counterId, confidence }),
+    checkoutSession: (sessionId) => api.post(`/humanless/sessions/${sessionId}/checkout`),
+    closeStale: (staleAfterSeconds = 300) => api.post('/humanless/sessions/close-stale', null, {
+        params: { stale_after_seconds: staleAfterSeconds },
+    }),
+    alerts: (status = 'open', limit = 50) => api.get('/humanless/alerts', { params: { status, limit } }),
+};
+
 // ────────────────────────────────────────────────────────────────
 // Models (YOLO model management)
 // ────────────────────────────────────────────────────────────────

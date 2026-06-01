@@ -1,84 +1,111 @@
 /**
- * Executive canvas presets — muted, boardroom-grade accent pairs.
+ * Executive canvas presets — premium-curated accent pairs.
  * Dashboard KPI cards use a separate fixed palette (kpiAccentColors.js).
  */
 
 export const GRADIENT_PRESETS = [
     {
-        id: 'boardroom',
-        name: 'Aurora Teal',
-        description: 'Soft teal with airy sky',
-        a: '#2dd4bf',
+        id: 'ocean-depth',
+        name: 'Ocean Depth',
+        description: 'Deep emerald and navy silk mesh',
+        a: '#0d6b63',
+        b: '#1a365d',
+        magicLight: 'rgba(13, 107, 99, 0.14)',
+        magicDark: 'rgba(26, 54, 93, 0.26)',
+    },
+    {
+        id: 'obsidian',
+        name: 'Obsidian Steel',
+        description: 'Cool steel with calm blue accent',
+        a: '#94a3b8',
         b: '#60a5fa',
-        magicLight: 'rgba(45, 212, 191, 0.16)',
+        magicLight: 'rgba(148, 163, 184, 0.14)',
         magicDark: 'rgba(96, 165, 250, 0.22)',
     },
     {
-        id: 'charcoal',
-        name: 'Champagne Ink',
-        description: 'Champagne gold with cool ink',
-        a: '#fbbf24',
-        b: '#334155',
-        magicLight: 'rgba(251, 191, 36, 0.16)',
-        magicDark: 'rgba(51, 65, 85, 0.22)',
+        id: 'boardroom',
+        name: 'Gilded Noir',
+        description: 'Rich warm gold — luxury watch finish',
+        a: '#d4a55a',
+        b: '#b8862e',
+        magicLight: 'rgba(212, 165, 90, 0.14)',
+        magicDark: 'rgba(184, 134, 46, 0.20)',
     },
     {
         id: 'merlot',
-        name: 'Peach Rose',
-        description: 'Peach glow with soft rose',
-        a: '#fb923c',
-        b: '#fda4af',
-        magicLight: 'rgba(251, 146, 60, 0.16)',
-        magicDark: 'rgba(253, 164, 175, 0.22)',
+        name: 'Rose Quartz',
+        description: 'Rich dusty rose with warm mauve',
+        a: '#d4748a',
+        b: '#b85c72',
+        magicLight: 'rgba(212, 116, 138, 0.14)',
+        magicDark: 'rgba(184, 92, 114, 0.20)',
     },
     {
         id: 'capital',
-        name: 'Emerald Mist',
-        description: 'Emerald lift with mint haze',
+        name: 'Emerald Depth',
+        description: 'Vivid emerald with forest undertone',
         a: '#34d399',
-        b: '#22c55e',
-        magicLight: 'rgba(52, 211, 153, 0.16)',
-        magicDark: 'rgba(34, 197, 94, 0.22)',
+        b: '#10b981',
+        magicLight: 'rgba(52, 211, 153, 0.14)',
+        magicDark: 'rgba(16, 185, 129, 0.20)',
+    },
+    {
+        id: 'charcoal',
+        name: 'Amber Blaze',
+        description: 'Warm amber glow — burnished sunset',
+        a: '#f0a050',
+        b: '#d48a38',
+        magicLight: 'rgba(240, 160, 80, 0.14)',
+        magicDark: 'rgba(212, 138, 56, 0.20)',
     },
     {
         id: 'private',
-        name: 'Royal Iris',
-        description: 'Indigo silk with cool sky',
-        a: '#6366f1',
-        b: '#38bdf8',
-        magicLight: 'rgba(99, 102, 241, 0.14)',
-        magicDark: 'rgba(56, 189, 248, 0.22)',
+        name: 'Royal Indigo',
+        description: 'Deep violet-blue — evening twilight',
+        a: '#818cf8',
+        b: '#6366f1',
+        magicLight: 'rgba(129, 140, 248, 0.14)',
+        magicDark: 'rgba(99, 102, 241, 0.20)',
     },
     {
         id: 'corporate',
-        name: 'Crimson Quartz',
-        description: 'Crimson highlight with blush quartz',
-        a: '#ef4444',
-        b: '#f472b6',
-        magicLight: 'rgba(239, 68, 68, 0.14)',
-        magicDark: 'rgba(244, 114, 182, 0.22)',
+        name: 'Arctic Cyan',
+        description: 'Icy fresh cyan — glacial clarity',
+        a: '#67e8f9',
+        b: '#22d3ee',
+        magicLight: 'rgba(103, 232, 249, 0.14)',
+        magicDark: 'rgba(34, 211, 238, 0.20)',
+    },
+    {
+        id: 'aurora',
+        name: 'Copper Patina',
+        description: 'Burnished copper with bronze warmth',
+        a: '#c4896a',
+        b: '#a87352',
+        magicLight: 'rgba(196, 137, 106, 0.14)',
+        magicDark: 'rgba(168, 115, 82, 0.20)',
     },
 ];
 
 const LEGACY_PRESET_IDS = {
-    gilded: 'charcoal',
+    gilded: 'boardroom',
     'rose-gold': 'merlot',
     sapphire: 'corporate',
     burgundy: 'merlot',
-    obsidian: 'boardroom',
     prestige: 'capital',
     sunset: 'charcoal',
-    arctic: 'corporate',
+    arctic: 'ocean-depth',
+    ocean: 'ocean-depth',
     forest: 'capital',
     berry: 'merlot',
     copper: 'private',
     dusk: 'boardroom',
-    ocean: 'corporate',
+    ocean: 'private',
     twilight: 'boardroom',
     ember: 'merlot',
 };
 
-export const DEFAULT_GRADIENT_ID = 'boardroom';
+export const DEFAULT_GRADIENT_ID = 'ocean-depth';
 
 export function resolvePresetId(id) {
     return LEGACY_PRESET_IDS[id] || id;
@@ -151,6 +178,15 @@ export function applyGradientToDocument(presetId, theme) {
     root.style.setProperty('--accent-b-muted', `rgba(${bRgb}, 0.12)`);
     root.style.setProperty('--exec-bar-track', `rgba(${aRgb}, 0.1)`);
     root.style.setProperty('--exec-shadow-tint', `rgba(${aRgb}, 0.08)`);
+
+    /* Glass-card system — soft accent-tinted dark-mode tokens */
+    root.style.setProperty('--glass-card-bg', `rgba(${aRgb}, 0.01)`);
+    root.style.setProperty('--glass-card-border', `rgba(${aRgb}, 0.06)`);
+    root.style.setProperty('--glass-card-shadow-tint', `rgba(${aRgb}, 0.04)`);
+    root.style.setProperty('--glass-card-highlight', `rgba(${aRgb}, 0.04)`);
+    root.style.setProperty('--glass-card-surface',
+        `linear-gradient(145deg, rgba(${aRgb}, 0.02), rgba(${bRgb}, 0.008) 60%, transparent)`
+    );
 }
 
 export function readGradientFromDocument() {

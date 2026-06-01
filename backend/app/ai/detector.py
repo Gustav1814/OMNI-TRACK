@@ -8,6 +8,7 @@ import numpy as np
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
 from loguru import logger
+from app.config import settings
 
 try:
     from ultralytics import YOLO
@@ -77,6 +78,8 @@ class PersonDetector:
     def detect(self, frame: np.ndarray) -> List[BBox]:
         """Run detection on a single frame. Returns list of BBox."""
         if self.model is None:
+            if not settings.ALLOW_MOCK_AI:
+                return []
             return self._mock_detect(frame)
 
         # Pose models use all classes (typically just person), detection models filter

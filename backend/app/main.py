@@ -67,7 +67,7 @@ from app.services.export import ExportService
 from app.services.persistence import PersistencePipelineCallback
 
 # Routers
-from app.routers import auth, cameras, detection, reid, footage, model
+from app.routers import auth, cameras, detection, reid, footage, model, humanless
 from app.routers.analytics import (
     synopsis_router,
     shelf_router,
@@ -299,6 +299,7 @@ app.include_router(detection.router)
 app.include_router(reid.router)
 app.include_router(footage.router)
 app.include_router(model.router)
+app.include_router(humanless.router)
 # Analytics sub-routers (each has its own prefix in analytics.py)
 app.include_router(synopsis_router)
 app.include_router(shelf_router)

@@ -11,6 +11,7 @@ angles/poses) improve matching when the same person is seen from the back or sid
 import numpy as np
 from typing import List, Optional, Tuple, Dict
 from loguru import logger
+from app.config import settings
 
 try:
     import torch
@@ -89,13 +90,15 @@ class PersonReID:
             logger.error(f"Failed to load Re-ID model: {e}")
             self.model = None
 
-    def extract_embedding(self, person_crop: np.ndarray) -> np.ndarray:
+    def extract_embedding(self, person_crop: np.ndarray) -> Optional[np.ndarray]:
         """
         Extract a 512-d L2-normalized embedding from a cropped person image.
         Input: BGR numpy array (from OpenCV crop).
         Output: 512-d normalized float32 array.
         """
         if self.model is None or self.transform is None:
+            if not settings.ALLOW_MOCK_AI:
+                return None
             return self._mock_embedding()
 
         # Convert BGR to RGB

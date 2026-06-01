@@ -1,6 +1,6 @@
 /**
  * OmniTrack AI — App Component
- * Premium 3D dashboard: custom cursor, animated layout, React Router
+ * Premium dashboard: custom cursor, animated layout, React Router
  * Light/dark theme via ThemeProvider (main.jsx) and toggle in Sidebar.
  */
 
@@ -12,7 +12,6 @@ import Sidebar from './components/Sidebar';
 import CustomCursor from './components/CustomCursor';
 
 // Lazy-load heavy and route-level modules to reduce initial bundle cost.
-const Scene3D = lazy(() => import('./components/Scene3D'));
 const LoginPage = lazy(() => import('./pages/LoginPage'));
 const RegisterPage = lazy(() => import('./pages/RegisterPage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
@@ -93,21 +92,18 @@ function TopBar() {
 
 function ProtectedLayout() {
     const location = useLocation();
-    const isDashboard = location.pathname === '/';
 
     return (
         <div className="app-layout">
             <CustomCursor />
-            {isDashboard ? (
-                <Suspense fallback={null}>
-                    <Scene3D />
-                </Suspense>
-            ) : null}
-            <div className="ambient-bg">
+            <div className="ambient-bg" aria-hidden>
                 <div className="ambient-blob ambient-blob-a" />
                 <div className="ambient-blob ambient-blob-b" />
                 <div className="ambient-blob ambient-blob-c" />
-                <div className="ambient-grid" />
+                <div className="ambient-sheen" />
+                <div className="ambient-mesh ambient-mesh-fine" />
+                <div className="ambient-mesh ambient-mesh-wide" />
+                <div className="ambient-vignette" />
             </div>
             <Sidebar />
             <div className="main-content">
@@ -136,6 +132,7 @@ function ProtectedLayout() {
                                 <Route path="/vibe" element={<VibePage />} />
                                 <Route path="/peak-hours" element={<PeakHoursPage />} />
                                 <Route path="/demographics" element={<DemographicsPage />} />
+                                <Route path="/humanless" element={<Navigate to="/" replace />} />
                                 <Route path="/security" element={<SecurityPage />} />
                                 <Route path="/settings" element={<SettingsPage />} />
                                 <Route path="*" element={<Navigate to="/" />} />

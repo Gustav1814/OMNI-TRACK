@@ -24,7 +24,12 @@ export function ThemeProvider({ children }) {
     const [gradientPreset, setGradientPresetState] = useState(() => {
         if (typeof window === 'undefined') return DEFAULT_GRADIENT_ID;
         const raw = localStorage.getItem(GRADIENT_STORAGE_KEY) || DEFAULT_GRADIENT_ID;
-        return resolvePresetId(raw);
+        const resolved = resolvePresetId(raw);
+        // One-time bump: older installs defaulted to low-contrast presets.
+        if (resolved === 'obsidian' && raw === 'obsidian') {
+            return DEFAULT_GRADIENT_ID;
+        }
+        return resolved;
     });
 
     useEffect(() => {

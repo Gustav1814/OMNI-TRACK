@@ -5,15 +5,12 @@
 
 /* ── Page canvas — restrained executive wash ── */
 html.light .app-layout {
-  background:
-    radial-gradient(ellipse 120% 85% at 0% -5%, rgba(var(--gradient-a-rgb), 0.07), transparent 54%),
-    radial-gradient(ellipse 100% 75% at 100% 0%, rgba(var(--gradient-b-rgb), 0.05), transparent 50%),
-    #f8f9fa !important;
+  background: var(--page-canvas) !important;
 }
 
 html.dark .app-layout,
 html:not(.light) .app-layout {
-  background: #000000 !important;
+  background: var(--page-canvas) !important;
 }
 
 html.light body,
@@ -25,29 +22,199 @@ html.dark body,
 html.dark #root,
 html:not(.light) body,
 html:not(.light) #root {
-  background: #000000 !important;
+  background: var(--page-bg) !important;
+}
+
+/* ── Luxurious ambient mesh (soft blooms + fine lattice + vignette) ── */
+html.light .ambient-bg,
+html.dark .ambient-bg,
+html:not(.light) .ambient-bg {
+  display: block !important;
+}
+
+.ambient-blob {
+  animation: ambientDrift 32s cubic-bezier(0.45, 0.05, 0.25, 1) infinite !important;
+  mix-blend-mode: normal;
+  will-change: transform;
+}
+
+.ambient-blob-b {
+  animation-delay: -11s !important;
+}
+
+.ambient-blob-c {
+  animation-delay: -21s !important;
+}
+
+.ambient-sheen,
+.ambient-mesh,
+.ambient-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.ambient-sheen {
+  background:
+    linear-gradient(
+      118deg,
+      rgba(255, 255, 255, 0) 0%,
+      rgba(255, 255, 255, 0.045) 42%,
+      rgba(255, 255, 255, 0) 68%
+    );
+  opacity: 0.9;
+}
+
+.ambient-mesh {
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 92% 78% at 50% 42%, black 18%, transparent 92%);
+  -webkit-mask-image: radial-gradient(ellipse 92% 78% at 50% 42%, black 18%, transparent 92%);
+}
+
+.ambient-mesh-fine {
+  background-image:
+    linear-gradient(rgba(var(--gradient-a-rgb), 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--gradient-b-rgb), 0.06) 1px, transparent 1px);
+  opacity: 0.55;
+}
+
+.ambient-mesh-wide {
+  background-size: 88px 88px;
+  transform: rotate(14deg) scale(1.08);
+  background-image:
+    linear-gradient(rgba(var(--gradient-b-rgb), 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--gradient-a-rgb), 0.035) 1px, transparent 1px);
+  opacity: 0.35;
+}
+
+.ambient-vignette {
+  background:
+    radial-gradient(ellipse 120% 90% at 50% 45%, transparent 42%, rgba(0, 0, 0, 0.22) 100%);
+  opacity: 0.85;
+}
+
+@keyframes ambientDrift {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(0, 14px, 0) scale(1.03);
+  }
+}
+
+/* Light — pearl wash, whisper blooms */
+html.light .ambient-blob {
+  filter: blur(72px) saturate(115%) !important;
 }
 
 html.light .ambient-blob-a {
-  background: rgba(var(--gradient-a-rgb), 0.06) !important;
+  width: 42vw !important;
+  height: 42vw !important;
+  background:
+    radial-gradient(circle at 38% 38%, rgba(var(--gradient-a-rgb), 0.34) 0%, rgba(var(--gradient-a-rgb), 0.08) 38%, transparent 72%) !important;
+  opacity: 0.14 !important;
 }
 
 html.light .ambient-blob-b {
-  background: rgba(var(--gradient-b-rgb), 0.05) !important;
+  width: 38vw !important;
+  height: 38vw !important;
+  background:
+    radial-gradient(circle at 62% 42%, rgba(var(--gradient-b-rgb), 0.3) 0%, rgba(var(--gradient-b-rgb), 0.07) 40%, transparent 74%) !important;
+  opacity: 0.12 !important;
 }
 
 html.light .ambient-blob-c {
-  display: none !important;
+  width: 36vw !important;
+  height: 36vw !important;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(var(--gradient-b-rgb), 0.16) 0%, rgba(var(--gradient-a-rgb), 0.1) 45%, transparent 76%) !important;
+  opacity: 0.1 !important;
+}
+
+html.light .ambient-sheen {
+  background:
+    linear-gradient(
+      125deg,
+      rgba(255, 255, 255, 0) 8%,
+      rgba(255, 255, 255, 0.55) 48%,
+      rgba(255, 255, 255, 0) 78%
+    ) !important;
+  opacity: 0.35 !important;
+}
+
+html.light .ambient-mesh-fine {
+  opacity: 0.42 !important;
+}
+
+html.light .ambient-mesh-wide {
+  opacity: 0.28 !important;
+}
+
+html.light .ambient-vignette {
+  background:
+    radial-gradient(ellipse 115% 85% at 50% 40%, transparent 50%, rgba(15, 23, 42, 0.06) 100%) !important;
+  opacity: 1 !important;
+}
+
+/* Dark — AMOLED base + silk blooms (no line grid — lattice stays light-only) */
+html.dark .ambient-blob,
+html:not(.light) .ambient-blob {
+  display: block !important;
+  filter: blur(88px) saturate(118%) !important;
+  mix-blend-mode: soft-light;
 }
 
 html.dark .ambient-blob-a,
 html:not(.light) .ambient-blob-a {
-  background: rgba(var(--gradient-a-rgb), 0.04) !important;
+  width: 46vw !important;
+  height: 46vw !important;
+  background:
+    radial-gradient(circle at 40% 40%, rgba(var(--gradient-a-rgb), 0.5) 0%, rgba(var(--gradient-a-rgb), 0.1) 42%, transparent 74%) !important;
+  opacity: 0.16 !important;
 }
 
 html.dark .ambient-blob-b,
 html:not(.light) .ambient-blob-b {
-  background: rgba(var(--gradient-b-rgb), 0.03) !important;
+  width: 40vw !important;
+  height: 40vw !important;
+  background:
+    radial-gradient(circle at 60% 45%, rgba(var(--gradient-b-rgb), 0.45) 0%, rgba(var(--gradient-b-rgb), 0.08) 44%, transparent 76%) !important;
+  opacity: 0.14 !important;
+}
+
+html.dark .ambient-blob-c,
+html:not(.light) .ambient-blob-c {
+  width: 38vw !important;
+  height: 38vw !important;
+  background:
+    radial-gradient(circle at 50% 55%, rgba(var(--gradient-b-rgb), 0.2) 0%, rgba(var(--gradient-a-rgb), 0.14) 48%, transparent 78%) !important;
+  opacity: 0.11 !important;
+}
+
+html.dark .ambient-sheen,
+html:not(.light) .ambient-sheen {
+  background:
+    linear-gradient(
+      125deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.025) 46%,
+      transparent 72%
+    ) !important;
+  opacity: 0.65 !important;
+}
+
+html.dark .ambient-mesh-fine,
+html.dark .ambient-mesh-wide,
+html:not(.light) .ambient-mesh-fine,
+html:not(.light) .ambient-mesh-wide {
+  display: none !important;
+}
+
+html.dark .ambient-vignette,
+html:not(.light) .ambient-vignette {
+  background:
+    radial-gradient(ellipse 125% 95% at 50% 42%, transparent 40%, rgba(0, 0, 0, 0.65) 100%) !important;
+  opacity: 0.85 !important;
 }
 
 .exec-title-accent {
@@ -204,9 +371,9 @@ html:not(.light) .sidebar {
 .ui-stat::after {
   background: linear-gradient(
     110deg,
-    rgba(var(--stat-rgb), 0.1) 0%,
-    rgba(var(--stat-rgb), 0.03) 30%,
-    transparent 50%
+    rgba(var(--stat-rgb), 0.16) 0%,
+    rgba(var(--stat-rgb), 0.045) 32%,
+    transparent 58%
   ) !important;
 }
 
@@ -355,3 +522,78 @@ html.light .premium-headline {
 .dashboard-shell .exec-hero-kpi-value.emerald { color: #10b981 !important; }
 
 .dashboard-shell .ui-ring--emerald .ui-ring-fill { stroke: #10b981 !important; }
+
+/* Soft card edges — blend with luxurious mesh canvas */
+.page-scroll .card,
+.page-scroll .chart-card,
+.magic-card,
+.ui-content-card .ui-content-card-header,
+.exec-kpi-inner,
+.ui-stat,
+.ui-status-tile,
+.ui-record-card,
+.exec-metric-row,
+.exec-hero-kpi,
+.stat-card,
+.ui-timeline-card,
+.ui-table-wrap,
+.page-scroll .data-table-wrapper {
+  border-color: var(--card-border) !important;
+}
+
+.ui-status-tile {
+  border-left-color: rgba(var(--tile-rgb), 0.22) !important;
+}
+
+.exec-kpi-inner::before,
+.ui-stat::before,
+.ui-status-tile::before {
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.06), transparent 42%) top left / 100% 1px no-repeat,
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 48%) !important;
+  opacity: 0.85 !important;
+}
+
+.exec-kpi-inner::after,
+.dashboard-shell .exec-kpi-inner::after,
+.ui-stat::after,
+.ui-status-tile::after,
+.ui-record-card::after {
+  background: linear-gradient(
+    135deg,
+    rgba(var(--gradient-a-rgb), 0.09) 0%,
+    rgba(var(--gradient-b-rgb), 0.05) 38%,
+    transparent 72%
+  ) !important;
+}
+
+html.light .ui-content-card .ui-content-card-header {
+  border-bottom-color: var(--card-border) !important;
+}
+
+html.dark .exec-kpi-inner,
+html:not(.light) .exec-kpi-inner,
+html.dark .ui-stat,
+html:not(.light) .ui-stat,
+html.dark .ui-status-tile,
+html:not(.light) .ui-status-tile,
+html.dark .page-scroll .card,
+html:not(.light) .page-scroll .card,
+html.dark .magic-card,
+html:not(.light) .magic-card {
+  border-color: var(--card-border) !important;
+}
+
+.exec-kpi:hover .exec-kpi-inner,
+.ui-stat:hover,
+.ui-status-tile:hover,
+.ui-record-card:hover,
+.exec-metric-row:hover,
+.page-scroll .card:hover,
+.magic-card:hover {
+  border-color: var(--card-border-hover) !important;
+}
+
+.ui-status-tile:hover {
+  border-left-color: rgba(var(--tile-rgb), 0.32) !important;
+}

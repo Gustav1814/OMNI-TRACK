@@ -18,10 +18,9 @@ Usage:
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
-from sqladmin import Admin, ModelView
-from sqladmin.authentication import AuthenticationBackend
+from loguru import logger
 from sqlalchemy import select
 from starlette.requests import Request
 
@@ -40,6 +39,25 @@ from app.models.analytics import (
     PeakHoursData,
 )
 from app.security.jwt_handler import verify_password
+
+try:
+    from sqladmin import Admin, ModelView
+    from sqladmin.authentication import AuthenticationBackend
+
+    SQLADMIN_AVAILABLE = True
+except ModuleNotFoundError:
+    Admin = None
+    SQLADMIN_AVAILABLE = False
+
+    class ModelView:
+        """Fallback base so the app can boot when the optional admin package is absent."""
+
+        def __init_subclass__(cls, **kwargs):
+            super().__init_subclass__()
+
+    class AuthenticationBackend:
+        def __init__(self, *args, **kwargs):
+            pass
 
 
 # ─────────────────────────────────────────────────────────────
@@ -217,8 +235,15 @@ class PeakHoursAdmin(ModelView, model=PeakHoursData):
 # Mount
 # ─────────────────────────────────────────────────────────────
 
-def setup_admin(app) -> Admin:
+def setup_admin(app) -> Optional[Any]:
     """Attach the /admin panel to a FastAPI app."""
+    if not SQLADMIN_AVAILABLE:
+        logger.warning(
+            "SQLAdmin is not installed; /admin is disabled. "
+            "Install backend requirements to enable the database admin panel."
+        )
+        return None
+
     auth_backend = AdminAuth(secret_key=settings.JWT_SECRET_KEY)
     admin = Admin(
         app=app,

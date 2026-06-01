@@ -91,6 +91,7 @@ class CameraResult:
     shelf_data: Dict[str, Any] = field(default_factory=dict)
     checkout_data: Dict[str, Any] = field(default_factory=dict)
     processing_time_ms: float = 0.0
+    model_status: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -182,6 +183,18 @@ class ProcessingPipeline:
         self._camera_processor_limit = max(1, settings.MAX_PARALLEL_CAMERA_PROCESSORS)
         self._max_reid_per_frame = max(0, settings.MAX_REID_DETECTIONS_PER_FRAME)
         self._heavy_analytics_interval = max(1, settings.HEAVY_ANALYTICS_INTERVAL)
+        self._adaptive_gating = bool(settings.ENABLE_ADAPTIVE_MODEL_GATING)
+        self._auto_camera_roles = bool(settings.AUTO_CAMERA_ROLE_DETECTION)
+        self._reid_interval = max(1, settings.REID_INTERVAL_FRAMES)
+        self._fire_active_interval = max(1, settings.FIRE_ACTIVE_INTERVAL_FRAMES)
+        self._fire_idle_interval = max(self._fire_active_interval, settings.FIRE_IDLE_INTERVAL_FRAMES)
+        self._shelf_interval = max(1, settings.SHELF_ANALYTICS_INTERVAL_FRAMES)
+        self._emotion_interval = max(1, settings.EMOTION_ANALYTICS_INTERVAL_FRAMES)
+        self._checkout_interval = max(1, settings.CHECKOUT_ANALYTICS_INTERVAL_FRAMES)
+        self._checkout_zone_keywords = self._parse_keywords(settings.CHECKOUT_ZONE_KEYWORDS)
+        self._shelf_zone_keywords = self._parse_keywords(settings.SHELF_ZONE_KEYWORDS)
+        self._entrance_zone_keywords = self._parse_keywords(settings.ENTRANCE_ZONE_KEYWORDS)
+        self._safety_zone_keywords = self._parse_keywords(settings.SAFETY_ZONE_KEYWORDS)
         self._callback_timeout = max(0.1, settings.CALLBACK_TIMEOUT_MS / 1000)
         self.global_state = GlobalState()
         try:
@@ -214,6 +227,7 @@ class ProcessingPipeline:
         )
         # Temporal consistency: (camera_id, track_id) -> last global_id (avoids flicker when face not visible)
         self._last_global_by_track: Dict[Tuple[int, int], str] = {}
+        self._last_reid_frame_by_track: Dict[Tuple[int, int], int] = {}
 
         # Optional modules
         self._enable_emotions = enable_emotions
@@ -249,6 +263,8 @@ class ProcessingPipeline:
         self._logs_dir.mkdir(parents=True, exist_ok=True)
         # camera_id -> zone_name (set at add_camera, used by analytics snapshot)
         self._camera_zones: Dict[int, str] = {}
+        self._camera_sources: Dict[int, str] = {}
+        self._camera_roles: Dict[int, Dict[str, Any]] = {}
         # Detections counter — powers dashboard "total_detections_today"
         self._total_detections: int = 0
         # Last-computed store vibe dict, so routers can serve without recomputing
@@ -340,6 +356,8 @@ class ProcessingPipeline:
         self.stream_manager.add_camera(config)
         self._frame_counts[camera_id] = 0
         self._camera_zones[camera_id] = zone
+        self._camera_sources[camera_id] = str(source)
+        self._camera_roles[camera_id] = self._infer_camera_role(camera_id, zone=zone, source=str(source))
         # Store model assignment for this camera (default if not specified)
         effective_model = model_path or self._detector_model
         self._camera_models[camera_id] = effective_model
@@ -348,12 +366,16 @@ class ProcessingPipeline:
         
         # One tracker per camera so local track IDs are per-feed; Re-ID assigns global_id across cameras.
         if camera_id not in self._trackers:
-            self._trackers[camera_id] = MultiObjectTracker(model_path=effective_model)
+            self._trackers[camera_id] = MultiObjectTracker(model_path=effective_model, use_model=False)
 
         # Register zone in crowd density (one zone per camera).
         self.crowd.configure_zone(zone, camera_id=camera_id, max_capacity=50)
 
-        logger.info(f"Camera {camera_id} added → zone: {zone}")
+        role_info = self._camera_roles.get(camera_id, {})
+        logger.info(
+            f"Camera {camera_id} added -> zone={zone} "
+            f"role={role_info.get('role')} modules={role_info.get('modules')}"
+        )
         # Fire-and-forget: audit log this camera addition on the running loop
         try:
             loop = asyncio.get_event_loop()
@@ -373,8 +395,11 @@ class ProcessingPipeline:
         self._results_buffer.pop(camera_id, None)
         self._trackers.pop(camera_id, None)
         self._camera_models.pop(camera_id, None)  # Clean up model assignment
+        self._camera_sources.pop(camera_id, None)
+        self._camera_roles.pop(camera_id, None)
         zone = self._camera_zones.pop(camera_id, None)
         self._last_global_by_track = {k: v for k, v in self._last_global_by_track.items() if k[0] != camera_id}
+        self._last_reid_frame_by_track = {k: v for k, v in self._last_reid_frame_by_track.items() if k[0] != camera_id}
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
@@ -528,6 +553,116 @@ class ProcessingPipeline:
             if iou > best_iou:
                 best_iou, best_id = iou, tid
         return best_id if best_iou >= 0.3 else None
+
+    @staticmethod
+    def _parse_keywords(value: str) -> Tuple[str, ...]:
+        return tuple(k.strip().lower() for k in str(value or "").split(",") if k.strip())
+
+    @staticmethod
+    def _zone_matches(zone: str, keywords: Tuple[str, ...]) -> bool:
+        z = str(zone or "").lower()
+        return bool(z) and any(k in z for k in keywords)
+
+    def _infer_camera_role(self, camera_id: int, zone: Optional[str] = None, source: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Infer camera role for automatic model routing. This keeps large stores
+        manageable: operators can provide rough names, and the pipeline picks
+        the cheapest useful model policy.
+        """
+        z = str(zone if zone is not None else self._camera_zones.get(camera_id, "default"))
+        src = str(source if source is not None else self._camera_sources.get(camera_id, ""))
+        text = f"{z} {src}".lower()
+
+        def has(keywords: Tuple[str, ...]) -> bool:
+            return any(k in text for k in keywords)
+
+        role = "general"
+        confidence = 0.45
+        if has(self._checkout_zone_keywords):
+            role, confidence = "checkout", 0.9
+        elif has(self._shelf_zone_keywords):
+            role, confidence = "shelf", 0.85
+        elif has(self._entrance_zone_keywords):
+            role, confidence = "entrance", 0.8
+        elif has(self._safety_zone_keywords):
+            role, confidence = "safety", 0.75
+
+        modules = {
+            "detector": True,
+            "tracker": True,
+            "crowd": True,
+            "reid": role in {"general", "entrance", "shelf", "checkout"},
+            "fire": True,
+            "emotion": role in {"general", "entrance", "checkout"},
+            "shelf": role == "shelf",
+            "checkout": role == "checkout",
+        }
+        return {
+            "role": role,
+            "confidence": confidence,
+            "zone": z,
+            "modules": modules,
+            "reason": f"auto_role:{role}" if self._auto_camera_roles else "auto_role_disabled",
+        }
+
+    def _camera_policy(self, camera_id: int, zone: str, has_people: bool) -> Dict[str, Any]:
+        if self._auto_camera_roles:
+            role = self._camera_roles.get(camera_id) or self._infer_camera_role(camera_id, zone)
+        else:
+            role = {
+                "role": "manual",
+                "confidence": 1.0,
+                "zone": zone,
+                "reason": "auto_role_disabled",
+                "modules": {
+                    "detector": True,
+                    "tracker": True,
+                    "crowd": True,
+                    "reid": True,
+                    "fire": True,
+                    "emotion": True,
+                    "shelf": True,
+                    "checkout": True,
+                },
+            }
+        policy = dict(role)
+        policy["has_people"] = has_people
+        return policy
+
+    def _module_decision(
+        self,
+        module: str,
+        frame_num: int,
+        has_people: bool,
+        zone: str = "default",
+        interval: int = 1,
+        zone_required: bool = False,
+        zone_keywords: Tuple[str, ...] = (),
+        idle_interval: Optional[int] = None,
+    ) -> Tuple[bool, str]:
+        if not self._adaptive_gating:
+            return True, "adaptive_gating_disabled"
+        if zone_required and not self._zone_matches(zone, zone_keywords):
+            return False, f"{module}:zone_not_relevant"
+        if not has_people and idle_interval is None:
+            return False, f"{module}:idle_no_people"
+        cadence = idle_interval if not has_people and idle_interval else interval
+        if frame_num % max(1, cadence) != 0:
+            return False, f"{module}:cadence_wait_{cadence}"
+        return True, f"{module}:scheduled"
+
+    @staticmethod
+    def _set_model_status(
+        result: CameraResult,
+        module: str,
+        ran: bool,
+        reason: str,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        payload = {"ran": bool(ran), "reason": reason}
+        if extra:
+            payload.update(extra)
+        result.model_status[module] = payload
 
     # ─────────────────────────────────────────────────────────────
     # CALLBACKS (for WebSocket push, DB persistence, etc.)
@@ -790,20 +925,19 @@ class ProcessingPipeline:
                 detector = self._get_or_create_detector(camera_model)
                 raw_detections = await asyncio.to_thread(detector.detect, frame)
 
+                norm_dets: List[Dict[str, Any]] = [
+                    self._detection_to_dict(raw) for raw in raw_detections
+                ]
                 tracker = self._trackers.get(cam_id)
                 if tracker is None:
-                    tracker = MultiObjectTracker(model_path=camera_model)
+                    tracker = MultiObjectTracker(model_path=camera_model, use_model=False)
                     self._trackers[cam_id] = tracker
-                tracks = await asyncio.to_thread(tracker.update, frame)
+                tracks = tracker.update_from_detections(norm_dets)
 
-                norm_dets: List[Dict[str, Any]] = []
-                for raw in raw_detections:
-                    if isinstance(raw, BBox):
-                        bbox = [float(raw.x), float(raw.y), float(raw.w), float(raw.h)]
-                    else:
-                        bbox = raw.get("bbox") or raw.get("box") or []
+                for det in norm_dets:
+                    bbox = det.get("bbox") or []
                     tid = self._match_det_to_track(bbox, tracks) if len(bbox) >= 4 else None
-                    norm_dets.append(self._detection_to_dict(raw, track_id=tid))
+                    det["track_id"] = tid
 
                 return cam_id, frame_num, timestamp, norm_dets, tracks
 
@@ -829,6 +963,20 @@ class ProcessingPipeline:
                 detections=norm_dets,
                 tracks=tracks,
             )
+            self._set_model_status(
+                results[cam_id],
+                "detector",
+                True,
+                "detector:base_layer",
+                {"detections": len(norm_dets)},
+            )
+            self._set_model_status(
+                results[cam_id],
+                "tracker",
+                True,
+                "tracker:detector_iou_reuse",
+                {"tracks": len(tracks)},
+            )
 
         # ── PHASE 2: Cross-Camera Re-ID (GLOBAL gallery) ──
         # Body-based matching (works when face not visible). Multi-view: we store several
@@ -838,7 +986,26 @@ class ProcessingPipeline:
         # PersistencePipelineCallback each tick).
         new_embeddings: List[Dict[str, Any]] = []
         for cam_id, (frame, timestamp) in frames.items():
+            frame_num = self._frame_counts.get(cam_id, 0)
             reid_candidates = all_detections.get(cam_id, [])
+            zone = self._camera_zones.get(cam_id, "default")
+            reid_policy = self._camera_policy(cam_id, zone, bool(reid_candidates))
+            if not reid_policy.get("modules", {}).get("reid", True):
+                if results.get(cam_id):
+                    self._set_model_status(
+                        results[cam_id],
+                        "reid",
+                        False,
+                        f"reid:disabled_by_camera_role:{reid_policy.get('role')}",
+                    )
+                continue
+            if results.get(cam_id):
+                self._set_model_status(
+                    results[cam_id],
+                    "reid",
+                    False,
+                    "reid:idle_no_people" if not reid_candidates else "reid:pending_candidate_filter",
+                )
             if self._max_reid_per_frame:
                 reid_candidates = reid_candidates[: self._max_reid_per_frame]
             for det in reid_candidates:
@@ -846,19 +1013,43 @@ class ProcessingPipeline:
                     bbox = det.get("bbox") or []
                     if len(bbox) < 4:
                         continue
+                    track_id = det.get("track_id")
+                    key = (cam_id, track_id) if track_id is not None else None
+                    prev_global = self._last_global_by_track.get(key) if key else None
+                    last_reid_frame = self._last_reid_frame_by_track.get(key, -10**9) if key else -10**9
+                    should_reid = (
+                        not self._adaptive_gating
+                        or prev_global is None
+                        or (frame_num - last_reid_frame) >= self._reid_interval
+                    )
+                    if not should_reid:
+                        if prev_global:
+                            det["global_id"] = prev_global
+                            results[cam_id].reid_matches.append({
+                                "global_id": prev_global,
+                                "camera_id": cam_id,
+                                "track_id": track_id,
+                                "bbox": bbox,
+                                "timestamp": timestamp,
+                                "source": "cached_track",
+                            })
+                        self._set_model_status(
+                            results[cam_id],
+                            "reid",
+                            False,
+                            f"reid:cached_until_{self._reid_interval}_frames",
+                        )
+                        continue
                     x, y, w, h = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
                     x, y = max(0, x), max(0, y)
                     crop = frame[y:y+h, x:x+w]
                     if crop.size == 0:
                         continue
-                    track_id = det.get("track_id")
                     embedding = await asyncio.to_thread(
                         self.reid.extract_embedding, crop
                     )
                     if embedding is None:
                         continue
-                    key = (cam_id, track_id) if track_id is not None else None
-                    prev_global = self._last_global_by_track.get(key) if key else None
                     matches = self.reid.search_gallery(
                         embedding, top_k=1
                     )
@@ -877,6 +1068,7 @@ class ProcessingPipeline:
                         self.global_state.total_persons_tracked += 1
                     if key:
                         self._last_global_by_track[key] = global_id
+                        self._last_reid_frame_by_track[key] = frame_num
                     det["global_id"] = global_id
                     results[cam_id].reid_matches.append({
                         "global_id": global_id,
@@ -884,7 +1076,14 @@ class ProcessingPipeline:
                         "track_id": track_id,
                         "bbox": bbox,
                         "timestamp": timestamp,
+                        "source": "embedding",
                     })
+                    self._set_model_status(
+                        results[cam_id],
+                        "reid",
+                        True,
+                        "reid:embedding_extracted",
+                    )
                     # Queue for pgvector persistence. Convert to list so we don't
                     # carry numpy refs across the asyncio boundary.
                     new_embeddings.append({
@@ -907,53 +1106,133 @@ class ProcessingPipeline:
             dets = all_detections.get(cam_id, [])
             zone = self._camera_zones.get(cam_id, "default")
             frame_num = self._frame_counts.get(cam_id, 0)
-            run_heavy_analytics = frame_num % self._heavy_analytics_interval == 0
+            has_people = bool(dets)
+            policy = self._camera_policy(cam_id, zone, has_people)
+            allowed_modules = policy.get("modules", {})
+            self._set_model_status(
+                results[cam_id],
+                "router",
+                True,
+                policy.get("reason", "auto_role"),
+                {
+                    "role": policy.get("role"),
+                    "confidence": policy.get("confidence"),
+                    "allowed_modules": allowed_modules,
+                },
+            )
 
             # Crowd density (always on; cheap)
             try:
                 crowd_status = self.crowd.update(cam_id, dets)
                 results[cam_id].crowd_status = crowd_status
+                self._set_model_status(results[cam_id], "crowd", True, "crowd:cheap_always_on")
             except Exception as e:
                 logger.debug(f"Crowd update error cam {cam_id}: {e}")
 
             # Fire detection (safety-first — always runs)
-            if run_heavy_analytics and self._enable_fire and self.fire_detector:
+            run_fire, fire_reason = self._module_decision(
+                "fire",
+                frame_num,
+                has_people,
+                zone=zone,
+                interval=self._fire_active_interval,
+                idle_interval=self._fire_idle_interval,
+            )
+            if run_fire and allowed_modules.get("fire", True) and self._enable_fire and self.fire_detector:
                 try:
                     fire_results = await asyncio.to_thread(
                         self.fire_detector.detect, frame, cam_id, zone
                     )
                     results[cam_id].fire_alerts = fire_results
+                    self._set_model_status(
+                        results[cam_id],
+                        "fire",
+                        True,
+                        fire_reason,
+                        {"alerts": len(fire_results)},
+                    )
                     if fire_results:
                         self.global_state.fire_alert_active = True
                         logger.warning(f"FIRE/SMOKE ALERT on Camera {cam_id}!")
                 except Exception as e:
                     logger.debug(f"Fire detect error cam {cam_id}: {e}")
+            else:
+                self._set_model_status(results[cam_id], "fire", False, fire_reason)
 
             # Emotion recognition — returns a single summary dict per frame.
-            if run_heavy_analytics and self._enable_emotions and self.emotion:
+            run_emotion, emotion_reason = self._module_decision(
+                "emotion",
+                frame_num,
+                has_people,
+                zone=zone,
+                interval=self._emotion_interval,
+            )
+            if not allowed_modules.get("emotion", False):
+                run_emotion = False
+                emotion_reason = f"emotion:disabled_by_camera_role:{policy.get('role')}"
+            if run_emotion and allowed_modules.get("emotion", False) and self._enable_emotions and self.emotion:
                 try:
                     summary = await asyncio.to_thread(
                         self.emotion.analyze_frame_summary, frame, cam_id, zone
                     )
                     results[cam_id].emotions = summary
+                    self._set_model_status(
+                        results[cam_id],
+                        "emotion",
+                        True,
+                        emotion_reason,
+                        {"samples": int(summary.get("sample_count", 0)) if isinstance(summary, dict) else 0},
+                    )
                 except Exception as e:
                     logger.debug(f"Emotion analyze error cam {cam_id}: {e}")
+            else:
+                self._set_model_status(results[cam_id], "emotion", False, emotion_reason)
 
             # Shelf analytics (tracks = normalized detections with track_id).
-            if self._enable_shelf and self.shelf_tracker:
+            run_shelf, shelf_reason = self._module_decision(
+                "shelf",
+                frame_num,
+                has_people,
+                zone=zone,
+                interval=self._shelf_interval,
+                zone_required=True,
+                zone_keywords=self._shelf_zone_keywords,
+            )
+            if not allowed_modules.get("shelf", False):
+                run_shelf = False
+                shelf_reason = f"shelf:disabled_by_camera_role:{policy.get('role')}"
+            if run_shelf and self._enable_shelf and self.shelf_tracker:
                 try:
                     shelf_data = self.shelf_tracker.update(cam_id, dets, timestamp)
                     results[cam_id].shelf_data = shelf_data
+                    self._set_model_status(results[cam_id], "shelf", True, shelf_reason)
                 except Exception as e:
                     logger.debug(f"Shelf update error cam {cam_id}: {e}")
+            else:
+                self._set_model_status(results[cam_id], "shelf", False, shelf_reason)
 
             # Checkout analytics
-            if self._enable_checkout and self.checkout:
+            run_checkout, checkout_reason = self._module_decision(
+                "checkout",
+                frame_num,
+                has_people,
+                zone=zone,
+                interval=self._checkout_interval,
+                zone_required=True,
+                zone_keywords=self._checkout_zone_keywords,
+            )
+            if not allowed_modules.get("checkout", False):
+                run_checkout = False
+                checkout_reason = f"checkout:disabled_by_camera_role:{policy.get('role')}"
+            if run_checkout and self._enable_checkout and self.checkout:
                 try:
                     checkout_data = self.checkout.update(cam_id, dets, timestamp)
                     results[cam_id].checkout_data = checkout_data
+                    self._set_model_status(results[cam_id], "checkout", True, checkout_reason)
                 except Exception as e:
                     logger.debug(f"Checkout update error cam {cam_id}: {e}")
+            else:
+                self._set_model_status(results[cam_id], "checkout", False, checkout_reason)
 
         # ── PHASE 4: Store Vibe Score (aggregate everything) ──
         try:
@@ -1215,6 +1494,7 @@ class ProcessingPipeline:
                     }
                     for cam_id, s in stream_stats.items()
                 },
+                "roles": self._camera_roles,
             },
             "ai_modules": {
                 "detector": "loaded" if self.detector.model else "mock",
@@ -1240,6 +1520,21 @@ class ProcessingPipeline:
                 "camera_processor_limit": self._camera_processor_limit,
                 "max_reid_detections_per_frame": self._max_reid_per_frame,
                 "heavy_analytics_interval": self._heavy_analytics_interval,
+                "adaptive_model_gating": self._adaptive_gating,
+                "auto_camera_role_detection": self._auto_camera_roles,
+                "scheduler": {
+                    "tracker_mode": "detector_iou_reuse",
+                    "reid_interval_frames": self._reid_interval,
+                    "fire_active_interval_frames": self._fire_active_interval,
+                    "fire_idle_interval_frames": self._fire_idle_interval,
+                    "emotion_interval_frames": self._emotion_interval,
+                    "shelf_interval_frames": self._shelf_interval,
+                    "checkout_interval_frames": self._checkout_interval,
+                    "shelf_zone_keywords": list(self._shelf_zone_keywords),
+                    "checkout_zone_keywords": list(self._checkout_zone_keywords),
+                    "entrance_zone_keywords": list(self._entrance_zone_keywords),
+                    "safety_zone_keywords": list(self._safety_zone_keywords),
+                },
                 "callback_timeout_ms": int(self._callback_timeout * 1000),
                 "callback_queue_depth": self._callback_queue.qsize() if self._callback_queue else 0,
                 "callback_queue_max": settings.PIPELINE_RESULT_QUEUE_MAXSIZE,

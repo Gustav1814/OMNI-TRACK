@@ -24,61 +24,72 @@
   --radius-panel: 18px;
 }
 
-/* ── LIGHT — warm pearl canvas, ocean accents (no purple/gold) ── */
+/* ── LIGHT — warm soft canvas, gentle accents ── */
 html.light {
-  --exec-ink: #0f172a;
-  --exec-muted: #64748b;
-  --exec-surface: #f4f7f6;
-  --exec-border: rgba(15, 23, 42, 0.08);
+  --exec-ink: #1e293b;
+  --exec-muted: #6b7280;
+  --exec-surface: #f2f2f0;
+  --exec-border: rgba(15, 23, 42, 0.045);
+  --card-border: rgba(15, 23, 42, 0.034);
+  --card-border-hover: rgba(var(--gradient-a-rgb), 0.1);
   --accent-primary: var(--gradient-a);
   --accent-secondary: var(--gradient-b);
   --accent-gold: #f97316;
   --accent-gold-dim: rgba(249, 115, 22, 0.22);
-  --exec-hero-bg: linear-gradient(180deg, #ffffff 0%, #f6faf9 100%);
-  --exec-metric-bg: linear-gradient(135deg, #fafcfb 0%, #f3f8f7 100%);
-  --exec-bar-track: rgba(var(--gradient-a-rgb), 0.12);
-  --page-bg: #f8f9fa;
+  --exec-hero-bg: linear-gradient(180deg, #fafaf9 0%, #f5f5f4 100%);
+  --exec-metric-bg: linear-gradient(135deg, #fafaf9 0%, #f5f5f4 100%);
+  --exec-bar-track: rgba(var(--gradient-a-rgb), 0.10);
+  --page-bg: #f4f3f0;
   --page-canvas:
-    radial-gradient(ellipse 110% 85% at 0% 0%, rgba(var(--gradient-a-rgb), 0.06), transparent 54%),
-    radial-gradient(ellipse 95% 75% at 100% 0%, rgba(var(--gradient-b-rgb), 0.04), transparent 50%),
-    #f8f9fa;
-  --surface-card: #ffffff;
-  --surface-rail: #ffffff;
-  --surface-bar: rgba(255, 255, 255, 0.98);
-  --accent-soft: linear-gradient(135deg, rgba(var(--gradient-a-rgb), 0.1), rgba(var(--gradient-b-rgb), 0.06));
+    radial-gradient(ellipse 100% 70% at 12% 8%, rgba(var(--gradient-a-rgb), 0.09), transparent 58%),
+    radial-gradient(ellipse 85% 75% at 88% 92%, rgba(var(--gradient-b-rgb), 0.08), transparent 55%),
+    radial-gradient(ellipse 60% 50% at 50% 48%, rgba(255, 255, 255, 0.65), transparent 72%),
+    radial-gradient(ellipse 70% 45% at 78% 6%, rgba(var(--gradient-b-rgb), 0.05), transparent 52%),
+    #f4f3f0;
+  --surface-card: #fafaf9;
+  --surface-rail: #fafaf9;
+  --surface-bar: rgba(250, 250, 249, 0.98);
+  --accent-soft: linear-gradient(135deg, rgba(var(--gradient-a-rgb), 0.08), rgba(var(--gradient-b-rgb), 0.04));
   --accent-cta: var(--accent-cta);
-  --bg: #f7f8f6;
+  --bg: #f5f5f4;
   --sb-bg: var(--surface-rail);
-  --exec-card: #ffffff;
-  --exec-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px -8px rgba(var(--gradient-a-rgb), 0.1);
+  --exec-card: #fafaf9;
+  --exec-shadow: 0 1px 2px rgba(15, 23, 42, 0.03), 0 6px 20px -8px rgba(var(--gradient-a-rgb), 0.06);
   font-family: var(--exec-font-body);
 }
 
-/* ── DARK — AMOLED black + teal/sky edge glows ── */
+/* ── DARK — AMOLED black, soft contrast ── */
 html.dark,
 html:not(.light) {
-  --exec-ink: #f1f5f9;
-  --exec-muted: #94a3b8;
+  --exec-ink: #d1d5db;
+  --exec-muted: #8896a8;
   --exec-surface: #000000;
-  --exec-border: rgba(255, 255, 255, 0.11);
+  --exec-border: rgba(255, 255, 255, 0.045);
+  --card-border: rgba(255, 255, 255, 0.038);
+  --card-border-hover: rgba(var(--gradient-a-rgb), 0.12);
   --accent-primary: var(--gradient-a);
   --accent-secondary: #38bdf8;
   --accent-gold: #fb923c;
   --accent-gold-dim: rgba(251, 146, 60, 0.22);
   --exec-hero-bg: #000000;
   --exec-metric-bg: #000000;
-  --exec-bar-track: rgba(255, 255, 255, 0.06);
+  --exec-bar-track: rgba(255, 255, 255, 0.05);
   --page-bg: #000000;
-  --page-canvas: #000000;
+  --page-canvas:
+    radial-gradient(ellipse 110% 75% at 10% 12%, rgba(var(--gradient-a-rgb), 0.11), transparent 58%),
+    radial-gradient(ellipse 90% 80% at 90% 88%, rgba(var(--gradient-b-rgb), 0.09), transparent 55%),
+    radial-gradient(ellipse 55% 48% at 50% 46%, rgba(var(--gradient-a-rgb), 0.035), transparent 62%),
+    radial-gradient(ellipse 75% 55% at 72% 8%, rgba(var(--gradient-b-rgb), 0.06), transparent 54%),
+    #000000;
   --surface-card: #000000;
   --surface-rail: #000000;
   --surface-bar: #000000;
-  --accent-soft: linear-gradient(135deg, rgba(var(--gradient-a-rgb), 0.12), rgba(var(--gradient-b-rgb), 0.06));
+  --accent-soft: linear-gradient(135deg, rgba(var(--gradient-a-rgb), 0.10), rgba(var(--gradient-b-rgb), 0.05));
   --accent-cta: var(--accent-cta);
   --bg: #000000;
   --sb-bg: #000000;
   --exec-card: #000000;
-  --exec-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset;
+  --exec-shadow: none;
 }
 
 html.light body,
@@ -414,8 +425,7 @@ html:not(.light) .exec-hero-kpi {
   min-height: 132px;
   padding: 14px 14px 12px;
   border-radius: inherit;
-  border: 1px solid var(--exec-border);
-  border-left: 3px solid rgb(var(--kpi-rgb));
+  border: 1px solid var(--card-border, var(--exec-border));
   background: var(--exec-card);
   box-shadow: var(--exec-shadow);
   overflow: hidden;
@@ -447,8 +457,8 @@ html:not(.light) .exec-hero-kpi {
 }
 
 .exec-kpi:hover .exec-kpi-inner {
-  border-color: rgba(var(--kpi-rgb), 0.28);
-  box-shadow: 0 12px 32px -18px rgba(var(--kpi-rgb), 0.35);
+  border-color: var(--card-border-hover);
+  box-shadow: 0 12px 32px -18px rgba(var(--kpi-rgb), 0.22);
 }
 
 .exec-kpi-glow {
@@ -821,11 +831,6 @@ html:not(.light) .page-scroll .form-input {
   gap: 12px !important;
 }
 
-/* No ambient mesh / blob backgrounds */
-.ambient-bg {
-  display: none !important;
-}
-
 .page-content::before,
 .page-content::after {
   display: none !important;
@@ -1066,9 +1071,6 @@ html.light .scene3d-wrapper {
 
 .sidebar::before,
 .sidebar::after,
-.ambient-bg,
-.ambient-blob,
-.ambient-grid,
 .card::before,
 .stat-card::before,
 .stat-card::after,
@@ -1231,7 +1233,6 @@ html.light .alert-banner {
 html.light .exec-kpi-inner {
   background: #ffffff !important;
   border: 1px solid var(--exec-border) !important;
-  border-left: 3px solid rgb(var(--kpi-rgb)) !important;
   box-shadow:
     0 1px 2px rgba(15, 23, 42, 0.04),
     0 8px 22px -10px rgba(var(--kpi-rgb), 0.12) !important;
@@ -1240,11 +1241,10 @@ html.light .exec-kpi-inner {
 html.dark .exec-kpi-inner,
 html:not(.light) .exec-kpi-inner {
   background: #000000 !important;
-  border: 1px solid var(--exec-border) !important;
-  border-left: 3px solid rgb(var(--kpi-rgb)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.03) inset,
-    0 10px 28px -12px rgba(var(--kpi-rgb), 0.16) !important;
+    0 1px 0 rgba(255, 255, 255, 0.02) inset,
+    0 10px 28px -12px rgba(var(--kpi-rgb), 0.12) !important;
 }
 
 html.dark .exec-page-header,
@@ -1266,8 +1266,8 @@ html:not(.light) .exec-metric-row,
 html.dark .exec-hero-kpi,
 html:not(.light) .exec-hero-kpi {
   background: #000000 !important;
-  border: 1px solid var(--exec-border) !important;
-  box-shadow: var(--exec-shadow) !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  box-shadow: none !important;
 }
 
 html.light .exec-hero-kpi {

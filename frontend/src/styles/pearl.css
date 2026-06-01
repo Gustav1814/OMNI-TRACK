@@ -21,7 +21,7 @@ html.theme-pearl.light .app-layout {
 
 html.theme-pearl.dark .app-layout,
 html.theme-pearl:not(.light) .app-layout {
-  background: #000000 !important;
+  background: var(--page-canvas) !important;
 }
 
 html.theme-pearl.light .login-page,
@@ -63,7 +63,7 @@ html.theme-pearl.light .card,
 html.theme-pearl.light .chart-card,
 html.theme-pearl.light .login-card {
   background: var(--surface-card) !important;
-  border: 1px solid var(--exec-border) !important;
+  border: 1px solid var(--card-border, var(--exec-border)) !important;
   box-shadow:
     0 1px 2px rgba(15, 23, 42, 0.04),
     0 10px 28px -10px rgba(15, 23, 42, 0.08),
@@ -91,15 +91,15 @@ html.theme-pearl:not(.light) .card,
 html.theme-pearl.dark .login-card,
 html.theme-pearl:not(.light) .login-card {
   background: #000000 !important;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset !important;
+  border: 1px solid var(--card-border) !important;
+  box-shadow: none !important;
 }
 
 /* KPI — solid body, accent wash via enterprise ::after */
 html.theme-pearl.light .exec-kpi-inner {
   background: #ffffff !important;
-  border: 1px solid var(--exec-border) !important;
-  border-left: 3px solid rgb(var(--kpi-rgb)) !important;
+  border: 1px solid var(--card-border, var(--exec-border)) !important;
+  border-left: 1px solid rgba(var(--kpi-rgb), 0.2) !important;
   box-shadow:
     0 1px 2px rgba(15, 23, 42, 0.04),
     0 8px 22px -10px rgba(var(--kpi-rgb), 0.12) !important;
@@ -108,8 +108,8 @@ html.theme-pearl.light .exec-kpi-inner {
 html.theme-pearl.dark .exec-kpi-inner,
 html.theme-pearl:not(.light) .exec-kpi-inner {
   background: #000000 !important;
-  border: 1px solid rgba(255, 255, 255, 0.07) !important;
-  border-left: 3px solid rgb(var(--kpi-rgb)) !important;
+  border: 1px solid var(--card-border) !important;
+  border-left: 1px solid rgba(var(--kpi-rgb), 0.2) !important;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03) !important;
 }
 
@@ -139,8 +139,7 @@ html.theme-pearl:not(.light) .exec-kpi:hover .exec-kpi-inner {
 /* Stat cards — solid body + left accent (wash stays narrow via border) */
 html.theme-pearl.light .ui-stat {
   background: #ffffff !important;
-  border: 1px solid var(--exec-border) !important;
-  border-left: 3px solid rgb(var(--stat-rgb)) !important;
+  border: 1px solid var(--card-border, var(--exec-border)) !important;
   box-shadow:
     0 1px 2px rgba(15, 23, 42, 0.04),
     0 8px 22px -10px rgba(var(--stat-rgb), 0.1) !important;
@@ -149,8 +148,7 @@ html.theme-pearl.light .ui-stat {
 html.theme-pearl.dark .ui-stat,
 html.theme-pearl:not(.light) .ui-stat {
   background: #000000 !important;
-  border-left: 3px solid rgb(var(--stat-rgb)) !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03) !important;
+  box-shadow: none !important;
 }
 
 html.theme-pearl.light .ui-stat:hover {
@@ -175,8 +173,8 @@ html.theme-pearl.light .exec-hero-kpi {
 html.theme-pearl.dark .exec-hero-kpi,
 html.theme-pearl:not(.light) .exec-hero-kpi {
   background: #000000 !important;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid var(--card-border) !important;
+  box-shadow: none !important;
 }
 
 .exec-title-accent,

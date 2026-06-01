@@ -12,6 +12,15 @@ from app.models.analytics import (
     StoreVibeScore,
     PeakHoursData,
 )
+from app.models.humanless import (
+    Product,
+    ShelfZone,
+    StoreSession,
+    VirtualCart,
+    CartItem,
+    CartEvent,
+    LossPreventionAlert,
+)
 
 __all__ = [
     "User",
@@ -26,4 +35,11 @@ __all__ = [
     "DemographicSnapshot",
     "StoreVibeScore",
     "PeakHoursData",
+    "Product",
+    "ShelfZone",
+    "StoreSession",
+    "VirtualCart",
+    "CartItem",
+    "CartEvent",
+    "LossPreventionAlert",
 ]

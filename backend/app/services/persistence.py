@@ -37,6 +37,7 @@ from app.services.crud import (
     DetectionService,
     EmbeddingService,
 )
+from app.services.humanless_store import HumanlessStoreService
 
 
 class PersistencePipelineCallback:
@@ -175,6 +176,15 @@ class PersistencePipelineCallback:
 
         # ── 5. Customer journey legs ──────────────────────────────
         await self._update_journey_legs(db, results, now)
+
+        try:
+            await HumanlessStoreService.process_pipeline_tick(
+                db,
+                results=results,
+                camera_zones=getattr(pipeline, "_camera_zones", {}),
+            )
+        except Exception as e:
+            logger.debug(f"Humanless session update skipped: {e}")
 
         # ── 6. Fire alerts → audit chain (SHA-256 + AES-256) ─────
         for cam_id, r in results.items():

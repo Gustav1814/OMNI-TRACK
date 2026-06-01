@@ -2,12 +2,12 @@ import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     Activity, Users, Flame, Camera, Footprints, Clock3, AlertTriangle, Sparkles, Video,
-    Database, Zap, LayoutDashboard, Radio,
+    Database, Zap, LayoutDashboard, Radio, ShoppingCart, Receipt, ScanLine,
 } from 'lucide-react';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import {
-    dashboardAPI, systemAPI, pipelineAPI, detectionAPI, fireAPI, vibeAPI,
+    dashboardAPI, systemAPI, pipelineAPI, detectionAPI, fireAPI, vibeAPI, humanlessAPI,
 } from '../services/api';
 import useLivePoll from '../hooks/useLivePoll';
 import useWebSocket from '../hooks/useWebSocket';
@@ -78,6 +78,9 @@ function displayStatus(raw, runningLabel = 'Active', idleLabel = 'Standby') {
     return raw ?? '—';
 }
 
+const money = (value) => `$${Number(value || 0).toFixed(2)}`;
+const dt = (value) => (value ? new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-');
+
 export default function DashboardPage() {
     const { theme, gradientPreset } = useTheme();
     const { toast } = useToast();
@@ -89,6 +92,9 @@ export default function DashboardPage() {
     const { data: pipelineStatus } = useLivePoll(() => pipelineAPI.status(), { intervalMs: 4000 });
     const { data: detStatus } = useLivePoll(() => detectionAPI.status(), { intervalMs: 3000 });
     const { data: fireAlerts } = useLivePoll(() => fireAPI.alerts(), { intervalMs: 8000 });
+    const { data: humanlessOverview } = useLivePoll(() => humanlessAPI.overview(8), { intervalMs: 5000 });
+    const { data: cashierQueue } = useLivePoll(() => humanlessAPI.cashierQueue(null, 8), { intervalMs: 3000 });
+    const { data: humanlessAlerts } = useLivePoll(() => humanlessAPI.alerts('open', 8), { intervalMs: 10000 });
     const hours = chartRange === '7d' ? 168 : chartRange === '30d' ? 720 : 24;
     const { data: vibeTrend } = useLivePoll(() => vibeAPI.trend(hours), { intervalMs: 60000 });
 
@@ -154,6 +160,11 @@ export default function DashboardPage() {
     const framesProcessed = pipelineStatus?.frame_counts
         ? Object.values(pipelineStatus.frame_counts).reduce((a, b) => a + b, 0)
         : 0;
+    const cashierRows = Array.isArray(cashierQueue) ? cashierQueue : [];
+    const cashierlessSessions = Array.isArray(humanlessOverview?.sessions) ? humanlessOverview.sessions : [];
+    const openCartSubtotal = Number(humanlessOverview?.subtotal_open || 0);
+    const openCartCount = Number(humanlessOverview?.open_carts || 0);
+    const openHumanlessAlerts = Number(humanlessOverview?.open_alerts ?? (Array.isArray(humanlessAlerts) ? humanlessAlerts.length : 0));
 
     return (
         <div className="page-scroll dashboard-shell">
@@ -218,8 +229,43 @@ export default function DashboardPage() {
                     <KPICard icon={Sparkles} label="Store atmosphere" value={Number(vibeScore).toFixed(0)} accent="emerald" progress={Number(vibeScore) || 0} tag={vibeLabel} delta={3} />
                     <KPICard icon={Flame} label="Safety incidents" value={overview?.fire_alerts_today ?? (fireAlerts?.length || 0)} accent="rose" progress={Math.min(100, Number((overview?.fire_alerts_today ?? fireAlerts?.length ?? 0) * 22))} tag="Safety" delta={-2} />
                     <KPICard icon={Clock3} label="Avg queue time" value={Number(overview?.avg_checkout_wait ?? 0).toFixed(1)} suffix=" sec" accent="sky" progress={Math.min(100, Number(overview?.avg_checkout_wait ?? 0) * 4)} tag="Checkout" delta={-4} />
+                    <KPICard icon={ShoppingCart} label="Open smart carts" value={openCartCount} accent="teal" progress={Math.min(100, openCartCount * 20)} tag="Cashierless" />
+                    <KPICard icon={Receipt} label="Cart value open" value={money(openCartSubtotal)} accent="emerald" progress={Math.min(100, openCartSubtotal / 5)} tag="Live basket" />
                 </div>
             )}
+
+            <ExecPanel className="dashboard-section">
+                <PanelHeader
+                    title="Cashierless operations"
+                    subtitle="Cart tracking, counter handoff, and review alerts from the same camera pipeline"
+                    badge={pipelineStatus?.processing?.adaptive_model_gating ? 'Adaptive' : 'Manual'}
+                />
+                <div className="ui-status-grid" style={{ marginBottom: 14 }}>
+                    <StatusTile icon={ShoppingCart} label="Open carts" value={openCartCount} tone="teal" compact />
+                    <StatusTile icon={ScanLine} label="At counter" value={cashierRows.length} tone="sky" compact />
+                    <StatusTile icon={Receipt} label="Open subtotal" value={money(openCartSubtotal)} tone="ok" compact />
+                    <StatusTile icon={AlertTriangle} label="Review alerts" value={openHumanlessAlerts} tone={openHumanlessAlerts ? 'warn' : 'neutral'} compact />
+                </div>
+                {cashierlessSessions.length === 0 && cashierRows.length === 0 ? (
+                    <EmptyState
+                        compact
+                        icon={ShoppingCart}
+                        title="No live smart carts yet"
+                        description="Smart cart sessions appear here when Re-ID and shelf/counter zones are active."
+                    />
+                ) : (
+                    <div className="ui-feed-list">
+                        {[...cashierRows, ...cashierlessSessions].slice(0, 6).map((session) => (
+                            <div key={`${session.id}-${session.global_id}`} className="ui-lane-row" style={{ gridTemplateColumns: '130px 1fr 110px 90px' }}>
+                                <span className="ui-lane-row-title">{session.global_id || `Session ${session.id}`}</span>
+                                <span>{session.last_zone || session.counter_id || 'shopping floor'}</span>
+                                <span style={{ fontWeight: 700 }}>{money(session.cart?.subtotal)}</span>
+                                <span style={{ color: 'var(--exec-muted)', fontSize: 12 }}>{dt(session.last_seen || session.counter_arrived_at)}</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </ExecPanel>
 
             <div className="two-col dashboard-main-grid">
                 <ExecPanel className="dashboard-panel-chart">
