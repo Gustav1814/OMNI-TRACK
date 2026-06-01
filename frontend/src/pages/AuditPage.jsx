@@ -4,10 +4,12 @@
  */
 
 import React, { useState } from 'react';
-import { motion } from 'framer-motion';
 import { ShieldCheck, ShieldAlert, RefreshCw, Link2 } from 'lucide-react';
 import { auditAPI } from '../services/api';
 import useLivePoll from '../hooks/useLivePoll';
+import StatCard from '../components/ui/StatCard';
+import ContentCard from '../components/ui/ContentCard';
+import RecordCard from '../components/ui/RecordCard';
 
 export default function AuditPage() {
     const [limit, setLimit] = useState(50);
@@ -32,23 +34,23 @@ export default function AuditPage() {
             </div>
 
             <div className="stats-grid">
-                <motion.div className="stat-card" whileHover={{ y: -2 }}>
-                    <div className={`stat-icon stat-icon-${valid ? 'emerald' : 'rose'}`}>
-                        {valid ? <ShieldCheck size={18} /> : <ShieldAlert size={18} />}
-                    </div>
-                    <div className="stat-label">Chain Integrity</div>
-                    <div className="stat-value">{valid == null ? '—' : valid ? 'VALID' : 'BROKEN'}</div>
-                </motion.div>
-                <Stat label="Total Entries" value={chain?.total ?? list.length} accent="indigo" />
-                <Stat label="Broken At" value={chain?.broken_at ?? '—'} accent={valid === false ? 'rose' : 'cyan'} />
-                <Stat label="Shown" value={list.length} accent="amber" />
+                <StatCard
+                    icon={valid ? ShieldCheck : ShieldAlert}
+                    label="Chain Integrity"
+                    value={valid == null ? '—' : valid ? 'VALID' : 'BROKEN'}
+                    accent={valid ? 'emerald' : 'rose'}
+                />
+                <StatCard icon={Link2} label="Total Entries" value={chain?.total ?? list.length} accent="teal" />
+                <StatCard icon={ShieldAlert} label="Broken At" value={chain?.broken_at ?? '—'} accent={valid === false ? 'rose' : 'cyan'} />
+                <StatCard icon={ShieldCheck} label="Shown" value={list.length} accent="coral" />
             </div>
 
-            <div className="card">
-                <div className="card-header">
-                    <h3 className="card-title">Event Log</h3>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                        <span className="card-subtitle">Limit:</span>
+            <ContentCard
+                title="Event Log"
+                accent="teal"
+                actions={
+                    <>
+                        <span className="ui-content-card-sub">Limit:</span>
                         <select
                             className="form-select"
                             style={{ width: 100, padding: '4px 10px' }}
@@ -59,75 +61,42 @@ export default function AuditPage() {
                                 <option key={n} value={n}>{n}</option>
                             ))}
                         </select>
-                    </div>
-                </div>
-
+                    </>
+                }
+            >
                 {list.length === 0 ? (
                     <div className="page-empty-hint">
                         No audit entries yet.
                     </div>
                 ) : (
-                    <div style={{ display: 'grid', gap: 6, maxHeight: 560, overflow: 'auto' }}>
+                    <div className="ui-feed-list" style={{ maxHeight: 560, overflow: 'auto' }}>
                         {list.map((e) => (
-                            <div
+                            <RecordCard
                                 key={e.id}
-                                style={{
-                                    display: 'grid',
-                                    gridTemplateColumns: '60px 160px 1fr auto',
-                                    gap: 10, alignItems: 'center',
-                                    padding: '10px 12px',
-                                    background: 'var(--bg-glass)',
-                                    border: '1px solid var(--border)', borderRadius: 10,
-                                }}
-                            >
-                                <span className="pill">#{e.id}</span>
-                                <span className={`pill ${pillForEventType(e.event_type)}`}>{e.event_type}</span>
-                                <div style={{ overflow: 'hidden' }}>
-                                    <div style={{ fontSize: 13, fontWeight: 500 }}>
-                                        {e.description || '—'}
-                                    </div>
-                                    <div style={{
-                                        display: 'flex', gap: 8,
-                                        fontSize: 11, color: 'var(--text-muted)',
-                                        marginTop: 2, overflow: 'hidden',
-                                    }}>
-                                        <Link2 size={11} />
-                                        <code title={e.current_hash}
-                                            style={{ whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                                icon={Link2}
+                                accent={valid === false ? 'rose' : 'teal'}
+                                title={e.description || '—'}
+                                meta={
+                                    <>
+                                        <span className="pill">#{e.id}</span>
+                                        <span className={`pill ${pillForEventType(e.event_type)}`}>{e.event_type}</span>
+                                        <code title={e.current_hash} style={{ fontSize: 11 }}>
                                             {e.current_hash?.slice(0, 16)}…
                                         </code>
-                                        {e.previous_hash && (
-                                            <>
-                                                <span>←</span>
-                                                <code title={e.previous_hash}
-                                                    style={{ whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
-                                                    {e.previous_hash.slice(0, 16)}…
-                                                </code>
-                                            </>
-                                        )}
-                                    </div>
-                                </div>
-                                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                                    {e.timestamp && new Date(e.timestamp).toLocaleString()}
-                                </span>
-                            </div>
+                                        <span style={{ marginLeft: 'auto' }}>
+                                            {e.timestamp && new Date(e.timestamp).toLocaleString()}
+                                        </span>
+                                    </>
+                                }
+                            />
                         ))}
                     </div>
                 )}
-            </div>
+            </ContentCard>
         </div>
     );
 }
 
-function Stat({ label, value, accent = 'indigo' }) {
-    return (
-        <motion.div className="stat-card" whileHover={{ y: -2 }}>
-            <div className={`stat-icon stat-icon-${accent}`}><ShieldCheck size={18} /></div>
-            <div className="stat-label">{label}</div>
-            <div className="stat-value">{value}</div>
-        </motion.div>
-    );
-}
 
 function pillForEventType(type) {
     switch ((type || '').toUpperCase()) {

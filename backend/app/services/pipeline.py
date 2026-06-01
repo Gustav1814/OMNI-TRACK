@@ -164,6 +164,9 @@ class ProcessingPipeline:
         device: str = "auto",
         confidence: float = 0.5,
         processing_fps: int = 15,     # How many frames/sec to process per camera
+        max_cameras: int = 16,
+        frame_buffer_size: int = 2,
+        default_skip_frames: int = 1,
         reid_threshold: float = 0.6,
         reid_embeddings_per_id: int = 5,
         enable_emotions: bool = True,
@@ -173,7 +176,18 @@ class ProcessingPipeline:
     ):
         self.state = PipelineState.IDLE
         self.processing_fps = processing_fps
+        self.max_cameras = max(1, max_cameras)
+        self.frame_buffer_size = max(1, frame_buffer_size)
+        self.default_skip_frames = max(0, default_skip_frames)
+        self._camera_processor_limit = max(1, settings.MAX_PARALLEL_CAMERA_PROCESSORS)
+        self._max_reid_per_frame = max(0, settings.MAX_REID_DETECTIONS_PER_FRAME)
+        self._heavy_analytics_interval = max(1, settings.HEAVY_ANALYTICS_INTERVAL)
+        self._callback_timeout = max(0.1, settings.CALLBACK_TIMEOUT_MS / 1000)
         self.global_state = GlobalState()
+        try:
+            cv2.setNumThreads(max(1, settings.MAX_CPU_WORKERS))
+        except Exception:
+            pass
 
         # --- Stream Manager (handles all camera connections) ---
         self.stream_manager = StreamManager()
@@ -219,6 +233,9 @@ class ProcessingPipeline:
         self._frame_counts: Dict[int, int] = {}
         self._results_buffer: Dict[int, CameraResult] = {}
         self._callbacks: List[Callable] = []  # Real-time result callbacks
+        self._callback_queue: Optional[asyncio.Queue] = None
+        self._callback_worker_task: Optional[asyncio.Task] = None
+        self._callback_dropped: int = 0
         self._lock = asyncio.Lock()
         # Latest annotated frame (JPEG bytes) per camera for live MJPEG stream
         self._latest_annotated_jpeg: Dict[int, bytes] = {}
@@ -248,7 +265,9 @@ class ProcessingPipeline:
         # callables that fire on pipeline events. Hooks are async-friendly.
         self._lifecycle_hooks: List[Callable[[str, Dict[str, Any]], Any]] = []
 
-        logger.info(f"Pipeline initialized | device={device} | modules: "
+        logger.info(f"Pipeline initialized | device={device} | max_cameras={self.max_cameras} "
+                     f"| camera_workers={self._camera_processor_limit} "
+                     f"| modules: "
                      f"emotion={enable_emotions} fire={enable_fire} "
                      f"shelf={enable_shelf} checkout={enable_checkout}")
 
@@ -273,8 +292,8 @@ class ProcessingPipeline:
         source: str,
         stream_type: str = "rtsp",
         zone: str = "default",
-        fps: int = 30,
-        skip_frames: int = 1,
+        fps: int = settings.PROCESSING_FPS,
+        skip_frames: int = settings.DEFAULT_SKIP_FRAMES,
         roi: Optional[Dict] = None,
         model_path: Optional[str] = None,
     ):
@@ -300,12 +319,22 @@ class ProcessingPipeline:
             # Webcam
             pipeline.add_camera(1, "0", stream_type="webcam", zone="demo")
         """
+        replacing_existing = self.stream_manager.has_camera(camera_id)
+        if not replacing_existing and self.stream_manager.total_count >= self.max_cameras:
+            raise ValueError(
+                f"Maximum camera limit reached ({self.max_cameras}). "
+                "Increase MAX_CAMERAS or remove an inactive camera."
+            )
+
+        effective_skip_frames = skip_frames if skip_frames is not None else self.default_skip_frames
+        effective_fps = max(1, min(int(fps or self.processing_fps), self.processing_fps))
         config = StreamConfig(
             camera_id=camera_id,
             source=source,
             stream_type=StreamType(stream_type),
-            fps_target=fps,
-            skip_frames=skip_frames,
+            fps_target=effective_fps,
+            buffer_size=self.frame_buffer_size,
+            skip_frames=effective_skip_frames,
             roi=roi,
         )
         self.stream_manager.add_camera(config)
@@ -516,7 +545,8 @@ class ProcessingPipeline:
           - Save detections to database
           - Trigger alerts (fire, overcrowding)
         """
-        self._callbacks.append(callback)
+        if callback not in self._callbacks:
+            self._callbacks.append(callback)
 
     def warm_reid_gallery(self, gallery_rows: List[Dict[str, Any]]) -> int:
         """
@@ -571,7 +601,41 @@ class ProcessingPipeline:
 
     def on_lifecycle(self, hook: Callable[[str, Dict[str, Any]], Any]):
         """Subscribe to pipeline lifecycle events (start/stop/camera_added/camera_removed)."""
-        self._lifecycle_hooks.append(hook)
+        if hook not in self._lifecycle_hooks:
+            self._lifecycle_hooks.append(hook)
+
+    async def _run_callbacks(self, results: Dict[int, CameraResult], global_state: GlobalState):
+        for cb in self._callbacks:
+            try:
+                if asyncio.iscoroutinefunction(cb):
+                    await asyncio.wait_for(
+                        cb(results, global_state),
+                        timeout=self._callback_timeout,
+                    )
+                else:
+                    cb(results, global_state)
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"Callback timed out after {self._callback_timeout:.2f}s: {cb}"
+                )
+            except Exception as e:
+                logger.error(f"Callback error: {e}")
+
+    async def _callback_worker(self):
+        while self.state in {PipelineState.STARTING, PipelineState.RUNNING}:
+            try:
+                if self._callback_queue is None:
+                    await asyncio.sleep(0.1)
+                    continue
+                results, global_state = await self._callback_queue.get()
+                try:
+                    await self._run_callbacks(results, global_state)
+                finally:
+                    self._callback_queue.task_done()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.debug(f"Callback worker error: {e}")
 
     async def _emit_lifecycle(self, event: str, payload: Dict[str, Any]):
         for hook in self._lifecycle_hooks:
@@ -605,6 +669,8 @@ class ProcessingPipeline:
 
         # Start main processing loop
         self.state = PipelineState.RUNNING
+        self._callback_queue = asyncio.Queue(maxsize=settings.PIPELINE_RESULT_QUEUE_MAXSIZE)
+        self._callback_worker_task = asyncio.create_task(self._callback_worker())
         self._processing_task = asyncio.create_task(self._processing_loop())
         await self._emit_lifecycle("pipeline_started", {
             "cameras": self.stream_manager.total_count,
@@ -626,6 +692,14 @@ class ProcessingPipeline:
                 await self._processing_task
             except asyncio.CancelledError:
                 pass
+        if self._callback_worker_task:
+            self._callback_worker_task.cancel()
+            try:
+                await self._callback_worker_task
+            except asyncio.CancelledError:
+                pass
+            self._callback_worker_task = None
+        self._callback_queue = None
 
         for cid in list(self._recorders.keys()):
             self._stop_recording_impl(cid)
@@ -665,15 +739,14 @@ class ProcessingPipeline:
                 # Step 2-6: Process all frames
                 cycle_results = await self._process_synchronized_frames(frames)
 
-                # Step 7: Fire callbacks
-                for cb in self._callbacks:
+                # Step 7: hand off callbacks to a bounded worker so DB/WS/plugin
+                # latency cannot stall camera processing.
+                if self._callback_queue is not None:
                     try:
-                        if asyncio.iscoroutinefunction(cb):
-                            await cb(cycle_results, self.global_state)
-                        else:
-                            cb(cycle_results, self.global_state)
-                    except Exception as e:
-                        logger.error(f"Callback error: {e}")
+                        self._callback_queue.put_nowait((cycle_results, self.global_state))
+                    except asyncio.QueueFull:
+                        self._callback_dropped += 1
+                        logger.warning("Pipeline callback queue full; dropping one result cycle")
 
             except asyncio.CancelledError:
                 break
@@ -704,40 +777,51 @@ class ProcessingPipeline:
 
         process_start = time.time()
 
-        # ── PHASE 1: Detection + Tracking (per-camera, can run in parallel) ──
-        for cam_id, (frame, timestamp) in frames.items():
-            self._frame_counts[cam_id] = self._frame_counts.get(cam_id, 0) + 1
-            frame_num = self._frame_counts[cam_id]
+        # ── PHASE 1: Detection + Tracking (bounded per-camera concurrency) ──
+        camera_limit = min(self._camera_processor_limit, max(1, len(frames)))
+        camera_sem = asyncio.Semaphore(camera_limit)
 
-            # Get the correct detector for this camera (supports per-camera model selection)
-            camera_model = self._camera_models.get(cam_id, self._detector_model)
-            detector = self._get_or_create_detector(camera_model)
-            
-            # Detect persons
-            raw_detections = await asyncio.to_thread(
-                detector.detect, frame
-            )
+        async def process_camera_detection(cam_id: int, frame: np.ndarray, timestamp: float):
+            async with camera_sem:
+                self._frame_counts[cam_id] = self._frame_counts.get(cam_id, 0) + 1
+                frame_num = self._frame_counts[cam_id]
 
-            # Track persons (per-camera ByteTrack: local IDs for this feed only)
-            tracker = self._trackers.get(cam_id)
-            if tracker is None:
-                tracker = MultiObjectTracker(model_path=camera_model)
-                self._trackers[cam_id] = tracker
-            tracks = await asyncio.to_thread(tracker.update, frame)
+                camera_model = self._camera_models.get(cam_id, self._detector_model)
+                detector = self._get_or_create_detector(camera_model)
+                raw_detections = await asyncio.to_thread(detector.detect, frame)
+
+                tracker = self._trackers.get(cam_id)
+                if tracker is None:
+                    tracker = MultiObjectTracker(model_path=camera_model)
+                    self._trackers[cam_id] = tracker
+                tracks = await asyncio.to_thread(tracker.update, frame)
+
+                norm_dets: List[Dict[str, Any]] = []
+                for raw in raw_detections:
+                    if isinstance(raw, BBox):
+                        bbox = [float(raw.x), float(raw.y), float(raw.w), float(raw.h)]
+                    else:
+                        bbox = raw.get("bbox") or raw.get("box") or []
+                    tid = self._match_det_to_track(bbox, tracks) if len(bbox) >= 4 else None
+                    norm_dets.append(self._detection_to_dict(raw, track_id=tid))
+
+                return cam_id, frame_num, timestamp, norm_dets, tracks
+
+        phase1 = await asyncio.gather(
+            *[
+                process_camera_detection(cam_id, frame, timestamp)
+                for cam_id, (frame, timestamp) in frames.items()
+            ],
+            return_exceptions=True,
+        )
+        for item in phase1:
+            if isinstance(item, Exception):
+                logger.debug(f"Camera detection phase failed: {item}")
+                continue
+            cam_id, frame_num, timestamp, norm_dets, tracks = item
             all_tracks[cam_id] = tracks
-
-            # Normalize detections → dicts; attach track_id via IoU match against tracks.
-            norm_dets: List[Dict[str, Any]] = []
-            for raw in raw_detections:
-                if isinstance(raw, BBox):
-                    bbox = [float(raw.x), float(raw.y), float(raw.w), float(raw.h)]
-                else:
-                    bbox = raw.get("bbox") or raw.get("box") or []
-                tid = self._match_det_to_track(bbox, tracks) if len(bbox) >= 4 else None
-                norm_dets.append(self._detection_to_dict(raw, track_id=tid))
             all_detections[cam_id] = norm_dets
             self._total_detections += len(norm_dets)
-
             results[cam_id] = CameraResult(
                 camera_id=cam_id,
                 timestamp=timestamp,
@@ -754,7 +838,10 @@ class ProcessingPipeline:
         # PersistencePipelineCallback each tick).
         new_embeddings: List[Dict[str, Any]] = []
         for cam_id, (frame, timestamp) in frames.items():
-            for det in all_detections.get(cam_id, []):
+            reid_candidates = all_detections.get(cam_id, [])
+            if self._max_reid_per_frame:
+                reid_candidates = reid_candidates[: self._max_reid_per_frame]
+            for det in reid_candidates:
                 try:
                     bbox = det.get("bbox") or []
                     if len(bbox) < 4:
@@ -819,6 +906,8 @@ class ProcessingPipeline:
         for cam_id, (frame, timestamp) in frames.items():
             dets = all_detections.get(cam_id, [])
             zone = self._camera_zones.get(cam_id, "default")
+            frame_num = self._frame_counts.get(cam_id, 0)
+            run_heavy_analytics = frame_num % self._heavy_analytics_interval == 0
 
             # Crowd density (always on; cheap)
             try:
@@ -828,7 +917,7 @@ class ProcessingPipeline:
                 logger.debug(f"Crowd update error cam {cam_id}: {e}")
 
             # Fire detection (safety-first — always runs)
-            if self._enable_fire and self.fire_detector:
+            if run_heavy_analytics and self._enable_fire and self.fire_detector:
                 try:
                     fire_results = await asyncio.to_thread(
                         self.fire_detector.detect, frame, cam_id, zone
@@ -841,7 +930,7 @@ class ProcessingPipeline:
                     logger.debug(f"Fire detect error cam {cam_id}: {e}")
 
             # Emotion recognition — returns a single summary dict per frame.
-            if self._enable_emotions and self.emotion:
+            if run_heavy_analytics and self._enable_emotions and self.emotion:
                 try:
                     summary = await asyncio.to_thread(
                         self.emotion.analyze_frame_summary, frame, cam_id, zone
@@ -1113,6 +1202,7 @@ class ProcessingPipeline:
             "cameras": {
                 "total": self.stream_manager.total_count,
                 "active": self.stream_manager.active_count,
+                "max": self.max_cameras,
                 "stats": {
                     cam_id: {
                         "connected": s.is_connected,
@@ -1145,6 +1235,15 @@ class ProcessingPipeline:
             "reid_scope": "global",
             "processing": {
                 "target_fps": self.processing_fps,
+                "frame_buffer_size": self.frame_buffer_size,
+                "default_skip_frames": self.default_skip_frames,
+                "camera_processor_limit": self._camera_processor_limit,
+                "max_reid_detections_per_frame": self._max_reid_per_frame,
+                "heavy_analytics_interval": self._heavy_analytics_interval,
+                "callback_timeout_ms": int(self._callback_timeout * 1000),
+                "callback_queue_depth": self._callback_queue.qsize() if self._callback_queue else 0,
+                "callback_queue_max": settings.PIPELINE_RESULT_QUEUE_MAXSIZE,
+                "callback_dropped_cycles": self._callback_dropped,
                 "frame_counts": self._frame_counts,
             },
         }

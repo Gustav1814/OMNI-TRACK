@@ -1,15 +1,13 @@
 /**
  * OmniTrack AI — Video Synopsis (live)
- * • Lists completed synopses
- * • Generates a new synopsis for a camera + source (uploaded clip)
- * • Polls the running job until completion
  */
 
 import React, { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
 import { Video, Clock, Play, PlayCircle } from 'lucide-react';
 import { synopsisAPI, footageAPI } from '../services/api';
 import useLivePoll from '../hooks/useLivePoll';
+import StatCard from '../components/ui/StatCard';
+import ContentCard from '../components/ui/ContentCard';
 
 export default function SynopsisPage() {
     const { data: list, refresh: refreshList } = useLivePoll(() => synopsisAPI.list(), { intervalMs: 10000 });
@@ -23,7 +21,6 @@ export default function SynopsisPage() {
     const [error, setError] = useState(null);
     const [busy, setBusy] = useState(false);
 
-    // Poll job until it finishes
     useEffect(() => {
         if (!activeJob?.job_id || jobStatus?.status === 'completed' || jobStatus?.status === 'failed') {
             return undefined;
@@ -37,7 +34,7 @@ export default function SynopsisPage() {
                 if (res.data?.status === 'completed') { refreshList(); return; }
                 if (res.data?.status === 'failed') return;
                 setTimeout(tick, 3000);
-            } catch { /* keep polling */ setTimeout(tick, 3000); }
+            } catch { setTimeout(tick, 3000); }
         };
         tick();
         return () => { cancelled = true; };
@@ -69,8 +66,8 @@ export default function SynopsisPage() {
             </div>
 
             <div className="stats-grid">
-                <Stat icon={Video} label="Generated" value={items.length} accent="indigo" />
-                <Stat
+                <StatCard icon={Video} label="Generated" value={items.length} accent="teal" />
+                <StatCard
                     icon={Clock}
                     label="Avg Compression"
                     value={
@@ -81,16 +78,16 @@ export default function SynopsisPage() {
                     suffix="x"
                     accent="cyan"
                 />
-                <Stat icon={PlayCircle} label="Active Jobs" value={jobStatus?.status === 'running' || jobStatus?.status === 'queued' ? 1 : 0} accent="amber" />
-                <Stat icon={Video} label="Footage in Library" value={(footage || []).length} accent="emerald" />
+                <StatCard icon={PlayCircle} label="Active Jobs" value={jobStatus?.status === 'running' || jobStatus?.status === 'queued' ? 1 : 0} accent="coral" />
+                <StatCard icon={Video} label="Footage in Library" value={(footage || []).length} accent="emerald" />
             </div>
 
             <div className="two-col">
-                <div className="card">
-                    <div className="card-header">
-                        <h3 className="card-title">Generate Synopsis</h3>
-                        <div className="card-subtitle">Runs the real VideoSynopsis engine on disk</div>
-                    </div>
+                <ContentCard
+                    title="Generate Synopsis"
+                    subtitle="Runs the real VideoSynopsis engine on disk"
+                    accent="teal"
+                >
                     <div style={{ display: 'grid', gap: 10 }}>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                             <div>
@@ -137,32 +134,27 @@ export default function SynopsisPage() {
                             </div>
                         )}
                     </div>
-                </div>
+                </ContentCard>
 
-                <div className="card">
-                    <div className="card-header">
-                        <h3 className="card-title">Library</h3>
-                        <div className="card-subtitle">
-                            {items.length ? `${items.length} synopsis file(s)` : 'No synopses yet'}
-                        </div>
-                    </div>
-                    <div style={{ display: 'grid', gap: 6, maxHeight: 360, overflow: 'auto' }}>
+                <ContentCard
+                    title="Library"
+                    subtitle={items.length ? `${items.length} synopsis file(s)` : 'No synopses yet'}
+                    accent="sky"
+                >
+                    <div className="ui-feed-list" style={{ maxHeight: 360, overflow: 'auto' }}>
                         {items.map((s) => {
                             const filename = s.output_path?.split(/[\\/]/).pop();
                             return (
-                                <div key={`${s.id}-${s.output_path}`} style={{
-                                    display: 'grid',
-                                    gridTemplateColumns: '1fr 100px 100px 80px',
-                                    gap: 10, alignItems: 'center',
-                                    padding: '10px 12px',
-                                    background: 'var(--bg-glass)',
-                                    border: '1px solid var(--border)', borderRadius: 10,
-                                }}>
+                                <div
+                                    key={`${s.id}-${s.output_path}`}
+                                    className="ui-lane-row"
+                                    style={{ gridTemplateColumns: '1fr 100px 100px 80px' }}
+                                >
                                     <div style={{ overflow: 'hidden' }}>
-                                        <div style={{ fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                                        <div className="ui-lane-row-title" style={{ whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
                                             {filename || s.output_path}
                                         </div>
-                                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>cam {s.camera_id}</div>
+                                        <div className="ui-lane-row-sub">cam {s.camera_id}</div>
                                     </div>
                                     <span style={{ fontSize: 12 }}>
                                         {Math.round(s.original_duration || 0)}s → {Math.round(s.synopsis_duration || 0)}s
@@ -180,18 +172,8 @@ export default function SynopsisPage() {
                             );
                         })}
                     </div>
-                </div>
+                </ContentCard>
             </div>
         </div>
-    );
-}
-
-function Stat({ icon: Icon, label, value, suffix = '', accent = 'indigo' }) {
-    return (
-        <motion.div className="stat-card" whileHover={{ y: -2 }}>
-            <div className={`stat-icon stat-icon-${accent}`}><Icon size={18} /></div>
-            <div className="stat-label">{label}</div>
-            <div className="stat-value">{value}{suffix}</div>
-        </motion.div>
     );
 }

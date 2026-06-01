@@ -4,25 +4,28 @@
  */
 
 import React from 'react';
-import { motion } from 'framer-motion';
 import { SmilePlus, Heart, Meh, Frown } from 'lucide-react';
 import {
     PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend,
 } from 'recharts';
 import { emotionAPI } from '../services/api';
 import useLivePoll from '../hooks/useLivePoll';
-
-const EMOTION_COLOR = {
-    happy: '#10b981',
-    neutral: '#64748b',
-    surprise: '#fbbf24',
-    sad: '#3b82f6',
-    angry: '#f43f5e',
-    fear: '#a855f7',
-    disgust: '#84cc16',
-};
+import StatCard from '../components/ui/StatCard';
+import ContentCard from '../components/ui/ContentCard';
+import RecordCard from '../components/ui/RecordCard';
+import useGradientColors from '../hooks/useGradientColors';
 
 export default function EmotionPage() {
+    const { a, b } = useGradientColors();
+    const EMOTION_COLOR = {
+        happy: a,
+        neutral: '#64748b',
+        surprise: '#f97316',
+        sad: b,
+        angry: '#f43f5e',
+        fear: b,
+        disgust: a,
+    };
     const { data: current } = useLivePoll(() => emotionAPI.current(), { intervalMs: 4000 });
     const { data: sentiment } = useLivePoll(() => emotionAPI.sentiment(), { intervalMs: 10000 });
 
@@ -54,23 +57,19 @@ export default function EmotionPage() {
             </div>
 
             <div className="stats-grid">
-                <Stat
+                <StatCard
                     icon={Icon}
                     label="Store Sentiment"
                     value={label}
-                    accent={sentimentScore > 0 ? 'emerald' : sentimentScore < 0 ? 'rose' : 'amber'}
+                    accent={sentimentScore > 0 ? 'emerald' : sentimentScore < 0 ? 'rose' : 'coral'}
                 />
-                <Stat icon={SmilePlus} label="Sentiment Score" value={sentimentScore.toFixed(2)} accent="indigo" />
-                <Stat icon={SmilePlus} label="Zones Sampled" value={zones.length} accent="cyan" />
-                <Stat icon={SmilePlus} label="Total Samples" value={totalSamples === 1 ? 0 : totalSamples} accent="gold" />
+                <StatCard icon={SmilePlus} label="Sentiment Score" value={sentimentScore.toFixed(2)} accent="teal" />
+                <StatCard icon={SmilePlus} label="Zones Sampled" value={zones.length} accent="cyan" />
+                <StatCard icon={SmilePlus} label="Total Samples" value={totalSamples === 1 ? 0 : totalSamples} accent="sky" />
             </div>
 
             <div className="two-col">
-                <div className="card">
-                    <div className="card-header">
-                        <h3 className="card-title">Emotion Mix (all zones)</h3>
-                        <div className="card-subtitle">% of aggregated samples</div>
-                    </div>
+                <ContentCard title="Emotion Mix (all zones)" subtitle="% of aggregated samples" accent="rose">
                     {pieData.length === 0 ? (
                         <div className="page-empty-hint">
                             No emotion samples yet.
@@ -94,49 +93,38 @@ export default function EmotionPage() {
                             </ResponsiveContainer>
                         </div>
                     )}
-                </div>
+                </ContentCard>
 
-                <div className="card">
-                    <div className="card-header">
-                        <h3 className="card-title">Per-Zone</h3>
-                    </div>
-                    <div style={{ display: 'grid', gap: 6, maxHeight: 300, overflow: 'auto' }}>
-                        {zones.length === 0 && (
-                            <div style={{ color: 'var(--text-muted)', padding: 12 }}>No zones.</div>
-                        )}
-                        {zones.map((z) => (
-                            <div key={z.zone} style={{
-                                padding: '10px 12px',
-                                background: 'var(--bg-glass)',
-                                border: '1px solid var(--border)', borderRadius: 10,
-                            }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                                    <strong>{z.zone}</strong>
-                                    <span
-                                        className="pill"
-                                        style={{ color: EMOTION_COLOR[z.dominant_emotion] || '#64748b' }}
-                                    >
-                                        {z.dominant_emotion}
-                                    </span>
-                                </div>
-                                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                                    {z.sample_count} samples · sentiment {Number(z.sentiment_score || 0).toFixed(2)}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
+                <ContentCard title="Per-Zone" accent="teal">
+                    {zones.length === 0 ? (
+                        <div className="page-empty-hint page-empty-hint--left">No zones.</div>
+                    ) : (
+                        <div className="ui-feed-list" style={{ maxHeight: 300, overflow: 'auto' }}>
+                            {zones.map((z) => (
+                                <RecordCard
+                                    key={z.zone}
+                                    icon={SmilePlus}
+                                    accent="teal"
+                                    title={z.zone}
+                                    meta={
+                                        <>
+                                            <span
+                                                className="pill"
+                                                style={{ color: EMOTION_COLOR[z.dominant_emotion] || '#64748b' }}
+                                            >
+                                                {z.dominant_emotion}
+                                            </span>
+                                            <span>
+                                                {z.sample_count} samples · sentiment {Number(z.sentiment_score || 0).toFixed(2)}
+                                            </span>
+                                        </>
+                                    }
+                                />
+                            ))}
+                        </div>
+                    )}
+                </ContentCard>
             </div>
         </div>
-    );
-}
-
-function Stat({ icon: Icon, label, value, accent = 'indigo' }) {
-    return (
-        <motion.div className="stat-card" whileHover={{ y: -2 }}>
-            <div className={`stat-icon stat-icon-${accent}`}><Icon size={18} /></div>
-            <div className="stat-label">{label}</div>
-            <div className="stat-value">{value}</div>
-        </motion.div>
     );
 }

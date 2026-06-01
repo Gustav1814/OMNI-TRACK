@@ -33,6 +33,17 @@ frontend/build/
 *.onnx
 *.engine
 *.weights
+!backend/model_weight/.gitkeep
+
+# Local databases
+*.db
+
+# Generated smoke-test artifacts
+backend/data/*.mp4
+!backend/data/.gitkeep
+
+# Office temp lock files
+~$*
 
 # IDE / Editor
 .vscode/
@@ -55,9 +66,8 @@ logs/
 exports/
 backend/storage/
 
-# Alembic
-alembic/versions/*.py
-!alembic/versions/.gitkeep
+# Alembic runtime only (migration scripts are tracked in git)
+backend/alembic/versions/__pycache__/
 
 # Docker
 docker-compose.override.yml

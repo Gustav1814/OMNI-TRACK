@@ -334,6 +334,10 @@ class StreamManager:
             return self._streams[camera_id].stats
         return None
 
+    def has_camera(self, camera_id: int) -> bool:
+        """Return whether a camera is currently registered."""
+        return camera_id in self._streams
+
     @property
     def active_count(self) -> int:
         return sum(1 for s in self._streams.values() if s.stats.is_connected)

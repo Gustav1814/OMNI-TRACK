@@ -3,7 +3,7 @@ OmniTrack AI — Embedding Model (pgvector)
 Proposal: 128-d or 512-d embeddings, cosine similarity, sub-100ms retrieval (IVFFlat/HNSW).
 """
 
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Index
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -20,10 +20,19 @@ EMBEDDING_DIM = 512
 
 class Embedding(Base):
     __tablename__ = "embeddings"
+    __table_args__ = (
+        Index("ix_embeddings_global_id_timestamp", "global_id", "timestamp"),
+        Index("ix_embeddings_camera_timestamp", "camera_id", "timestamp"),
+        Index("ix_embeddings_global_id_model", "global_id", "model_version"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
-    detection_id = Column(Integer, ForeignKey("detections.id"), nullable=True, index=True)
-    camera_id = Column(Integer, ForeignKey("cameras.id"), nullable=True, index=True)
+    detection_id = Column(
+        Integer, ForeignKey("detections.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    camera_id = Column(
+        Integer, ForeignKey("cameras.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     track_id = Column(Integer, nullable=True, index=True)
     global_id = Column(String(100), nullable=True, index=True)  # Cross-camera global identity
     # pgvector column for cosine similarity search (IVFFlat/HNSW in production)

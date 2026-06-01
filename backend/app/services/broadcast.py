@@ -40,16 +40,19 @@ class BroadcastService:
             "vibe": set(),
             "all": set(),
         }
+        self._accepted: Set[WebSocket] = set()
         self._total_connections = 0
         self._total_messages_sent = 0
 
     async def subscribe(self, ws: WebSocket, channel: str = "all"):
         """Register a WebSocket client to a channel."""
-        await ws.accept()
+        if ws not in self._accepted:
+            await ws.accept()
+            self._accepted.add(ws)
+            self._total_connections += 1
         if channel not in self._subscribers:
             self._subscribers[channel] = set()
         self._subscribers[channel].add(ws)
-        self._total_connections += 1
         logger.info(f"WebSocket subscribed to '{channel}' (total: {len(self._subscribers[channel])})")
 
     def unsubscribe(self, ws: WebSocket, channel: str = "all"):
@@ -61,6 +64,7 @@ class BroadcastService:
         """Remove a client from ALL channels."""
         for ch in self._subscribers.values():
             ch.discard(ws)
+        self._accepted.discard(ws)
 
     async def broadcast(self, channel: str, event_type: str, data: Any):
         """

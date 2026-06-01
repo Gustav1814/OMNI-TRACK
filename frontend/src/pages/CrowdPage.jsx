@@ -4,23 +4,25 @@
  */
 
 import React, { useState } from 'react';
-import { motion } from 'framer-motion';
 import { UsersRound, AlertTriangle } from 'lucide-react';
 import {
     BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, Cell,
 } from 'recharts';
 import { crowdAPI } from '../services/api';
 import useLivePoll from '../hooks/useLivePoll';
+import StatCard from '../components/ui/StatCard';
+import ContentCard from '../components/ui/ContentCard';
 import useWebSocket from '../hooks/useWebSocket';
-
-const LEVEL_COLOR = {
-    low: '#10b981',
-    medium: '#fbbf24',
-    high: '#f97316',
-    critical: '#f43f5e',
-};
+import useGradientColors from '../hooks/useGradientColors';
 
 export default function CrowdPage() {
+    const { a } = useGradientColors();
+    const LEVEL_COLOR = {
+        low: a,
+        medium: '#f97316',
+        high: '#ea580c',
+        critical: '#f43f5e',
+    };
     const { data, error } = useLivePoll(() => crowdAPI.status(), { intervalMs: 3000 });
     const [alerts, setAlerts] = useState([]);
     useWebSocket('/ws/live', {
@@ -50,26 +52,24 @@ export default function CrowdPage() {
             )}
 
             <div className="stats-grid">
-                <Stat label="Zones Monitored" value={zones.length} accent="indigo" />
-                <Stat label="People (all zones)" value={zones.reduce((a, z) => a + (z.person_count || 0), 0)} accent="cyan" />
-                <Stat
+                <StatCard icon={UsersRound} label="Zones Monitored" value={zones.length} accent="teal" />
+                <StatCard icon={UsersRound} label="People (all zones)" value={zones.reduce((a, z) => a + (z.person_count || 0), 0)} accent="cyan" />
+                <StatCard
+                    icon={UsersRound}
                     label="High / Critical"
                     value={zones.filter((z) => ['high', 'critical'].includes(z.classification)).length}
                     accent="rose"
                 />
-                <Stat
+                <StatCard
+                    icon={UsersRound}
                     label="Avg Density"
                     value={zones.length ? (zones.reduce((a, z) => a + (z.density || 0), 0) / zones.length).toFixed(2) : 0}
                     suffix=" /m²"
-                    accent="amber"
+                    accent="coral"
                 />
             </div>
 
-            <div className="card">
-                <div className="card-header">
-                    <h3 className="card-title">Zone Density</h3>
-                    <div className="card-subtitle">Color-coded by classification</div>
-                </div>
+            <ContentCard title="Zone Density" subtitle="Color-coded by classification" accent="sky">
                 {chartData.length === 0 ? (
                     <div className="page-empty-hint">
                         No crowd data — configure zones and start the pipeline.
@@ -84,58 +84,39 @@ export default function CrowdPage() {
                                 <Tooltip contentStyle={{ background: '#111', border: '1px solid #222' }} />
                                 <Bar dataKey="count" radius={[6, 6, 0, 0]}>
                                     {chartData.map((d, i) => (
-                                        <Cell key={i} fill={LEVEL_COLOR[d.level] || '#6366f1'} />
+                                        <Cell key={i} fill={LEVEL_COLOR[d.level] || a} />
                                     ))}
                                 </Bar>
                             </BarChart>
                         </ResponsiveContainer>
                     </div>
                 )}
-            </div>
+            </ContentCard>
 
-            <div className="card" style={{ marginTop: 18 }}>
-                <div className="card-header">
-                    <h3 className="card-title">Zones</h3>
-                </div>
-                <div style={{ display: 'grid', gap: 6 }}>
+            <ContentCard title="Zones" accent="teal">
+                <div className="ui-feed-list">
                     {zones.map((z) => (
                         <div
                             key={`${z.camera_id}-${z.zone}`}
-                            style={{
-                                display: 'grid',
-                                gridTemplateColumns: '1fr 80px 100px 110px 90px',
-                                gap: 10, alignItems: 'center',
-                                padding: '10px 12px',
-                                background: 'var(--bg-glass)',
-                                border: '1px solid var(--border)', borderRadius: 10,
-                            }}
+                            className="ui-lane-row"
+                            style={{ gridTemplateColumns: '1fr 80px 100px 110px 90px' }}
                         >
                             <div>
-                                <div style={{ fontWeight: 600 }}>{z.zone}</div>
-                                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>cam {z.camera_id}</div>
+                                <div className="ui-lane-row-title">{z.zone}</div>
+                                <div className="ui-lane-row-sub">cam {z.camera_id}</div>
                             </div>
                             <span style={{ fontSize: 13 }}>{z.person_count} ppl</span>
-                            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{(z.density || 0).toFixed(2)} /m²</span>
+                            <span style={{ fontSize: 12, color: 'var(--exec-muted)' }}>{(z.density || 0).toFixed(2)} /m²</span>
                             <span className={`pill pill-${z.classification === 'critical' || z.classification === 'high' ? 'danger' : z.classification === 'medium' ? 'warn' : 'success'}`}>
                                 {z.classification}
                             </span>
-                            <span style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'right' }}>
+                            <span style={{ fontSize: 11, color: 'var(--exec-muted)', textAlign: 'right' }}>
                                 thr {z.threshold}
                             </span>
                         </div>
                     ))}
                 </div>
-            </div>
+            </ContentCard>
         </div>
-    );
-}
-
-function Stat({ label, value, suffix = '', accent = 'indigo' }) {
-    return (
-        <motion.div className="stat-card" whileHover={{ y: -2 }}>
-            <div className={`stat-icon stat-icon-${accent}`}><UsersRound size={18} /></div>
-            <div className="stat-label">{label}</div>
-            <div className="stat-value">{value}{suffix}</div>
-        </motion.div>
     );
 }

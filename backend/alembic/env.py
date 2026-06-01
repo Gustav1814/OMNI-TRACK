@@ -23,16 +23,19 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 
-# Import your models so that Alembic can "see" them
+# Import models so Alembic autogenerate sees the full schema
 from app.database import Base
-from app.models.user import User
-from app.models.camera import Camera
-from app.models.detection import Detection
-from app.models.embedding import Embedding
-from app.models.audit_log import AuditLog
-from app.models.analytics import (
-    FootTraffic, CustomerJourney, DemographicSnapshot,
-    StoreVibeScore, PeakHoursData,
+from app.models import (  # noqa: F401
+    User,
+    Camera,
+    Detection,
+    Embedding,
+    AuditLog,
+    FootTraffic,
+    CustomerJourney,
+    DemographicSnapshot,
+    StoreVibeScore,
+    PeakHoursData,
 )
 from app.config import settings
 

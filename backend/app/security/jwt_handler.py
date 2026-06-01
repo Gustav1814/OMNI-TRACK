@@ -3,25 +3,39 @@ OmniTrack AI — JWT Authentication Handler
 Access + Refresh tokens with Redis-based blacklisting
 """
 
+import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
+
+import bcrypt
 from jose import jwt, JWTError
-from passlib.context import CryptContext
+
 from app.config import settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+_BCRYPT_MAX_BYTES = 72
+
+
+def _password_digest(password: str) -> bytes:
+    """
+    Bcrypt accepts at most 72 bytes. Pre-hash long passwords with SHA-256
+    so verification stays deterministic without silent truncation.
+    """
+    raw = password.encode("utf-8")
+    if len(raw) <= _BCRYPT_MAX_BYTES:
+        return raw
+    return hashlib.sha256(raw).digest()
 
 
 def hash_password(password: str) -> str:
-    # Bcrypt has 72 byte limit - truncate to 72 bytes max
-    truncated = password.encode('utf-8')[:72].decode('utf-8', errors='ignore')
-    return pwd_context.hash(truncated)
+    digest = _password_digest(password)
+    return bcrypt.hashpw(digest, bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    # Bcrypt has 72 byte limit - truncate to 72 bytes max
-    truncated = plain.encode('utf-8')[:72].decode('utf-8', errors='ignore')
-    return pwd_context.verify(truncated, hashed)
+    try:
+        return bcrypt.checkpw(_password_digest(plain), hashed.encode("utf-8"))
+    except (ValueError, TypeError):
+        return False
 
 
 def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:

@@ -4,7 +4,6 @@
  */
 
 import React, { useState } from 'react';
-import { motion } from 'framer-motion';
 import { BarChart3, Users } from 'lucide-react';
 import {
     BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -12,11 +11,15 @@ import {
 } from 'recharts';
 import { demographicsAPI } from '../services/api';
 import useLivePoll from '../hooks/useLivePoll';
-
-const AGE_ORDER = ['<18', '18-25', '26-35', '36-45', '46-55', '56+'];
-const GENDER_COLOR = { male: '#3b82f6', female: '#f472b6', unknown: '#64748b', other: '#a855f7' };
+import StatCard from '../components/ui/StatCard';
+import ContentCard from '../components/ui/ContentCard';
+import useGradientColors from '../hooks/useGradientColors';
 
 export default function DemographicsPage() {
+    const { a, b } = useGradientColors();
+    const GENDER_COLOR = { male: a, female: b, unknown: '#64748b', other: b };
+
+    const AGE_ORDER = ['<18', '18-25', '26-35', '36-45', '46-55', '56+'];
     const [zone, setZone] = useState('');
     const { data } = useLivePoll(
         () => demographicsAPI.current(zone || undefined),
@@ -58,17 +61,14 @@ export default function DemographicsPage() {
             </div>
 
             <div className="stats-grid">
-                <Stat icon={Users} label="Total Observed" value={total.toLocaleString()} accent="indigo" />
-                <Stat icon={BarChart3} label="Zone Filter" value={zone || 'All'} accent="cyan" />
-                <Stat icon={BarChart3} label="Age Buckets" value={Object.keys(ageDist).length} accent="amber" />
-                <Stat icon={Users} label="Genders Tracked" value={Object.keys(genderDist).length} accent="emerald" />
+                <StatCard icon={Users} label="Total Observed" value={total.toLocaleString()} accent="teal" />
+                <StatCard icon={BarChart3} label="Zone Filter" value={zone || 'All'} accent="cyan" />
+                <StatCard icon={BarChart3} label="Age Buckets" value={Object.keys(ageDist).length} accent="coral" />
+                <StatCard icon={Users} label="Genders Tracked" value={Object.keys(genderDist).length} accent="emerald" />
             </div>
 
             <div className="two-col">
-                <div className="card">
-                    <div className="card-header">
-                        <h3 className="card-title">Age Distribution</h3>
-                    </div>
+                <ContentCard title="Age Distribution" accent="sky">
                     {ageChart.length === 0 ? (
                         <Empty />
                     ) : (
@@ -79,17 +79,14 @@ export default function DemographicsPage() {
                                     <XAxis dataKey="name" stroke="#71717a" fontSize={11} />
                                     <YAxis stroke="#71717a" fontSize={11} />
                                     <Tooltip contentStyle={{ background: '#111', border: '1px solid #222' }} />
-                                    <Bar dataKey="count" fill="#818cf8" radius={[6, 6, 0, 0]} />
+                                    <Bar dataKey="count" fill={a} radius={[6, 6, 0, 0]} />
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>
                     )}
-                </div>
+                </ContentCard>
 
-                <div className="card">
-                    <div className="card-header">
-                        <h3 className="card-title">Gender Split</h3>
-                    </div>
+                <ContentCard title="Gender Split" accent="rose">
                     {genderChart.length === 0 ? (
                         <Empty />
                     ) : (
@@ -100,7 +97,7 @@ export default function DemographicsPage() {
                                         cx="50%" cy="50%" outerRadius={90} innerRadius={50}
                                         paddingAngle={2}>
                                         {genderChart.map((d) => (
-                                            <Cell key={d.name} fill={GENDER_COLOR[d.name] || '#a5b4fc'} />
+                                            <Cell key={d.name} fill={GENDER_COLOR[d.name] || '#64748b'} />
                                         ))}
                                     </Pie>
                                     <Tooltip contentStyle={{ background: '#111', border: '1px solid #222' }} />
@@ -109,7 +106,7 @@ export default function DemographicsPage() {
                             </ResponsiveContainer>
                         </div>
                     )}
-                </div>
+                </ContentCard>
             </div>
         </div>
     );
@@ -120,15 +117,5 @@ function Empty() {
         <div className="page-empty-hint">
             No demographic samples yet — make sure the emotion/demographics module is reaching faces.
         </div>
-    );
-}
-
-function Stat({ icon: Icon, label, value, accent = 'indigo' }) {
-    return (
-        <motion.div className="stat-card" whileHover={{ y: -2 }}>
-            <div className={`stat-icon stat-icon-${accent}`}><Icon size={18} /></div>
-            <div className="stat-label">{label}</div>
-            <div className="stat-value">{value}</div>
-        </motion.div>
     );
 }

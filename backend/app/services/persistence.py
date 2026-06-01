@@ -33,6 +33,7 @@ from app.database import AsyncSessionLocal
 from app.services.crud import (
     AnalyticsService,
     AuditService,
+    CameraService,
     DetectionService,
     EmbeddingService,
 )
@@ -65,6 +66,7 @@ class PersistencePipelineCallback:
         self._active_legs: Dict[Tuple[str, int, str], Tuple[float, float]] = {}
         # rolling counter of DB failures so we can log at WARNING once per N skips
         self._consecutive_failures: int = 0
+        self._known_db_cameras: Set[int] = set()
 
     # ─────────────────────────────────────────────────────────────
     # Tick callback (invoked after every pipeline cycle)
@@ -96,6 +98,8 @@ class PersistencePipelineCallback:
     ) -> None:
         now = time.time()
         pipeline = self._pipeline
+
+        await self._ensure_db_cameras(db, results)
 
         # ── 1. Detections ─────────────────────────────────────────
         detection_rows_by_cam: Dict[int, List[Any]] = {}
@@ -296,3 +300,26 @@ class PersistencePipelineCallback:
         except Exception as e:
             logger.warning(f"Re-ID gallery warm-up failed (DB not ready?): {e}")
             return 0
+
+    async def _ensure_db_cameras(self, db: AsyncSession, results: Dict[int, Any]) -> None:
+        """Auto-register pipeline cameras so partitioned write tables keep FK integrity."""
+        streams = getattr(getattr(self._pipeline, "stream_manager", None), "_streams", {})
+        for cam_id in results.keys():
+            if cam_id in self._known_db_cameras:
+                continue
+            stream = streams.get(cam_id)
+            config = getattr(stream, "config", None)
+            source = getattr(config, "source", f"pipeline://camera/{cam_id}")
+            fps = float(getattr(config, "fps_target", getattr(self._pipeline, "processing_fps", 15)))
+            zone = getattr(self._pipeline, "_camera_zones", {}).get(cam_id, "default")
+            try:
+                await CameraService.ensure_pipeline_camera(
+                    db,
+                    camera_id=int(cam_id),
+                    source=str(source),
+                    zone=zone,
+                    fps=fps,
+                )
+                self._known_db_cameras.add(int(cam_id))
+            except Exception as e:
+                logger.debug(f"Camera auto-registration skipped for cam {cam_id}: {e}")

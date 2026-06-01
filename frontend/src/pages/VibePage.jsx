@@ -5,15 +5,18 @@
 
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Activity, Heart } from 'lucide-react';
+import { Activity } from 'lucide-react';
 import {
     AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts';
 import { vibeAPI } from '../services/api';
 import useLivePoll from '../hooks/useLivePoll';
 import useWebSocket from '../hooks/useWebSocket';
+import ContentCard from '../components/ui/ContentCard';
+import useGradientColors from '../hooks/useGradientColors';
 
 export default function VibePage() {
+    const { a, b } = useGradientColors();
     const { data: current } = useLivePoll(() => vibeAPI.current(), { intervalMs: 5000 });
     const { data: trend } = useLivePoll(() => vibeAPI.trend(24), { intervalMs: 60000 });
 
@@ -33,10 +36,10 @@ export default function VibePage() {
 
     const breakdown = vibe?.breakdown || {};
     const comps = [
-        { key: 'sentiment_score', label: 'Sentiment', color: '#f472b6' },
-        { key: 'energy_score', label: 'Energy', color: '#fb923c' },
-        { key: 'engagement_score', label: 'Engagement', color: '#6366f1' },
-        { key: 'foot_traffic_score', label: 'Traffic', color: '#22d3ee' },
+        { key: 'sentiment_score', label: 'Sentiment', color: b },
+        { key: 'energy_score', label: 'Energy', color: a },
+        { key: 'engagement_score', label: 'Engagement', color: b },
+        { key: 'foot_traffic_score', label: 'Traffic', color: a },
     ];
 
     return (
@@ -49,15 +52,11 @@ export default function VibePage() {
             </div>
 
             <div className="two-col">
-                <div className="card card-gauge-embed">
-                    <Gauge score={score} label={label} />
-                </div>
+                <ContentCard accent="teal" bodyClassName="card-gauge-embed">
+                    <Gauge score={score} label={label} colorA={a} colorB={b} />
+                </ContentCard>
 
-                <div className="card">
-                    <div className="card-header">
-                        <h3 className="card-title">Components</h3>
-                        <div className="card-subtitle">Each contributes 0–100</div>
-                    </div>
+                <ContentCard title="Components" subtitle="Each contributes 0–100" accent="coral">
                     <div style={{ display: 'grid', gap: 10 }}>
                         {comps.map((c) => {
                             const val = Number(vibe?.[c.key] ?? breakdown?.[c.key] ?? 0);
@@ -83,16 +82,14 @@ export default function VibePage() {
                             );
                         })}
                     </div>
-                </div>
+                </ContentCard>
             </div>
 
-            <div className="card" style={{ marginTop: 18 }}>
-                <div className="card-header">
-                    <h3 className="card-title">24h Trend</h3>
-                    <div className="card-subtitle">
-                        {trendData.length ? `${trendData.length} data points` : 'Waiting for pipeline data'}
-                    </div>
-                </div>
+            <ContentCard
+                title="24h Trend"
+                subtitle={trendData.length ? `${trendData.length} data points` : 'Waiting for pipeline data'}
+                accent="sky"
+            >
                 {trendData.length === 0 ? (
                     <div className="page-empty-hint">
                         Nothing yet — vibe samples are written as the pipeline runs.
@@ -103,30 +100,30 @@ export default function VibePage() {
                             <AreaChart data={trendData}>
                                 <defs>
                                     <linearGradient id="vibeA" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="0%" stopColor="#6366f1" stopOpacity={0.6} />
-                                        <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
+                                        <stop offset="0%" stopColor={a} stopOpacity={0.6} />
+                                        <stop offset="100%" stopColor={a} stopOpacity={0} />
                                     </linearGradient>
                                 </defs>
                                 <CartesianGrid stroke="rgba(255,255,255,0.05)" />
                                 <XAxis dataKey="t" stroke="#71717a" fontSize={10} />
                                 <YAxis stroke="#71717a" fontSize={10} domain={[0, 100]} />
                                 <Tooltip contentStyle={{ background: '#111', border: '1px solid #222' }} />
-                                <Area type="monotone" dataKey="score" stroke="#818cf8" strokeWidth={2} fill="url(#vibeA)" />
+                                <Area type="monotone" dataKey="score" stroke={a} strokeWidth={2} fill="url(#vibeA)" />
                             </AreaChart>
                         </ResponsiveContainer>
                     </div>
                 )}
-            </div>
+            </ContentCard>
         </div>
     );
 }
 
-function Gauge({ score, label }) {
+function Gauge({ score, label, colorA, colorB }) {
     const circ = 2 * Math.PI * 70;
     const offset = circ * (1 - score / 100);
-    const color = score >= 75 ? '#10b981'
-        : score >= 50 ? '#6366f1'
-            : score >= 25 ? '#fbbf24' : '#f43f5e';
+    const color = score >= 75 ? colorB
+        : score >= 50 ? colorA
+            : score >= 25 ? colorA : '#f43f5e';
 
     return (
         <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}>

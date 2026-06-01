@@ -14,6 +14,7 @@ from sqlalchemy.orm import selectinload
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone, timedelta
 from loguru import logger
+from app.config import settings
 
 # Models
 from app.models.user import User, UserRole
@@ -134,6 +135,51 @@ class CameraService:
         await db.flush()
         await db.refresh(camera)
         logger.info(f"Camera created: {camera.name} (zone={camera.zone})")
+        return camera
+
+    @staticmethod
+    async def ensure_pipeline_camera(
+        db: AsyncSession,
+        camera_id: int,
+        source: str,
+        zone: str = "default",
+        camera_type: str = "pipeline",
+        fps: float = 30.0,
+    ) -> Camera:
+        """
+        Ensure a camera row exists before high-volume detection writes.
+
+        The pipeline can be started from RTSP/file/webcam sources before an
+        operator creates a camera via CRUD. This keeps FK constraints intact
+        without forcing the hot path to fail.
+        """
+        camera = await CameraService.get_by_id(db, camera_id)
+        if camera:
+            changed = False
+            if zone and camera.zone != zone:
+                camera.zone = zone
+                changed = True
+            if source and camera.stream_url != source:
+                camera.stream_url = source
+                changed = True
+            if changed:
+                await db.flush()
+                await db.refresh(camera)
+            return camera
+
+        camera = Camera(
+            id=int(camera_id),
+            name=f"Pipeline Camera {camera_id}",
+            stream_url=source or f"pipeline://camera/{camera_id}",
+            zone=zone,
+            location=zone,
+            fps=fps,
+            camera_type=camera_type,
+        )
+        db.add(camera)
+        await db.flush()
+        await db.refresh(camera)
+        logger.info(f"Auto-registered pipeline camera {camera_id} (zone={zone})")
         return camera
 
     @staticmethod
@@ -402,6 +448,36 @@ class EmbeddingService:
 
 class AuditService:
     """
+
+    @staticmethod
+    def _hash_payload(
+        event_type: str,
+        user_id: Optional[int],
+        description: Optional[str],
+        timestamp: datetime,
+        encrypted_metadata: Optional[str] = None,
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return {
+            "event_type": event_type,
+            "user_id": user_id,
+            "description": description,
+            "timestamp": timestamp.isoformat(),
+            "encrypted_metadata": encrypted_metadata,
+            "ip_address": ip_address,
+            "user_agent": user_agent,
+        }
+
+    @staticmethod
+    def _legacy_hash_payload(entry: AuditLog) -> Dict[str, Any]:
+        timestamp = entry.timestamp.isoformat() if entry.timestamp else None
+        return {
+            "event_type": entry.event_type,
+            "user_id": entry.user_id,
+            "description": entry.description,
+            "timestamp": timestamp,
+        }
     Tamper-evident audit trail operations.
     
     Each new entry is cryptographically chained to the previous one
@@ -418,6 +494,11 @@ class AuditService:
         metadata: Optional[Dict] = None,
         ip_address: Optional[str] = None,
     ) -> AuditLog:
+        # Serialize chain extension per transaction. Without this, concurrent
+        # writers can read the same previous_hash and create an invalid fork.
+        if settings.DATABASE_URL.startswith("postgresql"):
+            await db.execute(text("SELECT pg_advisory_xact_lock(873245)"))
+
         # Get the previous hash for chaining
         result = await db.execute(
             select(AuditLog.current_hash)
@@ -426,19 +507,22 @@ class AuditService:
         )
         previous_hash = result.scalar_one_or_none()
 
+        event_ts = datetime.now(timezone.utc)
+
+        # Encrypt metadata before hashing so tampering encrypted metadata breaks integrity.
+        encrypted_meta = encrypt_data(metadata) if metadata else None
+
         # Build payload for hashing
         payload = {
             "event_type": event_type,
             "user_id": user_id,
             "description": description,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": event_ts.isoformat(),
+            "encrypted_metadata": encrypted_meta,
+            "ip_address": ip_address,
+            "user_agent": None,
         }
         current_hash = compute_hash(payload, previous_hash)
-
-        # Encrypt metadata if present
-        encrypted_meta = None
-        if metadata:
-            encrypted_meta = encrypt_data(metadata)
 
         entry = AuditLog(
             event_type=event_type,
@@ -448,6 +532,7 @@ class AuditService:
             previous_hash=previous_hash,
             encrypted_metadata=encrypted_meta,
             ip_address=ip_address,
+            timestamp=event_ts,
         )
         db.add(entry)
         await db.flush()
@@ -484,6 +569,28 @@ class AuditService:
                     "total": len(entries),
                     "message": f"Chain broken at entry #{entry.id}",
                 }
+            payload = AuditService._hash_payload(
+                entry.event_type,
+                entry.user_id,
+                entry.description,
+                entry.timestamp,
+                entry.encrypted_metadata,
+                entry.ip_address,
+                entry.user_agent,
+            )
+            recomputed = compute_hash(payload, entry.previous_hash)
+            if recomputed != entry.current_hash:
+                legacy = compute_hash(
+                    AuditService._legacy_hash_payload(entry),
+                    entry.previous_hash,
+                )
+                if legacy != entry.current_hash:
+                    return {
+                        "valid": False,
+                        "broken_at": entry.id,
+                        "total": len(entries),
+                        "message": f"Entry #{entry.id} content hash mismatch",
+                    }
 
         return {"valid": True, "broken_at": None, "total": len(entries)}
 

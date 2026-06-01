@@ -3,7 +3,7 @@ OmniTrack AI — Analytics Models
 Extended analytics storage for store vibe, heatmaps, demographics, etc.
 """
 
-from sqlalchemy import Column, Integer, String, Float, DateTime, JSON, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, Date, DateTime, JSON, ForeignKey, Index, UniqueConstraint
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -11,9 +11,14 @@ from app.database import Base
 class FootTraffic(Base):
     """Stores foot traffic heatmap data per zone per time interval."""
     __tablename__ = "foot_traffic"
+    __table_args__ = (
+        Index("ix_foot_traffic_camera_zone_ts", "camera_id", "zone", "timestamp"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
-    camera_id = Column(Integer, ForeignKey("cameras.id"), nullable=False)
+    camera_id = Column(
+        Integer, ForeignKey("cameras.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     zone = Column(String(100), nullable=False, index=True)
     person_count = Column(Integer, default=0)
     direction_in = Column(Integer, default=0)
@@ -35,10 +40,16 @@ class CustomerJourney(Base):
     `journey_data` stays for callers that prefer the JSON aggregate.
     """
     __tablename__ = "customer_journeys"
+    __table_args__ = (
+        Index("ix_journeys_global_entry", "global_id", "entry_time"),
+        Index("ix_journeys_camera_zone", "camera_id", "zone"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     global_id = Column(String(100), nullable=False, index=True)
-    camera_id = Column(Integer, ForeignKey("cameras.id"), nullable=True, index=True)
+    camera_id = Column(
+        Integer, ForeignKey("cameras.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     zone = Column(String(100), nullable=True, index=True)
     dwell_time = Column(Float, default=0.0)  # seconds spent in this leg
     journey_data = Column(JSON, nullable=True)  # [{camera_id, zone, timestamp, duration}]
@@ -52,9 +63,14 @@ class CustomerJourney(Base):
 class DemographicSnapshot(Base):
     """Age/gender demographics estimated via DeepFace."""
     __tablename__ = "demographic_snapshots"
+    __table_args__ = (
+        Index("ix_demographics_camera_zone_ts", "camera_id", "zone", "timestamp"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
-    camera_id = Column(Integer, ForeignKey("cameras.id"), nullable=False)
+    camera_id = Column(
+        Integer, ForeignKey("cameras.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     zone = Column(String(100), nullable=True, index=True)
     estimated_age = Column(Float, nullable=True)
     estimated_gender = Column(String(20), nullable=True)
@@ -68,6 +84,9 @@ class DemographicSnapshot(Base):
 class StoreVibeScore(Base):
     """Aggregated 'vibe' score combining sentiment, crowd energy, engagement."""
     __tablename__ = "store_vibe_scores"
+    __table_args__ = (
+        Index("ix_vibe_timestamp_score", "timestamp", "overall_score"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     overall_score = Column(Float, nullable=False)  # 0-100
@@ -83,9 +102,13 @@ class StoreVibeScore(Base):
 class PeakHoursData(Base):
     """Peak hours and traffic patterns."""
     __tablename__ = "peak_hours"
+    __table_args__ = (
+        UniqueConstraint("date", "hour", name="uq_peak_hours_date_hour"),
+        Index("ix_peak_hours_date_hour", "date", "hour"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
-    date = Column(DateTime(timezone=True), nullable=False, index=True)
+    date = Column(Date, nullable=False, index=True)
     hour = Column(Integer, nullable=False)
     visitor_count = Column(Integer, default=0)
     avg_dwell_time = Column(Float, default=0.0)

@@ -6,12 +6,43 @@
     <meta name="description" content="OmniTrack AI — Professional-grade retail analytics platform transforming CCTV into business intelligence" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <title>OmniTrack AI — Retail Analytics</title>
   </head>
   <body style="margin:0;min-height:100vh;">
     <script>
-      (function(){var t=localStorage.getItem('omnitrack-theme')||'dark';document.documentElement.classList.add(t);document.body.style.background=t==='light'?'#f8f9fa':'#030304';document.body.style.color=t==='light'?'#374151':'#f4f4f5';})();
+      (function(){
+        var t=localStorage.getItem('omnitrack-theme')||'light';
+        document.documentElement.classList.add(t);
+        var bg=t==='light'?'#f8f9fa':'#000000';
+        var fg=t==='light'?'#0f172a':'#f1f5f9';
+        document.documentElement.style.background=bg;
+        document.body.style.background=bg;
+        document.body.style.color=fg;
+        var presets={
+          boardroom:{a:'#2dd4bf',b:'#60a5fa'},
+          charcoal:{a:'#fbbf24',b:'#334155'},
+          merlot:{a:'#fb923c',b:'#fda4af'},
+          capital:{a:'#34d399',b:'#22c55e'},
+          private:{a:'#6366f1',b:'#38bdf8'},
+          corporate:{a:'#ef4444',b:'#f472b6'},
+          gilded:{a:'#27272a',b:'#9c8f7a'},
+          'rose-gold':{a:'#4a2535',b:'#4b5563'},
+          sapphire:{a:'#334155',b:'#115e59'},
+          burgundy:{a:'#4a2535',b:'#4b5563'},
+          obsidian:{a:'#1e3a5f',b:'#64748b'},
+          prestige:{a:'#1e3d36',b:'#737373'}
+        };
+        var gid=localStorage.getItem('omnitrack-gradient')||'boardroom';
+        var p=presets[gid]||presets.boardroom;
+        function hexRgb(h){var n=h.replace('#','');return[parseInt(n.slice(0,2),16),parseInt(n.slice(2,4),16),parseInt(n.slice(4,6),16)].join(', ');}
+        var r=document.documentElement;
+        r.dataset.gradient=gid;
+        r.style.setProperty('--gradient-a',p.a);
+        r.style.setProperty('--gradient-b',p.b);
+        r.style.setProperty('--gradient-a-rgb',hexRgb(p.a));
+        r.style.setProperty('--gradient-b-rgb',hexRgb(p.b));
+      })();
     </script>
     <div id="root" style="min-height:100vh;"></div>
     <script type="module" src="/src/main.jsx"></script>

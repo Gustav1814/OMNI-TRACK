@@ -4,10 +4,11 @@
  */
 
 import React, { useState } from 'react';
-import { motion } from 'framer-motion';
-import { ShieldAlert, PlayCircle, Zap, Target, Activity } from 'lucide-react';
+import { ShieldAlert, PlayCircle, Zap, Target } from 'lucide-react';
 import { systemAPI } from '../services/api';
 import useLivePoll from '../hooks/useLivePoll';
+import StatCard from '../components/ui/StatCard';
+import ContentCard from '../components/ui/ContentCard';
 
 export default function SecurityPage() {
     const { data: status, refresh } = useLivePoll(() => systemAPI.robustness(), { intervalMs: 15000 });
@@ -49,28 +50,27 @@ export default function SecurityPage() {
             </div>
 
             <div className="stats-grid">
-                <motion.div className="stat-card" whileHover={{ y: -2 }}>
-                    <div className={`stat-icon stat-icon-${status?.art_available ? 'emerald' : 'rose'}`}>
-                        <ShieldAlert size={18} />
-                    </div>
-                    <div className="stat-label">Health Engine Ready</div>
-                    <div className="stat-value">{status?.art_available ? 'yes' : 'no'}</div>
-                </motion.div>
-                <Stat
+                <StatCard
+                    icon={ShieldAlert}
+                    label="Health Engine Ready"
+                    value={status?.art_available ? 'yes' : 'no'}
+                    accent={status?.art_available ? 'emerald' : 'rose'}
+                />
+                <StatCard
                     icon={Target}
                     label="Baseline Detections"
                     value={Number(last?.avg_person_count_clean ?? 0).toFixed(2)}
-                    accent="indigo"
+                    accent="teal"
                 />
-                <Stat
+                <StatCard
                     icon={Zap}
                     label="Light Distortion Retention"
                     value={last?.detection_retention_fgsm != null
                         ? `${Math.round(last.detection_retention_fgsm * 100)}%`
                         : '—'}
-                    accent="amber"
+                    accent="coral"
                 />
-                <Stat
+                <StatCard
                     icon={Zap}
                     label="Heavy Distortion Retention"
                     value={last?.detection_retention_pgd != null
@@ -81,12 +81,11 @@ export default function SecurityPage() {
             </div>
 
             <div className="two-col">
-                <div className="card">
-                    <div className="card-header">
-                        <h3 className="card-title">Run Stability Check</h3>
-                        <div className="card-subtitle">Simulates degraded visuals and measures detection consistency</div>
-                    </div>
-
+                <ContentCard
+                    title="Run Stability Check"
+                    subtitle="Simulates degraded visuals and measures detection consistency"
+                    accent="teal"
+                >
                     {!status?.art_available && (
                         <div className="alert-banner danger" style={{ marginBottom: 10 }}>
                             Optional security toolkit is not installed. Run <code>pip install adversarial-robustness-toolbox[torch]</code>.
@@ -126,18 +125,13 @@ export default function SecurityPage() {
                         </button>
                         {error && <div className="alert-banner danger">{error}</div>}
                     </div>
-                </div>
+                </ContentCard>
 
-                <div className="card">
-                    <div className="card-header">
-                        <h3 className="card-title">
-                            <Activity size={14} style={{ verticalAlign: -2, marginRight: 6 }} />
-                            Latest Result
-                        </h3>
-                        <div className="card-subtitle">
-                            {last?.model_path ? `Model: ${last.model_path}` : 'No check has run yet'}
-                        </div>
-                    </div>
+                <ContentCard
+                    title="Latest Result"
+                    subtitle={last?.model_path ? `Model: ${last.model_path}` : 'No check has run yet'}
+                    accent="sky"
+                >
                     {last ? (
                         <div style={{ display: 'grid', gap: 8 }}>
                             <Row label="Samples" value={last.samples ?? last.sample_size} />
@@ -153,7 +147,7 @@ export default function SecurityPage() {
                             Run a health check to see model stability metrics.
                         </div>
                     )}
-                </div>
+                </ContentCard>
             </div>
         </div>
     );
@@ -186,12 +180,3 @@ function Row({ label, value }) {
     );
 }
 
-function Stat({ icon: Icon, label, value, accent = 'indigo' }) {
-    return (
-        <motion.div className="stat-card" whileHover={{ y: -2 }}>
-            <div className={`stat-icon stat-icon-${accent}`}><Icon size={18} /></div>
-            <div className="stat-label">{label}</div>
-            <div className="stat-value">{value}</div>
-        </motion.div>
-    );
-}

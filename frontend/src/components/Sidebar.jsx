@@ -9,7 +9,7 @@ import { motion } from 'framer-motion';
 import {
     LayoutDashboard, Users, Scan, Video, ShoppingBag,
     Flame, UsersRound, ShoppingCart, SmilePlus, ShieldCheck,
-    Activity, TrendingUp, BarChart3, LogOut, Sun, Moon, ShieldAlert, Scissors
+    Activity, TrendingUp, BarChart3, LogOut, Sun, Moon, ShieldAlert, Scissors, Settings
 } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { tokenStore } from '../services/api';
@@ -31,6 +31,8 @@ const navItems = [
     { section: 'Business View' },
     { path: '/peak-hours', icon: TrendingUp, label: 'Rush Hours' },
     { path: '/demographics', icon: BarChart3, label: 'Audience Mix' },
+    { section: 'System' },
+    { path: '/settings', icon: Settings, label: 'Settings' },
 ];
 
 export default function Sidebar() {

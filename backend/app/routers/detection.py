@@ -96,13 +96,16 @@ async def start_detection(
             raise HTTPException(status_code=404, detail=f"Model {model} not found in {settings.MODEL_WEIGHTS_DIR}")
         model_path = str(model_file.resolve())
     
-    pipeline.add_camera(
-        camera_id=camera_id,
-        source=source,
-        stream_type=stream_type,
-        zone=zone,
-        model_path=model_path,
-    )
+    try:
+        pipeline.add_camera(
+            camera_id=camera_id,
+            source=source,
+            stream_type=stream_type,
+            zone=zone,
+            model_path=model_path,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if pipeline.state.value != "running":
         await pipeline.start()
     return {

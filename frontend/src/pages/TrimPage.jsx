@@ -8,6 +8,7 @@ import { motion } from 'framer-motion';
 import { Scissors, Film, Clock, Download, Play, RefreshCw, AlertCircle } from 'lucide-react';
 import { footageAPI } from '../services/api';
 import useLivePoll from '../hooks/useLivePoll';
+import ContentCard from '../components/ui/ContentCard';
 
 export default function TrimPage() {
     const [selectedLog, setSelectedLog] = useState('');
@@ -72,13 +73,11 @@ export default function TrimPage() {
             )}
 
             <div className="two-col">
-                {/* Left: Selection Panel */}
-                <div className="card">
-                    <div className="card-header">
-                        <h3 className="card-title"><Scissors size={16} style={{ verticalAlign: -3, marginRight: 6 }} /> Select Track</h3>
-                        <div className="card-subtitle">Choose a recorded video and track ID to trim</div>
-                    </div>
-
+                <ContentCard
+                    title={<> <Scissors size={16} style={{ verticalAlign: -3, marginRight: 6 }} /> Select Track </>}
+                    subtitle="Choose a recorded video and track ID to trim"
+                    accent="teal"
+                >
                     <div style={{ display: 'grid', gap: 16 }}>
                         <div>
                             <label className="form-label">Detection Log</label>
@@ -148,15 +147,13 @@ export default function TrimPage() {
                             )}
                         </button>
                     </div>
-                </div>
+                </ContentCard>
 
-                {/* Right: Preview / Results */}
-                <div className="card">
-                    <div className="card-header">
-                        <h3 className="card-title"><Play size={16} style={{ verticalAlign: -3, marginRight: 6 }} /> Trim Result</h3>
-                        <div className="card-subtitle">Preview and download the trimmed clip</div>
-                    </div>
-
+                <ContentCard
+                    title={<> <Play size={16} style={{ verticalAlign: -3, marginRight: 6 }} /> Trim Result </>}
+                    subtitle="Preview and download the trimmed clip"
+                    accent="sky"
+                >
                     {!trimResult && !trimming && (
                         <div className="page-empty-hint">
                             Select a log and track, then click Trim Video to generate the clip.
@@ -262,7 +259,7 @@ export default function TrimPage() {
                             </div>
                         </div>
                     )}
-                </div>
+                </ContentCard>
             </div>
         </div>
     );

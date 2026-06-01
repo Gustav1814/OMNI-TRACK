@@ -1,0 +1,213 @@
+/* ============================================================
+   Pearl Executive — warm canvas, card glow, subtle KPI wash
+   ============================================================ */
+
+html.theme-pearl.light body,
+html.theme-pearl.light #root {
+  background: var(--page-bg) !important;
+}
+
+html.theme-pearl.dark body,
+html.theme-pearl.dark #root,
+html.theme-pearl:not(.light) body,
+html.theme-pearl:not(.light) #root {
+  background: var(--page-bg) !important;
+}
+
+/* Page canvas — preset atmosphere (gradients.css reinforces on .app-layout) */
+html.theme-pearl.light .app-layout {
+  background: var(--page-canvas) !important;
+}
+
+html.theme-pearl.dark .app-layout,
+html.theme-pearl:not(.light) .app-layout {
+  background: #000000 !important;
+}
+
+html.theme-pearl.light .login-page,
+html.theme-pearl.dark .login-page,
+html.theme-pearl:not(.light) .login-page {
+  background: inherit !important;
+  min-height: 100vh;
+}
+
+html.theme-pearl .main-content,
+html.theme-pearl .page-content,
+html.theme-pearl .sidebar {
+  background: transparent !important;
+}
+
+html.theme-pearl.light .sidebar {
+  background: transparent !important;
+  border-right: none !important;
+}
+
+html.theme-pearl.light .topbar {
+  background: var(--surface-bar) !important;
+  border-bottom: 1px solid var(--exec-border) !important;
+}
+
+html.theme-pearl.dark .topbar,
+html.theme-pearl:not(.light) .topbar {
+  background: var(--surface-bar) !important;
+  border-bottom: 1px solid var(--exec-border) !important;
+}
+
+/* Shared card glow */
+html.theme-pearl.light .exec-panel,
+html.theme-pearl.light .exec-page-header,
+html.theme-pearl.light .page-scroll .page-header,
+html.theme-pearl.light .page-scroll .card,
+html.theme-pearl.light .page-scroll .chart-card,
+html.theme-pearl.light .card,
+html.theme-pearl.light .chart-card,
+html.theme-pearl.light .login-card {
+  background: var(--surface-card) !important;
+  border: 1px solid var(--exec-border) !important;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 10px 28px -10px rgba(15, 23, 42, 0.08),
+    0 4px 16px -6px rgba(var(--gradient-b-rgb), 0.05) !important;
+  transition: box-shadow 220ms ease, border-color 220ms ease;
+}
+
+html.theme-pearl.light .page-scroll .card:hover,
+html.theme-pearl.light .card:hover,
+html.theme-pearl.light .chart-card:hover,
+html.theme-pearl.light .exec-panel:hover {
+  border-color: rgba(15, 23, 42, 0.12) !important;
+  box-shadow:
+    0 2px 4px rgba(15, 23, 42, 0.05),
+    0 16px 40px -12px rgba(15, 23, 42, 0.1),
+    0 8px 24px -8px rgba(var(--gradient-b-rgb), 0.08) !important;
+}
+
+html.theme-pearl.dark .exec-panel,
+html.theme-pearl:not(.light) .exec-panel,
+html.theme-pearl.dark .page-scroll .card,
+html.theme-pearl:not(.light) .page-scroll .card,
+html.theme-pearl.dark .card,
+html.theme-pearl:not(.light) .card,
+html.theme-pearl.dark .login-card,
+html.theme-pearl:not(.light) .login-card {
+  background: #000000 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset !important;
+}
+
+/* KPI — solid body, accent wash via enterprise ::after */
+html.theme-pearl.light .exec-kpi-inner {
+  background: #ffffff !important;
+  border: 1px solid var(--exec-border) !important;
+  border-left: 3px solid rgb(var(--kpi-rgb)) !important;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 8px 22px -10px rgba(var(--kpi-rgb), 0.12) !important;
+}
+
+html.theme-pearl.dark .exec-kpi-inner,
+html.theme-pearl:not(.light) .exec-kpi-inner {
+  background: #000000 !important;
+  border: 1px solid rgba(255, 255, 255, 0.07) !important;
+  border-left: 3px solid rgb(var(--kpi-rgb)) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03) !important;
+}
+
+html.theme-pearl.light .exec-kpi-inner::after,
+html.theme-pearl.dark .exec-kpi-inner::after,
+html.theme-pearl:not(.light) .exec-kpi-inner::after {
+  display: block !important;
+  content: '' !important;
+}
+
+html.theme-pearl.light .exec-kpi-inner::before,
+html.theme-pearl.dark .exec-kpi-inner::before,
+html.theme-pearl:not(.light) .exec-kpi-inner::before {
+  display: none !important;
+}
+
+html.theme-pearl.light .exec-kpi:hover .exec-kpi-inner,
+html.theme-pearl.dark .exec-kpi:hover .exec-kpi-inner,
+html.theme-pearl:not(.light) .exec-kpi:hover .exec-kpi-inner {
+  border-left-color: rgb(var(--kpi-rgb)) !important;
+  border-color: rgba(var(--kpi-rgb), 0.22) !important;
+  box-shadow:
+    0 4px 6px rgba(15, 23, 42, 0.04),
+    0 14px 32px -10px rgba(var(--kpi-rgb), 0.28) !important;
+}
+
+/* Stat cards — solid body + left accent (wash stays narrow via border) */
+html.theme-pearl.light .ui-stat {
+  background: #ffffff !important;
+  border: 1px solid var(--exec-border) !important;
+  border-left: 3px solid rgb(var(--stat-rgb)) !important;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 8px 22px -10px rgba(var(--stat-rgb), 0.1) !important;
+}
+
+html.theme-pearl.dark .ui-stat,
+html.theme-pearl:not(.light) .ui-stat {
+  background: #000000 !important;
+  border-left: 3px solid rgb(var(--stat-rgb)) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03) !important;
+}
+
+html.theme-pearl.light .ui-stat:hover {
+  box-shadow:
+    0 4px 6px rgba(15, 23, 42, 0.05),
+    0 14px 32px -10px rgba(var(--stat-rgb), 0.24) !important;
+}
+
+html.theme-pearl.dark .ui-stat:hover,
+html.theme-pearl:not(.light) .ui-stat:hover {
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+    0 16px 36px -12px rgba(var(--stat-rgb), 0.28) !important;
+}
+
+html.theme-pearl.light .exec-hero-kpi {
+  background: var(--exec-hero-bg) !important;
+  border: 1px solid rgba(var(--gradient-a-rgb), 0.12) !important;
+  box-shadow: 0 8px 24px -10px rgba(var(--gradient-a-rgb), 0.12) !important;
+}
+
+html.theme-pearl.dark .exec-hero-kpi,
+html.theme-pearl:not(.light) .exec-hero-kpi {
+  background: #000000 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+}
+
+.exec-title-accent,
+.dashboard-shell .exec-title-accent {
+  background: var(--accent-cta) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+}
+
+html.theme-pearl.dark .exec-title-accent,
+html.theme-pearl:not(.light) .exec-title-accent {
+  background: var(--accent-cta) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+}
+
+.topbar::after {
+  display: block !important;
+  content: '' !important;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(var(--gradient-a-rgb), 0.25), rgba(var(--gradient-b-rgb), 0.2), transparent) !important;
+  pointer-events: none;
+}
+
+.sidebar::before,
+.sidebar::after {
+  /* decorative rails — sidebar.css (loads last) */
+}

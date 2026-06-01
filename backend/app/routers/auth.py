@@ -16,6 +16,7 @@ from app.security.jwt_handler import (
 )
 from app.security.dependencies import get_current_user
 from app.services.crud import AuditService
+from app.config import settings
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
@@ -41,12 +42,15 @@ async def register(
     if result.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Username or email already registered")
 
+    existing = await db.execute(select(User.id).limit(1))
+    role = UserRole.ADMIN if settings.FIRST_USER_ADMIN and existing.scalar_one_or_none() is None else UserRole.VIEWER
+
     user = User(
         username=user_data.username,
         email=user_data.email,
         hashed_password=hash_password(user_data.password),
         full_name=user_data.full_name,
-        role=UserRole.VIEWER,
+        role=role,
     )
     db.add(user)
     await db.flush()

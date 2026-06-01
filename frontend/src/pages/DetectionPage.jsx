@@ -18,6 +18,7 @@ import {
 import useLivePoll from '../hooks/useLivePoll';
 import useWebSocket from '../hooks/useWebSocket';
 import CameraStream from '../components/CameraStream';
+import ContentCard from '../components/ui/ContentCard';
 
 export default function DetectionPage() {
     const [form, setForm] = useState({
@@ -195,11 +196,11 @@ export default function DetectionPage() {
             {notice && <div className="alert-banner info">{notice}</div>}
 
             <div className="two-col">
-                <div className="card">
-                    <div className="card-header">
-                        <h3 className="card-title">Add Video Feed</h3>
-                        <div className="card-subtitle">Primary flow: upload a video and run it as a virtual camera</div>
-                    </div>
+                <ContentCard
+                    title="Add Video Feed"
+                    subtitle="Primary flow: upload a video and run it as a virtual camera"
+                    accent="teal"
+                >
                     <form onSubmit={addCamera} style={{ display: 'grid', gap: 10 }}>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                             <div>
@@ -314,13 +315,13 @@ export default function DetectionPage() {
                             />
                         </label>
                     </form>
-                </div>
+                </ContentCard>
 
-                <div className="card">
-                    <div className="card-header">
-                        <h3 className="card-title">Session Status</h3>
-                        <div className="card-subtitle">Live counters for your active video feeds</div>
-                    </div>
+                <ContentCard
+                    title="Session Status"
+                    subtitle="Live counters for your active video feeds"
+                    accent="cyan"
+                >
                     <div style={{ display: 'grid', gap: 10 }}>
                         <Row label="State" value={pipeState?.state || 'idle'} />
                         <Row label="Total feeds" value={pipeState?.cameras?.total ?? activeCameras.length} />
@@ -335,20 +336,14 @@ export default function DetectionPage() {
                         <Row label="Recording"
                             value={recordingIds.size ? `${recordingIds.size} feed(s)` : 'idle'} />
                     </div>
-                </div>
+                </ContentCard>
             </div>
 
-            <div className="card" style={{ marginTop: 18 }}>
-                <div className="card-header">
-                    <h3 className="card-title">
-                        <Video size={16} style={{ verticalAlign: -3, marginRight: 6 }} />
-                        Active Video Feeds ({activeCameras.length})
-                    </h3>
-                    <div className="card-subtitle">
-                        People counts update in real time; FPS refreshes every 2 seconds
-                    </div>
-                </div>
-
+            <ContentCard
+                title={<> <Video size={16} style={{ verticalAlign: -3, marginRight: 6 }} /> Active Video Feeds ({activeCameras.length}) </>}
+                subtitle="People counts update in real time; FPS refreshes every 2 seconds"
+                accent="sky"
+            >
                 {activeCameras.length === 0 ? (
                     <div className="page-empty-hint">
                         No active feeds. Upload a video and add it as a feed above.
@@ -388,7 +383,7 @@ export default function DetectionPage() {
                         })}
                     </div>
                 )}
-            </div>
+            </ContentCard>
         </div>
     );
 }

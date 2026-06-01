@@ -7,6 +7,7 @@ import os
 import re
 import json
 import time
+import asyncio
 from pathlib import Path
 from typing import List, Optional
 
@@ -28,6 +29,14 @@ SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9_\-\.]+$")
 
 def _ensure_footage_dir():
     FOOTAGE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _within_dir(path: Path, base: Path) -> bool:
+    try:
+        path.resolve().relative_to(base.resolve())
+        return True
+    except ValueError:
+        return False
 
 
 class FootageItem(BaseModel):
@@ -92,12 +101,26 @@ async def upload_footage(
     if not name.endswith(ext):
         name += ext
     path = FOOTAGE_DIR / name
+    max_bytes = max(1, settings.MAX_UPLOAD_MB) * 1024 * 1024
+    written = 0
     try:
-        content = await file.read()
-        path.write_bytes(content)
+        with path.open("wb") as out:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > max_bytes:
+                    out.close()
+                    path.unlink(missing_ok=True)
+                    raise HTTPException(413, f"Upload exceeds {settings.MAX_UPLOAD_MB} MB limit")
+                await asyncio.to_thread(out.write, chunk)
     except Exception as e:
+        path.unlink(missing_ok=True)
+        if isinstance(e, HTTPException):
+            raise e
         raise HTTPException(500, f"Upload failed: {e}")
-    return {"filename": name, "camera_id": camera_id, "size": len(content)}
+    return {"filename": name, "camera_id": camera_id, "size": written}
 
 
 @router.get("/serve/{filename}")
@@ -110,7 +133,7 @@ async def serve_footage(
     if ".." in filename or not SAFE_NAME_RE.match(filename):
         raise HTTPException(400, "Invalid filename")
     path = FOOTAGE_DIR / filename
-    if not path.is_file():
+    if not _within_dir(path, FOOTAGE_DIR) or not path.is_file():
         raise HTTPException(404, "Clip not found")
     return FileResponse(path, media_type="video/mp4")
 
@@ -225,7 +248,12 @@ async def trim_by_track(
         log_data = json.load(f)
 
     video_file = log_data.get("video_file")
-    if not video_file or not Path(video_file).is_file():
+    video_path = Path(video_file) if video_file else None
+    if (
+        not video_path
+        or not video_path.is_file()
+        or not _within_dir(video_path, FOOTAGE_DIR)
+    ):
         raise HTTPException(404, f"Original video not found: {video_file}")
 
     # Collect frame numbers where this track_id appears
@@ -254,7 +282,7 @@ async def trim_by_track(
     segments.append((seg_start, seg_end))
 
     # Open source video
-    cap = cv2.VideoCapture(video_file)
+    cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         raise HTTPException(500, f"Cannot open video: {video_file}")
 
@@ -269,7 +297,7 @@ async def trim_by_track(
     # Create output clip — try H.264 (avc1) first for browser playback,
     # fall back to mp4v if codec unavailable.
     _ensure_footage_dir()
-    stem = Path(video_file).stem
+    stem = video_path.stem
     out_name = f"{stem}_track{track_id}.mp4"
     out_path = FOOTAGE_DIR / out_name
     writer = None

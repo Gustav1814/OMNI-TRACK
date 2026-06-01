@@ -14,8 +14,11 @@ WHAT YOU NEED:
 
 import json
 import time
+import asyncio
 from typing import Optional, Any, Dict
 from loguru import logger
+
+from app.config import settings
 
 try:
     import redis.asyncio as aioredis
@@ -50,29 +53,61 @@ class RedisCache:
         self._fallback: Dict[str, Any] = {}  # In-memory fallback if Redis unavailable
         self._fallback_ttl: Dict[str, float] = {}
 
-    async def connect(self) -> bool:
-        """Connect to Redis. Returns True if successful."""
+    async def connect(self, max_retries: int | None = None) -> bool:
+        """Connect to Redis with optional retries. Returns True if successful."""
         if not REDIS_AVAILABLE:
             logger.warning("Redis library not available — using in-memory fallback")
             return False
 
-        try:
-            self._client = aioredis.from_url(
-                self._url,
-                encoding="utf-8",
-                decode_responses=True,
-                socket_timeout=5,
-                socket_connect_timeout=5,
+        retries = (
+            max_retries
+            if max_retries is not None
+            else getattr(settings, "REDIS_STARTUP_MAX_RETRIES", 1)
+        )
+        last_err: Exception | None = None
+
+        for attempt in range(1, retries + 1):
+            try:
+                self._client = aioredis.from_url(
+                    self._url,
+                    encoding="utf-8",
+                    decode_responses=True,
+                    socket_timeout=5,
+                    socket_connect_timeout=5,
+                )
+                await self._client.ping()
+                self._connected = True
+                logger.info(f"✅ Redis connected: {self._url}")
+                return True
+            except Exception as e:
+                last_err = e
+                self._connected = False
+                if self._client:
+                    try:
+                        await self._client.close()
+                    except Exception:
+                        pass
+                    self._client = None
+                if attempt < retries:
+                    logger.info(
+                        f"Waiting for Redis ({attempt}/{retries})..."
+                    )
+                    await asyncio.sleep(2)
+
+        require_redis = getattr(settings, "REQUIRE_REDIS", False)
+        if require_redis:
+            hint = (
+                "Start infrastructure: docker compose up -d postgres redis "
+                "(from repo root)"
             )
-            # Test connection
-            await self._client.ping()
-            self._connected = True
-            logger.info(f"✅ Redis connected: {self._url}")
-            return True
-        except Exception as e:
-            logger.warning(f"Redis connection failed: {e} — using in-memory fallback")
-            self._connected = False
-            return False
+            raise ConnectionError(
+                f"Redis not available after {retries} attempts: {last_err}. {hint}"
+            )
+
+        logger.warning(
+            f"Redis connection failed: {last_err} — using in-memory fallback"
+        )
+        return False
 
     async def disconnect(self):
         """Close Redis connection."""

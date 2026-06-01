@@ -4,15 +4,18 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { motion } from 'framer-motion';
 import { TrendingUp, Clock, Users } from 'lucide-react';
 import {
     AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
 } from 'recharts';
 import { peakHoursAPI } from '../services/api';
 import useLivePoll from '../hooks/useLivePoll';
+import StatCard from '../components/ui/StatCard';
+import ContentCard from '../components/ui/ContentCard';
+import useGradientColors from '../hooks/useGradientColors';
 
 export default function PeakHoursPage() {
+    const { b } = useGradientColors();
     const [zone, setZone] = useState('');
     const { data } = useLivePoll(
         () => peakHoursAPI.today(zone || undefined),
@@ -48,20 +51,20 @@ export default function PeakHoursPage() {
             </div>
 
             <div className="stats-grid">
-                <Stat icon={Users} label="Total Visitors" value={Number(totalVisitors).toLocaleString()} accent="indigo" />
-                <Stat
+                <StatCard icon={Users} label="Total Visitors" value={Number(totalVisitors).toLocaleString()} accent="teal" />
+                <StatCard
                     icon={Clock}
                     label="Peak Hour"
                     value={peakHour != null ? `${String(peakHour).padStart(2, '0')}:00` : '—'}
-                    accent="gold"
+                    accent="coral"
                 />
-                <Stat
+                <StatCard
                     icon={TrendingUp}
                     label="Peak Visitors"
                     value={Number(peakCount || 0).toLocaleString()}
                     accent="rose"
                 />
-                <Stat
+                <StatCard
                     icon={Users}
                     label="Busiest Zone"
                     value={hourly.find((h) => h.hour === peakHour)?.busiest_zone || '—'}
@@ -69,10 +72,7 @@ export default function PeakHoursPage() {
                 />
             </div>
 
-            <div className="card">
-                <div className="card-header">
-                    <h3 className="card-title">Hourly Traffic</h3>
-                </div>
+            <ContentCard title="Hourly Traffic" accent="sky">
                 {chart.length === 0 ? (
                     <div className="page-empty-hint">
                         No traffic samples yet for today. Start the pipeline to record foot-traffic rows.
@@ -83,8 +83,8 @@ export default function PeakHoursPage() {
                             <AreaChart data={chart}>
                                 <defs>
                                     <linearGradient id="peakA" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.5} />
-                                        <stop offset="100%" stopColor="#22d3ee" stopOpacity={0} />
+                                        <stop offset="0%" stopColor={b} stopOpacity={0.5} />
+                                        <stop offset="100%" stopColor={b} stopOpacity={0} />
                                     </linearGradient>
                                 </defs>
                                 <CartesianGrid stroke="rgba(255,255,255,0.05)" />
@@ -99,22 +99,12 @@ export default function PeakHoursPage() {
                                         label={{ value: 'Peak', fill: '#f43f5e', fontSize: 10 }}
                                     />
                                 )}
-                                <Area type="monotone" dataKey="visitors" stroke="#22d3ee" strokeWidth={2} fill="url(#peakA)" />
+                                <Area type="monotone" dataKey="visitors" stroke={b} strokeWidth={2} fill="url(#peakA)" />
                             </AreaChart>
                         </ResponsiveContainer>
                     </div>
                 )}
-            </div>
+            </ContentCard>
         </div>
-    );
-}
-
-function Stat({ icon: Icon, label, value, accent = 'indigo' }) {
-    return (
-        <motion.div className="stat-card" whileHover={{ y: -2 }}>
-            <div className={`stat-icon stat-icon-${accent}`}><Icon size={18} /></div>
-            <div className="stat-label">{label}</div>
-            <div className="stat-value">{value}</div>
-        </motion.div>
     );
 }

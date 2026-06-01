@@ -1,0 +1,357 @@
+/* ============================================================
+   Canvas + UI accents — preset drives page atmosphere & chrome
+   Dashboard KPI cards keep fixed colors (kpiAccentColors.js)
+   ============================================================ */
+
+/* ── Page canvas — restrained executive wash ── */
+html.light .app-layout {
+  background:
+    radial-gradient(ellipse 120% 85% at 0% -5%, rgba(var(--gradient-a-rgb), 0.07), transparent 54%),
+    radial-gradient(ellipse 100% 75% at 100% 0%, rgba(var(--gradient-b-rgb), 0.05), transparent 50%),
+    #f8f9fa !important;
+}
+
+html.dark .app-layout,
+html:not(.light) .app-layout {
+  background: #000000 !important;
+}
+
+html.light body,
+html.light #root {
+  background: #f8f9fa !important;
+}
+
+html.dark body,
+html.dark #root,
+html:not(.light) body,
+html:not(.light) #root {
+  background: #000000 !important;
+}
+
+html.light .ambient-blob-a {
+  background: rgba(var(--gradient-a-rgb), 0.06) !important;
+}
+
+html.light .ambient-blob-b {
+  background: rgba(var(--gradient-b-rgb), 0.05) !important;
+}
+
+html.light .ambient-blob-c {
+  display: none !important;
+}
+
+html.dark .ambient-blob-a,
+html:not(.light) .ambient-blob-a {
+  background: rgba(var(--gradient-a-rgb), 0.04) !important;
+}
+
+html.dark .ambient-blob-b,
+html:not(.light) .ambient-blob-b {
+  background: rgba(var(--gradient-b-rgb), 0.03) !important;
+}
+
+.exec-title-accent {
+  background: linear-gradient(135deg, var(--gradient-a), var(--gradient-b));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* ── Global brand token wiring ── */
+html.light,
+html.dark,
+html:not(.light) {
+  --accent-primary: var(--gradient-a);
+  --accent-secondary: var(--gradient-b);
+  --accent-cyan: var(--gradient-b);
+  --accent-emerald: var(--gradient-b);
+  --exec-teal: var(--gradient-a);
+  --exec-sky: var(--gradient-b);
+  --exec-coral: var(--gradient-a);
+  --exec-emerald: var(--gradient-b);
+  --accent-cta: linear-gradient(135deg, var(--gradient-a) 0%, var(--gradient-b) 100%);
+  --accent-soft: linear-gradient(135deg, rgba(var(--gradient-a-rgb), 0.12), rgba(var(--gradient-b-rgb), 0.06));
+  --exec-bar-track: rgba(var(--gradient-a-rgb), 0.12);
+}
+
+.btn-primary,
+.topbar-pill-primary {
+  background: var(--accent-cta) !important;
+  border-color: rgba(var(--gradient-a-rgb), 0.35) !important;
+}
+
+html.light .btn-primary:hover,
+html.light .topbar-pill-primary:hover {
+  box-shadow: 0 6px 20px -6px rgba(var(--gradient-a-rgb), 0.35) !important;
+}
+
+html.dark .btn-primary,
+html:not(.light) .btn-primary,
+html.dark .topbar-pill-primary,
+html:not(.light) .topbar-pill-primary {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.18) 0%,
+    rgba(255, 255, 255, 0.06) 38%,
+    rgba(var(--gradient-a-rgb), 0.42) 100%
+  ) !important;
+}
+
+html.dark .btn-primary:hover,
+html:not(.light) .btn-primary:hover {
+  box-shadow:
+    0 8px 28px -8px rgba(var(--gradient-a-rgb), 0.45),
+    0 0 32px -12px rgba(var(--gradient-b-rgb), 0.2) !important;
+}
+
+.sidebar::before {
+  background: linear-gradient(
+    180deg,
+    transparent,
+    var(--gradient-a),
+    var(--gradient-b),
+    var(--gradient-a),
+    transparent
+  ) !important;
+  box-shadow: 0 0 16px rgba(var(--gradient-a-rgb), 0.25) !important;
+}
+
+.sidebar-logo {
+  background: var(--accent-cta) !important;
+  box-shadow: 0 4px 16px -4px rgba(var(--gradient-a-rgb), 0.45) !important;
+}
+
+html.light .nav-section-label,
+html.dark .nav-section-label,
+html:not(.light) .nav-section-label {
+  color: rgba(var(--gradient-a-rgb), 0.72) !important;
+}
+
+html.light .nav-item.active,
+html.dark .nav-item.active,
+html:not(.light) .nav-item.active {
+  background: linear-gradient(
+    110deg,
+    rgba(var(--gradient-a-rgb), 0.16) 0%,
+    rgba(var(--gradient-a-rgb), 0.06) 45%,
+    transparent 100%
+  ) !important;
+  border-color: rgba(var(--gradient-a-rgb), 0.22) !important;
+  box-shadow: 0 0 20px -6px rgba(var(--gradient-a-rgb), 0.25) !important;
+}
+
+html.light .nav-item.active span,
+html.dark .nav-item.active span,
+html:not(.light) .nav-item.active span {
+  color: var(--exec-ink) !important;
+}
+
+html.light .nav-item.active svg,
+html.dark .nav-item.active svg,
+html:not(.light) .nav-item.active svg {
+  color: var(--gradient-a) !important;
+  filter: drop-shadow(0 0 6px rgba(var(--gradient-a-rgb), 0.35));
+}
+
+html.light .nav-item.active::before,
+html.dark .nav-item.active::before,
+html:not(.light) .nav-item.active::before {
+  background: linear-gradient(180deg, var(--gradient-a), var(--gradient-b)) !important;
+  box-shadow: 0 0 12px rgba(var(--gradient-a-rgb), 0.55) !important;
+}
+
+html.light .nav-item-badge--live,
+html.dark .nav-item-badge--live,
+html:not(.light) .nav-item-badge--live {
+  background: rgba(var(--gradient-a-rgb), 0.12) !important;
+  color: var(--gradient-a) !important;
+  border-color: rgba(var(--gradient-a-rgb), 0.22) !important;
+}
+
+html.dark .nav-item.active,
+html:not(.light) .nav-item.active {
+  color: var(--gradient-a) !important;
+}
+
+html.light .sidebar,
+html.dark .sidebar,
+html:not(.light) .sidebar {
+  box-shadow:
+    inset -1px 0 0 rgba(var(--gradient-a-rgb), 0.14),
+    4px 0 24px -8px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* KPI wash — theme on sub-pages; dashboard uses --kpi-rgb from fixed palette */
+.exec-kpi-inner::after {
+  background: linear-gradient(
+    110deg,
+    rgba(var(--gradient-a-rgb), 0.1) 0%,
+    rgba(var(--gradient-a-rgb), 0.03) 30%,
+    transparent 50%
+  ) !important;
+}
+
+.ui-status-tile-value--ok,
+.ui-status-tile-value--teal {
+  color: var(--gradient-a) !important;
+}
+
+.ui-status-tile-value--sky,
+.ui-status-tile-value--cyan {
+  color: var(--gradient-b) !important;
+}
+
+.ui-stat::after {
+  background: linear-gradient(
+    110deg,
+    rgba(var(--stat-rgb), 0.1) 0%,
+    rgba(var(--stat-rgb), 0.03) 30%,
+    transparent 50%
+  ) !important;
+}
+
+.page-scroll .data-table th,
+.ui-table th {
+  background: rgba(var(--gradient-a-rgb), 0.06) !important;
+}
+
+.page-scroll .data-table tbody tr:hover td,
+.ui-table tbody tr:hover td {
+  background: rgba(var(--gradient-a-rgb), 0.06) !important;
+}
+
+.page-scroll .page-empty-hint {
+  border-color: rgba(var(--gradient-a-rgb), 0.25) !important;
+  background: rgba(var(--gradient-a-rgb), 0.04) !important;
+}
+
+.page-scroll .pill-info {
+  color: var(--gradient-b) !important;
+  background: rgba(var(--gradient-b-rgb), 0.1) !important;
+  border-color: rgba(var(--gradient-b-rgb), 0.25) !important;
+}
+
+.page-scroll .pill-success {
+  color: var(--gradient-a) !important;
+  background: rgba(var(--gradient-a-rgb), 0.1) !important;
+  border-color: rgba(var(--gradient-a-rgb), 0.25) !important;
+}
+
+.ui-timeline-card {
+  border-left-color: var(--gradient-a) !important;
+}
+
+.ui-timeline-card::after {
+  background: linear-gradient(110deg, rgba(var(--gradient-a-rgb), 0.08) 0%, transparent 45%) !important;
+}
+
+html.light .exec-activity-badge.match,
+html:not(.light) .exec-activity-badge.match {
+  background: rgba(var(--gradient-a-rgb), 0.14) !important;
+  color: var(--gradient-a) !important;
+}
+
+html.light .exec-activity-badge.pulse,
+html:not(.light) .exec-activity-badge.pulse {
+  background: rgba(var(--gradient-b-rgb), 0.14) !important;
+  color: var(--gradient-b) !important;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline-color: var(--gradient-a) !important;
+}
+
+.live-dot,
+.nav-item-badge--live {
+  background: var(--gradient-a) !important;
+}
+
+html.dark .theme-toggle-track.dark,
+html:not(.light) .theme-toggle-track.dark {
+  background: rgba(var(--gradient-a-rgb), 0.22) !important;
+}
+
+html.dark .topbar::after,
+html:not(.light) .topbar::after {
+  display: none !important;
+}
+
+.progress-bar-fill {
+  background: var(--gradient-a) !important;
+}
+
+html.light .login-title,
+html.light .gradient-headline {
+  background: linear-gradient(135deg, #111827 0%, var(--gradient-a) 55%, var(--gradient-b) 100%) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+}
+
+html.light .login-showcase {
+  background: linear-gradient(160deg, rgba(var(--gradient-b-rgb), 0.08), rgba(var(--gradient-a-rgb), 0.06)) !important;
+}
+
+.ui-content-card-accent--teal,
+.ui-content-card-accent--emerald,
+.ui-content-card-accent--coral {
+  color: var(--gradient-a) !important;
+}
+
+.ui-content-card-accent--sky,
+.ui-content-card-accent--cyan {
+  color: var(--gradient-b) !important;
+}
+
+.ui-delta--up {
+  color: var(--gradient-a) !important;
+}
+
+.ui-timeline-badge--match {
+  background: rgba(var(--gradient-a-rgb), 0.12) !important;
+  color: var(--gradient-a) !important;
+}
+
+.ui-timeline-badge--pulse {
+  background: rgba(var(--gradient-b-rgb), 0.12) !important;
+  color: var(--gradient-b) !important;
+}
+
+html.light .pearl-headline,
+html.light .premium-headline {
+  background: var(--accent-cta) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+}
+
+.gradient-preset-card:hover {
+  border-color: rgba(var(--gradient-a-rgb), 0.35) !important;
+}
+
+.settings-theme-btn.is-active {
+  border-color: var(--gradient-a) !important;
+  color: var(--gradient-a) !important;
+  background: rgba(var(--gradient-a-rgb), 0.08) !important;
+}
+
+/* ── Dashboard KPI lock — fixed palette regardless of canvas preset ── */
+.dashboard-shell .exec-kpi-inner::after {
+  background: linear-gradient(
+    110deg,
+    rgba(var(--kpi-rgb), 0.1) 0%,
+    rgba(var(--kpi-rgb), 0.03) 30%,
+    transparent 50%
+  ) !important;
+}
+
+.dashboard-shell .exec-hero-kpi-value.teal { color: #0d9488 !important; }
+.dashboard-shell .exec-hero-kpi-value.sky { color: #0ea5e9 !important; }
+.dashboard-shell .exec-hero-kpi-value.coral { color: #f97316 !important; }
+.dashboard-shell .exec-hero-kpi-value.emerald { color: #10b981 !important; }
+
+.dashboard-shell .ui-ring--emerald .ui-ring-fill { stroke: #10b981 !important; }

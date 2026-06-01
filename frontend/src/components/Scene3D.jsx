@@ -6,6 +6,7 @@
 import React, { useRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { Float, MeshTransmissionMaterial } from '@react-three/drei';
+import useGradientColors from '../hooks/useGradientColors';
 
 function Orb({ mouse }) {
   const mesh = useRef();
@@ -34,7 +35,7 @@ function Orb({ mouse }) {
           iridescence={0.15}
           iridescenceIOR={1}
           iridescenceThicknessRange={[0, 1000]}
-          color="#08080c"
+          color="#0a0b0d"
           transmission={0.92}
           clearcoat={0.15}
           clearcoatRoughness={0.15}
@@ -45,7 +46,7 @@ function Orb({ mouse }) {
   );
 }
 
-function Ring({ mouse }) {
+function Ring({ mouse, color }) {
   const mesh = useRef();
   useFrame((state) => {
     if (!mesh.current) return;
@@ -57,12 +58,12 @@ function Ring({ mouse }) {
   return (
     <mesh ref={mesh} position={[0, 0, -1]}>
       <torusGeometry args={[2.2, 0.02, 16, 64]} />
-      <meshBasicMaterial color="#6366f1" transparent opacity={0.12} />
+      <meshBasicMaterial color={color} transparent opacity={0.12} />
     </mesh>
   );
 }
 
-function SceneContent({ mouse }) {
+function SceneContent({ mouse, accentColor }) {
   return (
     <>
       <color attach="background" args={['#030304']} />
@@ -71,7 +72,7 @@ function SceneContent({ mouse }) {
       <pointLight position={[8, 8, 8]} intensity={0.4} color="#1a1a2e" />
       <pointLight position={[-6, -6, 6]} intensity={0.22} color="#0f0f18" />
       <pointLight position={[0, 0, 10]} intensity={0.18} color="#16162a" />
-      <Ring mouse={mouse} />
+      <Ring mouse={mouse} color={accentColor} />
       <Orb mouse={mouse} />
     </>
   );
@@ -79,6 +80,7 @@ function SceneContent({ mouse }) {
 
 export default function Scene3D() {
   const mouse = useRef({ x: 0, y: 0 });
+  const { a } = useGradientColors();
 
   return (
     <div
@@ -96,7 +98,7 @@ export default function Scene3D() {
         dpr={[1, 1.5]}
         gl={{ alpha: true, antialias: true, powerPreference: 'high-performance' }}
       >
-        <SceneContent mouse={mouse} />
+        <SceneContent mouse={mouse} accentColor={a} />
       </Canvas>
     </div>
   );

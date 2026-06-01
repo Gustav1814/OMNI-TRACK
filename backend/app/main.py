@@ -49,8 +49,8 @@ warnings.filterwarnings(
 logging.getLogger("tensorflow").setLevel(logging.ERROR)
 
 # Database
-from sqlalchemy import text
-from app.database import engine, Base, get_db
+from app.database import engine, get_db, AsyncSessionLocal
+from app.db.maintenance import ensure_database_ready, get_database_health
 
 # Middleware
 from app.middleware import (
@@ -84,8 +84,9 @@ from app.routers.analytics import (
 
 # Config
 from app.config import settings
+from app.plugins import PluginContext, PluginManager
 from app.security.adversarial_eval import get_robustness_status
-from app.security.dependencies import get_current_user
+from app.security.dependencies import get_current_user, get_user_from_token
 from app.models.user import User
 
 
@@ -103,6 +104,9 @@ pipeline = ProcessingPipeline(
     confidence=settings.DETECTION_CONFIDENCE,
     device=settings.DEVICE,
     processing_fps=settings.PROCESSING_FPS,
+    max_cameras=settings.MAX_CAMERAS,
+    frame_buffer_size=settings.FRAME_BUFFER_SIZE,
+    default_skip_frames=settings.DEFAULT_SKIP_FRAMES,
     reid_threshold=getattr(settings, "REID_SIMILARITY_THRESHOLD", 0.6),
     reid_embeddings_per_id=getattr(settings, "REID_EMBEDDINGS_PER_ID", 5),
 )
@@ -115,6 +119,17 @@ persistence_callback = PersistencePipelineCallback(
     pipeline=pipeline,
     model_version=getattr(settings, "REID_MODEL", "osnet_x1_0"),
 )
+
+# Optional trusted integrations. Plugins are explicitly enabled via
+# ENABLED_PLUGINS and can add routes plus non-blocking pipeline hooks.
+plugin_manager = PluginManager(settings.ENABLED_PLUGINS)
+
+
+async def _authenticate_websocket(ws: WebSocket) -> User | None:
+    """Authenticate browser WebSockets using ?token=JWT before accept."""
+    token = ws.query_params.get("token")
+    async with AsyncSessionLocal() as db:
+        return await get_user_from_token(token, db)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -142,24 +157,25 @@ async def lifespan(app: FastAPI):
     logger.info("  OmniTrack AI — Starting Up")
     logger.info("═" * 60)
 
-    # 1. Ensure pgvector extension (PostgreSQL only), then create database tables
+    # 1. Enterprise DB setup: wait, migrate, ANALYZE, retention
+    db_info: dict = {}
     try:
-        async with engine.begin() as conn:
-            # Only create pgvector extension for PostgreSQL (not SQLite)
-            if settings.DATABASE_URL.startswith("postgresql"):
-                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-                logger.info("✅ pgvector extension enabled")
-            await conn.run_sync(Base.metadata.create_all)
-        logger.info("✅ Database tables ready")
+        db_info = await ensure_database_ready()
+        logger.info(
+            f"✅ Database ready (revision={db_info.get('revision')}, "
+            f"pgvector={db_info.get('pgvector')})"
+        )
     except Exception as e:
         logger.error(f"❌ Database error: {e}")
+        if settings.REQUIRE_DATABASE:
+            raise
         logger.warning("   → Running without database (using mock data)")
 
-    # 2. Connect Redis
+    # 2. Connect Redis (retries; raises if REQUIRE_REDIS and unavailable)
     redis_ok = await cache.connect()
     if redis_ok:
         logger.info("✅ Redis connected")
-    else:
+    elif not settings.REQUIRE_REDIS:
         logger.warning("⚠️  Redis unavailable — using in-memory fallback")
 
     # 2b. Ensure storage dirs (local playback & exports)
@@ -178,6 +194,8 @@ async def lifespan(app: FastAPI):
         if restored:
             logger.info(f"✅ Restored {restored} Re-ID embeddings from pgvector")
     except Exception as e:
+        if settings.REQUIRE_DATABASE:
+            raise
         logger.warning(f"⚠️  Re-ID gallery warm-up skipped: {e}")
 
     # 3c. Register persistence + lifecycle hooks so pipeline ticks
@@ -190,6 +208,21 @@ async def lifespan(app: FastAPI):
     app.state.broadcast = broadcast
     app.state.pipeline = pipeline
     app.state.persistence = persistence_callback
+    app.state.plugins = plugin_manager
+    app.state.db_info = db_info
+
+    plugin_context = PluginContext(
+        app=app,
+        settings=settings,
+        cache=cache,
+        broadcast=broadcast,
+        pipeline=pipeline,
+        persistence=persistence_callback,
+    )
+    if plugin_manager.enabled:
+        await plugin_manager.startup(plugin_context)
+        plugin_manager.register_pipeline_hooks(pipeline)
+        logger.info(f"✅ Plugins active: {plugin_manager.loaded_names}")
 
     elapsed = time.time() - startup_time
     logger.info(f"✅ OmniTrack AI ready in {elapsed:.2f}s")
@@ -199,6 +232,8 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("🛑 Shutting down OmniTrack AI...")
+    if plugin_manager.enabled:
+        await plugin_manager.shutdown(plugin_context)
     await pipeline.stop()
     await cache.disconnect()
     await engine.dispose()
@@ -222,6 +257,10 @@ app = FastAPI(
     redoc_url="/redoc",
     lifespan=lifespan,
 )
+
+if plugin_manager.enabled:
+    plugin_manager.load()
+    plugin_manager.register_routes(app)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -317,13 +356,9 @@ async def health_check():
     Comprehensive health check.
     Shows DB, Redis, AI models, and camera status.
     """
-    # DB check
-    db_status = "healthy"
-    try:
-        async with engine.connect() as conn:
-            await conn.execute(text("SELECT 1"))
-    except Exception:
-        db_status = "unhealthy"
+    # DB check (pool stats, migration revision, pgvector HNSW)
+    db_health = await get_database_health()
+    db_status = db_health.get("status", "unhealthy")
 
     # Redis check
     redis_health = await cache.health()
@@ -336,7 +371,7 @@ async def health_check():
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "version": "1.0.0",
         "components": {
-            "database": db_status,
+            "database": db_health,
             "redis": redis_health,
             "pipeline": {
                 "state": pipeline_status["state"],
@@ -345,12 +380,16 @@ async def health_check():
             },
             "ai_modules": pipeline_status["ai_modules"],
             "websocket": broadcast.stats,
+            "plugins": {
+                "enabled": plugin_manager.enabled,
+                "loaded": plugin_manager.loaded_names,
+            },
         },
     }
 
 
 @app.get("/api/pipeline/status", tags=["Pipeline"])
-async def get_pipeline_status():
+async def get_pipeline_status(current_user: User = Depends(get_current_user)):
     """Get detailed multi-camera pipeline status."""
     # Try cache first
     cached = await cache.get_pipeline_state()
@@ -363,7 +402,7 @@ async def get_pipeline_status():
 
 
 @app.post("/api/pipeline/start", tags=["Pipeline"])
-async def start_pipeline():
+async def start_pipeline(current_user: User = Depends(get_current_user)):
     """Start the multi-camera processing pipeline."""
     if pipeline.state.value == "running":
         raise HTTPException(400, "Pipeline already running")
@@ -372,7 +411,7 @@ async def start_pipeline():
 
 
 @app.post("/api/pipeline/stop", tags=["Pipeline"])
-async def stop_pipeline():
+async def stop_pipeline(current_user: User = Depends(get_current_user)):
     """Stop the processing pipeline."""
     await pipeline.stop()
     return {"status": "stopped"}
@@ -384,8 +423,9 @@ async def add_pipeline_camera(
     source: str,
     stream_type: str = "rtsp",
     zone: str = "default",
-    fps: int = 30,
-    skip_frames: int = 1,
+    fps: int = settings.PROCESSING_FPS,
+    skip_frames: int = settings.DEFAULT_SKIP_FRAMES,
+    current_user: User = Depends(get_current_user),
 ):
     """
     Add a camera to the live processing pipeline.
@@ -395,19 +435,25 @@ async def add_pipeline_camera(
       - File:  /path/to/test_video.mp4
       - Webcam: 0  (device index)
     """
-    pipeline.add_camera(
-        camera_id=camera_id,
-        source=source,
-        stream_type=stream_type,
-        zone=zone,
-        fps=fps,
-        skip_frames=skip_frames,
-    )
+    try:
+        pipeline.add_camera(
+            camera_id=camera_id,
+            source=source,
+            stream_type=stream_type,
+            zone=zone,
+            fps=fps,
+            skip_frames=skip_frames,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"status": "added", "camera_id": camera_id, "zone": zone}
 
 
 @app.get("/api/pipeline/results", tags=["Pipeline"])
-async def get_latest_results(camera_id: int = None):
+async def get_latest_results(
+    camera_id: int = None,
+    current_user: User = Depends(get_current_user),
+):
     """Get the latest processing results from all or a specific camera."""
     results = pipeline.get_latest_results(camera_id)
     if not results:
@@ -492,6 +538,11 @@ async def websocket_live(ws: WebSocket):
       - vibe_update: Store Vibe Score changes
       - reid_match: Cross-camera person match
     """
+    user = await _authenticate_websocket(ws)
+    if user is None:
+        await ws.close(code=1008, reason="Authentication required")
+        return
+
     await broadcast.subscribe(ws, channel="all")
     try:
         while True:
@@ -519,6 +570,11 @@ async def websocket_camera(ws: WebSocket, camera_id: int):
     Per-camera WebSocket feed.
     Only sends events for a specific camera.
     """
+    user = await _authenticate_websocket(ws)
+    if user is None:
+        await ws.close(code=1008, reason="Authentication required")
+        return
+
     channel = f"camera_{camera_id}"
     await broadcast.subscribe(ws, channel)
     try:

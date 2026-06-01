@@ -4,31 +4,33 @@
  * Light/dark theme via ThemeProvider (main.jsx) and toggle in Sidebar.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { RefreshCw, PlayCircle, Check, Radio } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import CustomCursor from './components/CustomCursor';
-import Scene3D from './components/Scene3D';
-// Pages
-import LoginPage from './pages/LoginPage';
-import RegisterPage from './pages/RegisterPage';
-import DashboardPage from './pages/DashboardPage';
-import DetectionPage from './pages/DetectionPage';
-import ReIDPage from './pages/ReIDPage';
-import SynopsisPage from './pages/SynopsisPage';
-import ShelfPage from './pages/ShelfPage';
-import FirePage from './pages/FirePage';
-import CrowdPage from './pages/CrowdPage';
-import CheckoutPage from './pages/CheckoutPage';
-import EmotionPage from './pages/EmotionPage';
-import AuditPage from './pages/AuditPage';
-import VibePage from './pages/VibePage';
-import PeakHoursPage from './pages/PeakHoursPage';
-import DemographicsPage from './pages/DemographicsPage';
-import SecurityPage from './pages/SecurityPage';
-import TrimPage from './pages/TrimPage';
+
+// Lazy-load heavy and route-level modules to reduce initial bundle cost.
+const Scene3D = lazy(() => import('./components/Scene3D'));
+const LoginPage = lazy(() => import('./pages/LoginPage'));
+const RegisterPage = lazy(() => import('./pages/RegisterPage'));
+const DashboardPage = lazy(() => import('./pages/DashboardPage'));
+const DetectionPage = lazy(() => import('./pages/DetectionPage'));
+const ReIDPage = lazy(() => import('./pages/ReIDPage'));
+const SynopsisPage = lazy(() => import('./pages/SynopsisPage'));
+const ShelfPage = lazy(() => import('./pages/ShelfPage'));
+const FirePage = lazy(() => import('./pages/FirePage'));
+const CrowdPage = lazy(() => import('./pages/CrowdPage'));
+const CheckoutPage = lazy(() => import('./pages/CheckoutPage'));
+const EmotionPage = lazy(() => import('./pages/EmotionPage'));
+const AuditPage = lazy(() => import('./pages/AuditPage'));
+const VibePage = lazy(() => import('./pages/VibePage'));
+const PeakHoursPage = lazy(() => import('./pages/PeakHoursPage'));
+const DemographicsPage = lazy(() => import('./pages/DemographicsPage'));
+const SecurityPage = lazy(() => import('./pages/SecurityPage'));
+const TrimPage = lazy(() => import('./pages/TrimPage'));
+const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 
 const pageTitles = {
     '/': 'Live Overview',
@@ -46,6 +48,7 @@ const pageTitles = {
     '/peak-hours': 'Rush Hours',
     '/demographics': 'Audience Mix',
     '/security': 'Model Health',
+    '/settings': 'Settings',
 };
 
 function TopBar() {
@@ -95,7 +98,11 @@ function ProtectedLayout() {
     return (
         <div className="app-layout">
             <CustomCursor />
-            {isDashboard && <Scene3D />}
+            {isDashboard ? (
+                <Suspense fallback={null}>
+                    <Scene3D />
+                </Suspense>
+            ) : null}
             <div className="ambient-bg">
                 <div className="ambient-blob ambient-blob-a" />
                 <div className="ambient-blob ambient-blob-b" />
@@ -113,24 +120,27 @@ function ProtectedLayout() {
                         transition={{ duration: 0.25, ease: [0.25, 0.46, 0.45, 0.94] }}
                         style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
                     >
-                        <Routes>
-                            <Route path="/" element={<DashboardPage />} />
-                            <Route path="/detection" element={<DetectionPage />} />
-                            <Route path="/reid" element={<ReIDPage />} />
-                            <Route path="/synopsis" element={<SynopsisPage />} />
-                            <Route path="/trim" element={<TrimPage />} />
-                            <Route path="/shelf" element={<ShelfPage />} />
-                            <Route path="/fire" element={<FirePage />} />
-                            <Route path="/crowd" element={<CrowdPage />} />
-                            <Route path="/checkout" element={<CheckoutPage />} />
-                            <Route path="/emotion" element={<EmotionPage />} />
-                            <Route path="/audit" element={<AuditPage />} />
-                            <Route path="/vibe" element={<VibePage />} />
-                            <Route path="/peak-hours" element={<PeakHoursPage />} />
-                            <Route path="/demographics" element={<DemographicsPage />} />
-                            <Route path="/security" element={<SecurityPage />} />
-                            <Route path="*" element={<Navigate to="/" />} />
-                        </Routes>
+                        <Suspense fallback={<div className="dashboard-empty-note">Loading page...</div>}>
+                            <Routes>
+                                <Route path="/" element={<DashboardPage />} />
+                                <Route path="/detection" element={<DetectionPage />} />
+                                <Route path="/reid" element={<ReIDPage />} />
+                                <Route path="/synopsis" element={<SynopsisPage />} />
+                                <Route path="/trim" element={<TrimPage />} />
+                                <Route path="/shelf" element={<ShelfPage />} />
+                                <Route path="/fire" element={<FirePage />} />
+                                <Route path="/crowd" element={<CrowdPage />} />
+                                <Route path="/checkout" element={<CheckoutPage />} />
+                                <Route path="/emotion" element={<EmotionPage />} />
+                                <Route path="/audit" element={<AuditPage />} />
+                                <Route path="/vibe" element={<VibePage />} />
+                                <Route path="/peak-hours" element={<PeakHoursPage />} />
+                                <Route path="/demographics" element={<DemographicsPage />} />
+                                <Route path="/security" element={<SecurityPage />} />
+                                <Route path="/settings" element={<SettingsPage />} />
+                                <Route path="*" element={<Navigate to="/" />} />
+                            </Routes>
+                        </Suspense>
                     </motion.div>
                 </div>
             </div>
@@ -150,11 +160,13 @@ export default function App() {
 
     return (
         <BrowserRouter>
-            <Routes>
-                <Route path="/login" element={<LoginPage onLogin={() => setIsAuth(true)} />} />
-                <Route path="/register" element={<RegisterPage onRegister={() => setIsAuth(true)} />} />
-                <Route path="/*" element={isAuth ? <ProtectedLayout /> : <Navigate to="/login" />} />
-            </Routes>
+            <Suspense fallback={<div className="dashboard-empty-note">Loading...</div>}>
+                <Routes>
+                    <Route path="/login" element={<LoginPage onLogin={() => setIsAuth(true)} />} />
+                    <Route path="/register" element={<RegisterPage onRegister={() => setIsAuth(true)} />} />
+                    <Route path="/*" element={isAuth ? <ProtectedLayout /> : <Navigate to="/login" />} />
+                </Routes>
+            </Suspense>
         </BrowserRouter>
     );
 }

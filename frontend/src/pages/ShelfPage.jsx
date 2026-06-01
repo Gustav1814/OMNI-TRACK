@@ -4,13 +4,16 @@
  */
 
 import React from 'react';
-import { motion } from 'framer-motion';
 import { ShoppingBag, Clock, Award } from 'lucide-react';
 import {
     BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts';
 import { shelfAPI } from '../services/api';
 import useLivePoll from '../hooks/useLivePoll';
+import StatCard from '../components/ui/StatCard';
+import ContentCard from '../components/ui/ContentCard';
+
+const CORAL = '#f97316';
 
 export default function ShelfPage() {
     const { data: engagement } = useLivePoll(() => shelfAPI.engagement(), { intervalMs: 5000 });
@@ -35,21 +38,21 @@ export default function ShelfPage() {
             </div>
 
             <div className="stats-grid">
-                <Stat icon={ShoppingBag} label="Zones Tracked" value={zones.length} accent="indigo" />
-                <Stat
+                <StatCard icon={ShoppingBag} label="Zones Tracked" value={zones.length} accent="teal" />
+                <StatCard
                     icon={Clock}
                     label="Avg Dwell"
                     value={zones.length ? (zones.reduce((a, z) => a + (z.avg_dwell_time || 0), 0) / zones.length).toFixed(1) : 0}
                     suffix="s"
                     accent="cyan"
                 />
-                <Stat
+                <StatCard
                     icon={Award}
                     label="Top Zone"
                     value={zones[0]?.zone_name || '—'}
-                    accent="gold"
+                    accent="coral"
                 />
-                <Stat
+                <StatCard
                     icon={ShoppingBag}
                     label="Total Visits"
                     value={zones.reduce((a, z) => a + (z.visit_count || 0), 0)}
@@ -57,11 +60,7 @@ export default function ShelfPage() {
                 />
             </div>
 
-            <div className="card">
-                <div className="card-header">
-                    <h3 className="card-title">Engagement Score by Zone</h3>
-                    <div className="card-subtitle">Top 10 shelves</div>
-                </div>
+            <ContentCard title="Engagement Score by Zone" subtitle="Top 10 shelves" accent="coral">
                 {chartData.length === 0 ? (
                     <div className="page-empty-hint">
                         No engagement data yet — run the pipeline on a clip with a shelf camera.
@@ -74,60 +73,40 @@ export default function ShelfPage() {
                                 <XAxis type="number" stroke="#71717a" fontSize={11} />
                                 <YAxis dataKey="name" type="category" stroke="#71717a" fontSize={11} width={120} />
                                 <Tooltip contentStyle={{ background: '#111', border: '1px solid #222' }} />
-                                <Bar dataKey="score" fill="#d4af37" radius={[0, 6, 6, 0]} />
+                                <Bar dataKey="score" fill={CORAL} radius={[0, 6, 6, 0]} />
                             </BarChart>
                         </ResponsiveContainer>
                     </div>
                 )}
-            </div>
+            </ContentCard>
 
             <div className="two-col">
-                <div className="card">
-                    <div className="card-header">
-                        <h3 className="card-title">All Zones</h3>
-                    </div>
-                    <div style={{ display: 'grid', gap: 6, maxHeight: 360, overflow: 'auto' }}>
+                <ContentCard title="All Zones" accent="teal">
+                    <div className="ui-feed-list" style={{ maxHeight: 360, overflow: 'auto' }}>
                         {zones.map((z) => (
-                            <div key={z.zone_id} style={{
-                                display: 'grid',
-                                gridTemplateColumns: '40px 1fr 80px 80px 80px',
-                                gap: 10, alignItems: 'center',
-                                padding: '10px 12px',
-                                background: 'var(--bg-glass)',
-                                border: '1px solid var(--border)', borderRadius: 10,
-                            }}>
+                            <div
+                                key={z.zone_id}
+                                className="ui-lane-row"
+                                style={{ gridTemplateColumns: '40px 1fr 80px 80px 80px' }}
+                            >
                                 <span className="pill pill-info" style={{ justifyContent: 'center' }}>#{z.rank}</span>
-                                <span style={{ fontWeight: 600 }}>{z.zone_name}</span>
+                                <span className="ui-lane-row-title">{z.zone_name}</span>
                                 <span style={{ fontSize: 12 }}>{z.visit_count} visits</span>
                                 <span style={{ fontSize: 12 }}>{z.avg_dwell_time?.toFixed(1)}s</span>
-                                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent-gold)' }}>
+                                <span style={{ fontSize: 12, fontWeight: 600, color: CORAL }}>
                                     {z.engagement_score?.toFixed(1)}
                                 </span>
                             </div>
                         ))}
                     </div>
-                </div>
+                </ContentCard>
 
-                <div className="card">
-                    <div className="card-header">
-                        <h3 className="card-title">Top Zones</h3>
-                        <div className="card-subtitle">From /shelf/top-zones</div>
-                    </div>
-                    <pre style={{ fontSize: 12, color: 'var(--text-secondary)', maxHeight: 360, overflow: 'auto' }}>
+                <ContentCard title="Top Zones" subtitle="From /shelf/top-zones" accent="sky">
+                    <pre className="ui-code-block">
                         {topZonesList.length ? JSON.stringify(topZonesList, null, 2) : '—'}
                     </pre>
-                </div>
+                </ContentCard>
             </div>
         </div>
-    );
-}
-
-function Stat({ icon: Icon, label, value, suffix = '', accent = 'indigo' }) {
-    return (
-        <motion.div className="stat-card" whileHover={{ y: -2 }}>
-            <div className={`stat-icon stat-icon-${accent}`}><Icon size={18} /></div>
-            <div className="stat-label">{label}</div>
-            <div className="stat-value">{value}{suffix}</div>
-        </motion.div>
     );
 }

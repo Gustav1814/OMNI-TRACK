@@ -1,17 +1,14 @@
 /**
  * OmniTrack AI — Re-Identification (live)
- * ────────────────────────────────────────
- * • Gallery size + Re-ID model version from /api/pipeline/status.
- * • Active persons (most recent global IDs) from /api/reid/active.
- * • Per-person journey lookup via /api/reid/journey/{id}.
- * • Live cross-camera match feed via WebSocket (reid_match).
  */
 
-import React, { useMemo, useState } from 'react';
-import { motion } from 'framer-motion';
+import React, { useState } from 'react';
 import { Users, Search, Route, ArrowRight } from 'lucide-react';
 import { reidAPI, pipelineAPI } from '../services/api';
 import useLivePoll from '../hooks/useLivePoll';
+import StatCard from '../components/ui/StatCard';
+import ContentCard from '../components/ui/ContentCard';
+import RecordCard from '../components/ui/RecordCard';
 import useWebSocket from '../hooks/useWebSocket';
 
 export default function ReIDPage() {
@@ -23,7 +20,6 @@ export default function ReIDPage() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
 
-    // Cross-camera match WS feed
     const [matches, setMatches] = useState([]);
     useWebSocket('/ws/live', {
         onType: {
@@ -61,18 +57,18 @@ export default function ReIDPage() {
             </div>
 
             <div className="stats-grid">
-                <Stat icon={Users} label="Global Identities" value={uniqueIds} accent="indigo" />
-                <Stat icon={Users} label="Gallery Embeddings" value={gallerySize} accent="cyan" />
-                <Stat icon={Route} label="Live Matches (recent)" value={matches.length} accent="emerald" />
-                <Stat icon={Users} label="Active Now" value={activeList.length} accent="gold" />
+                <StatCard icon={Users} label="Global Identities" value={uniqueIds} accent="teal" />
+                <StatCard icon={Users} label="Gallery Embeddings" value={gallerySize} accent="cyan" />
+                <StatCard icon={Route} label="Live Matches (recent)" value={matches.length} accent="emerald" />
+                <StatCard icon={Users} label="Active Now" value={activeList.length} accent="coral" />
             </div>
 
             <div className="two-col">
-                <div className="card">
-                    <div className="card-header">
-                        <h3 className="card-title">Person Journey Lookup</h3>
-                        <div className="card-subtitle">Enter a global ID (e.g. PERSON-0004)</div>
-                    </div>
+                <ContentCard
+                    title="Person Journey Lookup"
+                    subtitle="Enter a global ID (e.g. PERSON-0004)"
+                    accent="teal"
+                >
                     <form onSubmit={lookup} style={{ display: 'flex', gap: 10 }}>
                         <input
                             className="form-input"
@@ -109,74 +105,65 @@ export default function ReIDPage() {
                             </ol>
                         </div>
                     )}
-                </div>
+                </ContentCard>
 
-                <div className="card">
-                    <div className="card-header">
-                        <h3 className="card-title">Active Persons</h3>
-                        <div className="card-subtitle">Most recent Re-ID activity</div>
-                    </div>
-                    <div style={{ display: 'grid', gap: 6, maxHeight: 320, overflow: 'auto' }}>
-                        {activeList.length === 0 && (
-                            <div style={{ color: 'var(--text-muted)', padding: 12 }}>No active persons.</div>
-                        )}
-                        {activeList.map((p, i) => (
-                            <button
-                                key={`${p.global_id}-${i}`}
-                                className="nav-item"
-                                style={{ justifyContent: 'space-between', padding: '8px 12px', cursor: 'pointer' }}
-                                onClick={() => { setQuery(p.global_id); lookup(); }}
-                            >
-                                <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                                    <span className="pill pill-info">{p.global_id}</span>
-                                    <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                                        cam {p.camera_id}
+                <ContentCard title="Active Persons" subtitle="Most recent Re-ID activity" accent="sky">
+                    {activeList.length === 0 ? (
+                        <div className="page-empty-hint page-empty-hint--left">No active persons.</div>
+                    ) : (
+                        <div className="ui-feed-list" style={{ maxHeight: 320, overflow: 'auto' }}>
+                            {activeList.map((p, i) => (
+                                <button
+                                    key={`${p.global_id}-${i}`}
+                                    type="button"
+                                    className="ui-lane-row"
+                                    style={{ gridTemplateColumns: '1fr auto', cursor: 'pointer', textAlign: 'left', width: '100%' }}
+                                    onClick={() => { setQuery(p.global_id); lookup(); }}
+                                >
+                                    <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                        <span className="pill pill-info">{p.global_id}</span>
+                                        <span className="ui-lane-row-sub">cam {p.camera_id}</span>
                                     </span>
-                                </span>
-                                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                                    {Math.round((p.confidence || 0) * 100)}%
-                                </span>
-                            </button>
-                        ))}
-                    </div>
-                </div>
+                                    <span className="ui-lane-row-sub">
+                                        {Math.round((p.confidence || 0) * 100)}%
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </ContentCard>
             </div>
 
-            <div className="card" style={{ marginTop: 18 }}>
-                <div className="card-header">
-                    <h3 className="card-title">Live Cross-Camera Matches</h3>
-                    <div className="card-subtitle">Streamed from the pipeline when a known person re-appears</div>
-                </div>
+            <ContentCard
+                title="Live Cross-Camera Matches"
+                subtitle="Streamed from the pipeline when a known person re-appears"
+                accent="emerald"
+            >
                 {matches.length === 0 ? (
-                    <div style={{ padding: 16, color: 'var(--text-muted)' }}>
-                        Waiting for Re-ID events…
-                    </div>
+                    <div className="page-empty-hint">Waiting for Re-ID events…</div>
                 ) : (
-                    <ul className="event-list">
+                    <div className="ui-feed-list">
                         {matches.map((m, i) => (
-                            <li key={i}>
-                                <span className="pill pill-info">{m.global_id}</span>
-                                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                                    cam {m.previous_camera} <ArrowRight size={12} style={{ verticalAlign: -1 }} /> cam {m.current_camera}
-                                </span>
-                                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                                    {new Date(m.ts).toLocaleTimeString()}
-                                </span>
-                            </li>
+                            <RecordCard
+                                key={i}
+                                icon={Route}
+                                accent="emerald"
+                                title={m.global_id}
+                                meta={
+                                    <>
+                                        <span style={{ fontSize: 12 }}>
+                                            cam {m.previous_camera} <ArrowRight size={12} style={{ verticalAlign: -1 }} /> cam {m.current_camera}
+                                        </span>
+                                        <span style={{ marginLeft: 'auto', fontSize: 11 }}>
+                                            {new Date(m.ts).toLocaleTimeString()}
+                                        </span>
+                                    </>
+                                }
+                            />
                         ))}
-                    </ul>
+                    </div>
                 )}
-            </div>
+            </ContentCard>
         </div>
-    );
-}
-
-function Stat({ icon: Icon, label, value, accent }) {
-    return (
-        <motion.div className="stat-card" whileHover={{ y: -2 }}>
-            <div className={`stat-icon stat-icon-${accent}`}><Icon size={18} /></div>
-            <div className="stat-label">{label}</div>
-            <div className="stat-value">{value}</div>
-        </motion.div>
     );
 }
