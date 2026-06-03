@@ -69,6 +69,28 @@ def get_pipeline(request: Request):
     return request.app.state.pipeline
 
 
+def _parse_model_selection(model: Optional[str] = None, models: Optional[str] = None) -> List[str]:
+    raw = models if models is not None else model
+    if not raw:
+        return []
+    selected = []
+    for item in str(raw).replace(";", ",").split(","):
+        name = os.path.basename(item.strip())
+        if name and name not in selected:
+            selected.append(name)
+    return selected
+
+
+def _resolve_model_paths(selected: List[str]) -> List[str]:
+    paths = []
+    for name in selected:
+        model_file = Path(settings.MODEL_WEIGHTS_DIR) / name
+        if not model_file.exists():
+            raise HTTPException(status_code=404, detail=f"Model {name} not found in {settings.MODEL_WEIGHTS_DIR}")
+        paths.append(str(model_file.resolve()))
+    return paths
+
+
 @router.post("/start/{camera_id}")
 async def start_detection(
     camera_id: int,
@@ -77,6 +99,7 @@ async def start_detection(
     stream_type: str = "webcam",
     zone: str = "default",
     model: str = None,
+    models: str = None,
     current_user: User = Depends(get_current_user),
     pipeline=Depends(get_pipeline),
 ):
@@ -88,13 +111,8 @@ async def start_detection(
     """
     source, stream_type = _resolve_source(source, stream_type)
     
-    # Resolve model path
-    model_path = None
-    if model:
-        model_file = Path(settings.MODEL_WEIGHTS_DIR) / model
-        if not model_file.exists():
-            raise HTTPException(status_code=404, detail=f"Model {model} not found in {settings.MODEL_WEIGHTS_DIR}")
-        model_path = str(model_file.resolve())
+    selected_models = _parse_model_selection(model=model, models=models)
+    model_paths = _resolve_model_paths(selected_models)
     
     try:
         pipeline.add_camera(
@@ -102,7 +120,7 @@ async def start_detection(
             source=source,
             stream_type=stream_type,
             zone=zone,
-            model_path=model_path,
+            model_path=model_paths or None,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -112,7 +130,9 @@ async def start_detection(
         "message": f"Detection started on camera {camera_id}",
         "status": "running",
         "source": source,
-        "model": model or settings.DEFAULT_YOLO_MODEL
+        "model": selected_models[0] if len(selected_models) == 1 else None,
+        "models": selected_models or [settings.DEFAULT_YOLO_MODEL],
+        "model_mode": "ensemble" if len(selected_models) > 1 else "single",
     }
 
 

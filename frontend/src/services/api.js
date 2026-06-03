@@ -109,8 +109,15 @@ export const camerasAPI = {
 // ────────────────────────────────────────────────────────────────
 
 export const detectionAPI = {
-    start: (cameraId, { source = '0', stream_type = 'webcam', zone = 'default', model = null } = {}) =>
-        api.post(`/detection/start/${cameraId}`, null, { params: { source, stream_type, zone, model } }),
+    start: (cameraId, { source = '0', stream_type = 'webcam', zone = 'default', model = null, models = null } = {}) =>
+        api.post(`/detection/start/${cameraId}`, null, {
+            params: {
+                source,
+                stream_type,
+                zone,
+                ...(models?.length ? { models: Array.isArray(models) ? models.join(',') : models } : { model }),
+            },
+        }),
     stop: (cameraId) => api.post(`/detection/stop/${cameraId}`),
     status: () => api.get('/detection/status'),
     results: (cameraId) => api.get(`/detection/results/${cameraId}`),
@@ -127,9 +134,17 @@ export const pipelineAPI = {
     status: () => api.get('/pipeline/status'),
     start: () => api.post('/pipeline/start'),
     stop: () => api.post('/pipeline/stop'),
-    addCamera: (cameraId, source, streamType = 'webcam', zone = 'default', fps = 30, skipFrames = 1) =>
+    addCamera: (cameraId, source, streamType = 'webcam', zone = 'default', fps = 30, skipFrames = 1, models = null) =>
         api.post('/pipeline/cameras/add', null, {
-            params: { camera_id: cameraId, source, stream_type: streamType, zone, fps, skip_frames: skipFrames },
+            params: {
+                camera_id: cameraId,
+                source,
+                stream_type: streamType,
+                zone,
+                fps,
+                skip_frames: skipFrames,
+                ...(models?.length ? { models: Array.isArray(models) ? models.join(',') : models } : {}),
+            },
         }),
     results: (cameraId) => api.get('/pipeline/results', {
         params: cameraId != null ? { camera_id: cameraId } : {},

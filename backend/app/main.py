@@ -429,6 +429,8 @@ async def add_pipeline_camera(
     zone: str = "default",
     fps: int = settings.PROCESSING_FPS,
     skip_frames: int = settings.DEFAULT_SKIP_FRAMES,
+    model: str = None,
+    models: str = None,
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -439,6 +441,20 @@ async def add_pipeline_camera(
       - File:  /path/to/test_video.mp4
       - Webcam: 0  (device index)
     """
+    selected_models = []
+    raw_models = models if models is not None else model
+    if raw_models:
+        for item in str(raw_models).replace(";", ",").split(","):
+            name = os.path.basename(item.strip())
+            if name and name not in selected_models:
+                selected_models.append(name)
+    model_paths = []
+    for name in selected_models:
+        model_file = Path(settings.MODEL_WEIGHTS_DIR) / name
+        if not model_file.exists():
+            raise HTTPException(status_code=404, detail=f"Model {name} not found in {settings.MODEL_WEIGHTS_DIR}")
+        model_paths.append(str(model_file.resolve()))
+
     try:
         pipeline.add_camera(
             camera_id=camera_id,
@@ -447,10 +463,17 @@ async def add_pipeline_camera(
             zone=zone,
             fps=fps,
             skip_frames=skip_frames,
+            model_path=model_paths or None,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"status": "added", "camera_id": camera_id, "zone": zone}
+    return {
+        "status": "added",
+        "camera_id": camera_id,
+        "zone": zone,
+        "models": selected_models or [settings.DEFAULT_YOLO_MODEL],
+        "model_mode": "ensemble" if len(selected_models) > 1 else "single",
+    }
 
 
 @app.get("/api/pipeline/results", tags=["Pipeline"])

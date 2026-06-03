@@ -128,6 +128,10 @@ async def get_loaded_models(
         "loaded_models": loaded,
         "total_loaded": len(loaded),
         "camera_assignments": {
-            cam_id: model for cam_id, model in pipeline._camera_models.items()
+            cam_id: {
+                "paths": list(models),
+                "mode": "ensemble" if len(models) > 1 else "single",
+            }
+            for cam_id, models in pipeline._camera_models.items()
         }
     }

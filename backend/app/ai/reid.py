@@ -115,13 +115,54 @@ class PersonReID:
             embedding = embedding / norm
         return embedding.astype(np.float32)
 
-    def extract_batch(self, crops: List[np.ndarray]) -> List[np.ndarray]:
-        """Batch embedding extraction."""
-        return [self.extract_embedding(crop) for crop in crops]
+    def extract_batch(self, crops: List[np.ndarray]) -> List[Optional[np.ndarray]]:
+        """Batch embedding extraction for crowded frames."""
+        if not crops:
+            return []
+        if self.model is None or self.transform is None:
+            return [self.extract_embedding(crop) for crop in crops]
+
+        tensors = []
+        valid_indexes = []
+        for idx, crop in enumerate(crops):
+            if crop is None or crop.size == 0:
+                continue
+            try:
+                rgb = crop[:, :, ::-1].copy()
+                tensors.append(self.transform(rgb))
+                valid_indexes.append(idx)
+            except Exception:
+                continue
+        output: List[Optional[np.ndarray]] = [None] * len(crops)
+        if not tensors:
+            return output
+
+        batch = torch.stack(tensors, dim=0).to(self.device)
+        with torch.no_grad():
+            features = self.model(batch)
+        embeddings = features.cpu().numpy()
+        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+        embeddings = np.divide(
+            embeddings,
+            np.maximum(norms, 1e-12),
+            out=np.zeros_like(embeddings, dtype=np.float32),
+        )
+        for idx, emb in zip(valid_indexes, embeddings):
+            output[idx] = emb.astype(np.float32)
+        return output
 
     def compute_similarity(self, emb1: np.ndarray, emb2: np.ndarray) -> float:
         """Cosine similarity between two embeddings."""
         return float(np.dot(emb1, emb2))
+
+    def best_similarity_for_id(self, global_id: str, query: np.ndarray) -> float:
+        """Best cosine similarity between query and any stored view for one identity."""
+        best = 0.0
+        for gid, emb in self._gallery:
+            if gid != global_id:
+                continue
+            best = max(best, self.compute_similarity(query, emb))
+        return best
 
     def add_to_gallery(self, global_id: str, embedding: np.ndarray) -> None:
         """

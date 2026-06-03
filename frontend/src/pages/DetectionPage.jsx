@@ -53,10 +53,10 @@ export default function DetectionPage() {
         source: '',
         zone: 'entrance',
         fps: 30,
-        model: '',
+        models: [],
     });
     const [models, setModels] = useState([]);
-    const [selectedModelInfo, setSelectedModelInfo] = useState(null);
+    const [selectedModelInfo, setSelectedModelInfo] = useState([]);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState(null);
     const [notice, setNotice] = useState(null);
@@ -110,22 +110,17 @@ export default function DetectionPage() {
     React.useEffect(() => {
         if (modelsData?.models) {
             setModels(modelsData.models);
-            // Set default model if none selected
-            if (!form.model && modelsData.default_model) {
-                setForm(prev => ({ ...prev, model: modelsData.default_model }));
-            }
         }
     }, [modelsData]);
 
     // Update selected model info when model changes
     React.useEffect(() => {
-        if (form.model && models.length > 0) {
-            const model = models.find(m => m.filename === form.model);
-            setSelectedModelInfo(model || null);
+        if (form.models?.length && models.length > 0) {
+            setSelectedModelInfo(models.filter(m => form.models.includes(m.filename)));
         } else {
-            setSelectedModelInfo(null);
+            setSelectedModelInfo([]);
         }
-    }, [form.model, models]);
+    }, [form.models, models]);
 
     // Per-camera detection counters via WebSocket
     const [cameraLive, setCameraLive] = useState({});
@@ -189,19 +184,19 @@ export default function DetectionPage() {
         e.preventDefault();
         setBusy(true); setError(null); setNotice(null);
         try {
-            const { cameraId, streamType, source, zone, fps, model } = form;
+            const { cameraId, streamType, source, zone, fps, models: selectedModels } = form;
             if (!source?.toString().trim()) throw new Error('Pick a video source before adding the feed.');
             await pipelineAPI.addCamera(
-                Number(cameraId), source, streamType, zone || 'default', Number(fps) || 30, 1
+                Number(cameraId), source, streamType, zone || 'default', Number(fps) || 30, 1, selectedModels
             );
             // Start detection with selected model
             await detectionAPI.start(Number(cameraId), {
                 source,
                 stream_type: streamType,
                 zone: zone || 'default',
-                model: model || undefined,
+                models: selectedModels,
             });
-            setNotice(`Camera ${cameraId} added with model ${model || 'default'}.`);
+            setNotice(`Camera ${cameraId} added with ${selectedModels?.length > 1 ? 'ensemble' : 'model'} ${(selectedModels?.length ? selectedModels.join(' + ') : 'default')}.`);
             await Promise.all([refreshPipeline(), refreshDet()]);
         } catch (e) {
             setError(e?.response?.data?.detail || e.message);
@@ -360,23 +355,31 @@ export default function DetectionPage() {
                         </div>
 
                         <div>
-                            <label className="form-label">Detection Model</label>
+                            <label className="form-label">Detection Weights</label>
                             <select
                                 className="form-select"
-                                value={form.model}
-                                onChange={(e) => setForm({ ...form, model: e.target.value })}
+                                multiple
+                                size={Math.min(Math.max(models.length, 3), 6)}
+                                value={form.models}
+                                onChange={(e) => setForm({
+                                    ...form,
+                                    models: Array.from(e.target.selectedOptions).map((option) => option.value),
+                                })}
                             >
-                                <option value="">Default (yolov8n.pt)</option>
                                 {models.map((m) => (
                                     <option key={m.filename} value={m.filename}>
                                         {m.filename} ({m.num_classes} classes)
                                     </option>
                                 ))}
                             </select>
-                            {selectedModelInfo && (
+                            {selectedModelInfo.length > 0 && (
                                 <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
-                                    <strong>Detects:</strong> {selectedModelInfo.classes?.slice(0, 5).map(c => c.name).join(', ')}
-                                    {selectedModelInfo.classes?.length > 5 && ` +${selectedModelInfo.classes.length - 5} more`}
+                                    <strong>{selectedModelInfo.length > 1 ? 'Ensemble:' : 'Selected:'}</strong> {selectedModelInfo.map((m) => m.filename).join(' + ')}
+                                </div>
+                            )}
+                            {selectedModelInfo.length === 0 && (
+                                <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
+                                    Default: {modelsData?.default_model || 'yolov8n.pt'}
                                 </div>
                             )}
                         </div>
