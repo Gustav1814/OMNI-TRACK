@@ -249,6 +249,10 @@ class RedisCache:
         """Get cached pipeline state."""
         return await self.get("pipeline:state")
 
+    async def invalidate_pipeline_state(self) -> bool:
+        """Clear cached pipeline state after camera/session mutations."""
+        return await self.delete("pipeline:state")
+
     async def cache_dashboard_overview(self, data: Dict[str, Any]) -> bool:
         """Cache dashboard overview data (refreshed every 15s)."""
         return await self.set("dashboard:overview", data, ttl=15)

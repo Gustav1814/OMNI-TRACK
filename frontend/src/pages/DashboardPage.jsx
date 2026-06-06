@@ -7,7 +7,7 @@ import {
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import {
-    dashboardAPI, systemAPI, pipelineAPI, detectionAPI, fireAPI, vibeAPI, humanlessAPI,
+    dashboardAPI, systemAPI, pipelineAPI, detectionAPI, fireAPI, vibeAPI, humanlessAPI, setupAPI,
 } from '../services/api';
 import useLivePoll from '../hooks/useLivePoll';
 import useWebSocket from '../hooks/useWebSocket';
@@ -92,6 +92,7 @@ export default function DashboardPage() {
     const { data: pipelineStatus } = useLivePoll(() => pipelineAPI.status(), { intervalMs: 4000 });
     const { data: detStatus } = useLivePoll(() => detectionAPI.status(), { intervalMs: 3000 });
     const { data: fireAlerts } = useLivePoll(() => fireAPI.alerts(), { intervalMs: 8000 });
+    const { data: setupProfile } = useLivePoll(() => setupAPI.profile(), { intervalMs: 30000 });
     const { data: humanlessOverview } = useLivePoll(() => humanlessAPI.overview(8), { intervalMs: 5000 });
     const { data: cashierQueue } = useLivePoll(() => humanlessAPI.cashierQueue(null, 8), { intervalMs: 3000 });
     const { data: humanlessAlerts } = useLivePoll(() => humanlessAPI.alerts('open', 8), { intervalMs: 10000 });
@@ -157,9 +158,8 @@ export default function DashboardPage() {
     });
 
     const liveDashboards = health?.components?.websocket?.active_connections ?? 0;
-    const framesProcessed = pipelineStatus?.frame_counts
-        ? Object.values(pipelineStatus.frame_counts).reduce((a, b) => a + b, 0)
-        : 0;
+    const frameCounts = pipelineStatus?.processing?.frame_counts || {};
+    const framesProcessed = Object.values(frameCounts).reduce((a, b) => a + Number(b || 0), 0);
     const cashierRows = Array.isArray(cashierQueue) ? cashierQueue : [];
     const cashierlessSessions = Array.isArray(humanlessOverview?.sessions) ? humanlessOverview.sessions : [];
     const openCartSubtotal = Number(humanlessOverview?.subtotal_open || 0);
@@ -216,6 +216,15 @@ export default function DashboardPage() {
                         </div>
                     </div>
                     <button className="btn btn-secondary btn-xs" onClick={() => setActiveFire(null)} type="button">Dismiss</button>
+                </div>
+            )}
+
+            {!setupProfile?.setup_completed_at && (
+                <div className="alert-banner info" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+                    <span>Store setup is not complete. Choose a deployment template, map zones, and confirm modules before rollout.</span>
+                    <button type="button" className="btn btn-primary btn-xs" onClick={() => navigate('/setup?wizard=1')}>
+                        Open Setup
+                    </button>
                 </div>
             )}
 
@@ -305,7 +314,12 @@ export default function DashboardPage() {
                     <div className="ui-status-grid">
                         <StatusTile icon={Radio} label="Store monitoring" value={displayStatus(pipelineStatus?.state, 'Live', 'Paused')} ok={pipelineStatus?.state === 'running'} />
                         <StatusTile icon={Database} label="Insights platform" value={displayStatus(health?.components?.database, 'Connected', 'Unavailable')} ok={health?.components?.database?.status === 'healthy' || health?.components?.database === 'healthy'} />
-                        <StatusTile icon={Zap} label="Real-time engine" value={displayStatus(health?.components?.redis, 'Online', 'Offline')} ok={health?.components?.redis?.status === 'connected' || health?.components?.redis === 'connected'} />
+                        <StatusTile
+                            icon={Zap}
+                            label="Real-time engine"
+                            value={displayStatus(health?.components?.redis, 'Online', 'Offline')}
+                            ok={['connected', 'healthy'].includes(health?.components?.redis?.status) || health?.components?.redis === 'healthy'}
+                        />
                         <StatusTile icon={LayoutDashboard} label="Leadership dashboards" value={`${liveDashboards} active`} tone="sky" />
                         <StatusTile icon={Users} label="Known shoppers" value={`${pipelineStatus?.ai_modules?.reid?.gallery_size ?? 0} profiles`} tone="teal" />
                         <StatusTile icon={Video} label="Video analyzed today" value={framesProcessed.toLocaleString()} tone="neutral" />

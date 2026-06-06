@@ -9,7 +9,7 @@ import json
 import time
 import asyncio
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import cv2
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
@@ -225,6 +225,141 @@ async def get_log_tracks(
     for t in tracks.values():
         t.pop("frames", None)
     return {"video_file": data.get("video_file"), "tracks": list(tracks.values())}
+
+
+@router.get("/logs/{log_filename}/analytics")
+async def get_log_analytics(
+    log_filename: str,
+    bins: int = Query(4, ge=2, le=16, description="Heatmap grid size per axis"),
+    min_track_frames: int = Query(30, ge=1, le=10000, description="Minimum frames for timeline inclusion"),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Generate retail analytics from a detection log:
+    heatmap cells, per-track timelines, frame counts, travel distance, and fall candidates.
+    Inspired by the retail-vision-analytics notebook, but served as an API response.
+    """
+    log_filename = os.path.basename(log_filename)
+    path = LOGS_DIR / log_filename
+    if not path.is_file():
+        raise HTTPException(404, "Log file not found")
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    frames = data.get("frames", []) or []
+    track_points: Dict[str, List[Dict[str, Any]]] = {}
+    counts_by_frame: List[Dict[str, Any]] = []
+    max_x = 1.0
+    max_y = 1.0
+    fall_candidates: List[Dict[str, Any]] = []
+
+    for frame in frames:
+        frame_number = int(frame.get("frame_number") or 0)
+        detections = frame.get("detections", []) or []
+        counts_by_frame.append({
+            "frame": frame_number,
+            "detections": len(detections),
+            "tracks": len({d.get("track_id") for d in detections if d.get("track_id") is not None}),
+        })
+        for det in detections:
+            bbox = det.get("bbox") or []
+            if len(bbox) < 4:
+                continue
+            x, y, w, h = [float(v) for v in bbox[:4]]
+            cx = x + (w * 0.5)
+            cy = y + (h * 0.5)
+            max_x = max(max_x, x + w, cx)
+            max_y = max(max_y, y + h, cy)
+            tid = det.get("global_id") or det.get("track_id")
+            if tid is None:
+                continue
+            key = str(tid)
+            track_points.setdefault(key, []).append({
+                "frame": frame_number,
+                "x": cx,
+                "y": cy,
+                "width": w,
+                "height": h,
+                "class_name": det.get("class_name", "unknown"),
+                "confidence": det.get("confidence", 0.0),
+                "region": det.get("region"),
+            })
+            if w > h:
+                fall_candidates.append({
+                    "frame": frame_number,
+                    "track_id": det.get("track_id"),
+                    "global_id": det.get("global_id"),
+                    "class_name": det.get("class_name", "unknown"),
+                    "bbox": bbox,
+                    "reason": "bbox_width_greater_than_height",
+                })
+
+    heatmap_counts = [[0 for _ in range(bins)] for _ in range(bins)]
+    total_points = 0
+    timelines: List[Dict[str, Any]] = []
+    distances: List[Dict[str, Any]] = []
+
+    for track_id, points in track_points.items():
+        points.sort(key=lambda p: p["frame"])
+        total_points += len(points)
+        for point in points:
+            col = min(bins - 1, max(0, int((point["x"] / max_x) * bins)))
+            row = min(bins - 1, max(0, int((point["y"] / max_y) * bins)))
+            heatmap_counts[row][col] += 1
+
+        if len(points) >= min_track_frames:
+            first = points[0]["frame"]
+            last = points[-1]["frame"]
+            timelines.append({
+                "track_id": track_id,
+                "class_name": points[0].get("class_name", "unknown"),
+                "first_frame": first,
+                "last_frame": last,
+                "duration_frames": max(0, last - first),
+                "sample_count": len(points),
+                "region": points[0].get("region"),
+            })
+
+        distance = 0.0
+        for prev, cur in zip(points, points[1:]):
+            dx = cur["x"] - prev["x"]
+            dy = cur["y"] - prev["y"]
+            distance += (dx * dx + dy * dy) ** 0.5
+        distances.append({
+            "track_id": track_id,
+            "class_name": points[0].get("class_name", "unknown"),
+            "frames_observed": len(points),
+            "distance_px": round(distance, 2),
+        })
+
+    heatmap = []
+    for row_idx, row in enumerate(heatmap_counts):
+        for col_idx, count in enumerate(row):
+            heatmap.append({
+                "row": row_idx,
+                "col": col_idx,
+                "count": count,
+                "share": round(count / max(total_points, 1), 4),
+            })
+
+    timelines.sort(key=lambda t: (t["first_frame"], t["track_id"]))
+    distances.sort(key=lambda d: d["distance_px"], reverse=True)
+
+    return {
+        "video_file": data.get("video_file"),
+        "log_filename": log_filename,
+        "frame_count": len(frames),
+        "track_count": len(track_points),
+        "heatmap": {
+            "bins": bins,
+            "points": total_points,
+            "cells": heatmap,
+        },
+        "counts_by_frame": counts_by_frame,
+        "timelines": timelines,
+        "distances": distances[:100],
+        "fall_candidates": fall_candidates[:100],
+    }
 
 
 @router.post("/trim/by-track")

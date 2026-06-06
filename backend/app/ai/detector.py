@@ -5,6 +5,7 @@ Configurable model size, confidence/NMS thresholds, batch inference.
 """
 
 import numpy as np
+import gc
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
 from loguru import logger
@@ -16,6 +17,12 @@ try:
 except ImportError:
     ULTRALYTICS_AVAILABLE = False
     logger.warning("Ultralytics not installed. Detector will run in mock mode.")
+
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
 
 
 @dataclass
@@ -50,8 +57,9 @@ class PersonDetector:
         self.confidence = confidence
         self.nms_threshold = nms_threshold
         self.device = device
-        self.classes = classes or [0]  # COCO class 0 = person
+        self.classes = classes
         self.model = None
+        self._person_class_ids: Optional[List[int]] = None
         self._load_model()
 
     def _load_model(self):
@@ -63,17 +71,35 @@ class PersonDetector:
             # Detect pose model from filename or task attribute
             self.is_pose_model = "pose" in str(self.model_path).lower() or \
                 getattr(self.model, "task", "") == "pose"
-            logger.info(f"Loaded YOLO model: {self.model_path} (pose={self.is_pose_model})")
+            names = getattr(self.model, "names", {}) or {}
+            self._person_class_ids = [
+                int(class_id)
+                for class_id, class_name in names.items()
+                if str(class_name).lower() == "person"
+            ]
+            logger.info(
+                f"Loaded YOLO model: {self.model_path} "
+                f"(pose={self.is_pose_model}, person_classes={self._person_class_ids})"
+            )
         except Exception as e:
             logger.error(f"Failed to load YOLO model: {e}")
             self.model = None
             self.is_pose_model = False
+            self._person_class_ids = None
 
     def get_class_names(self) -> Dict[int, str]:
         """Get all class names that this model can detect."""
         if self.model is None:
             return {0: "person"}  # Default fallback
         return self.model.names
+
+    def unload(self) -> None:
+        """Release model references so inactive weights do not remain resident."""
+        self.model = None
+        self._person_class_ids = None
+        if TORCH_AVAILABLE and torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        gc.collect()
 
     def detect(self, frame: np.ndarray) -> List[BBox]:
         """Run detection on a single frame. Returns list of BBox."""
@@ -82,15 +108,16 @@ class PersonDetector:
                 return []
             return self._mock_detect(frame)
 
-        # Pose models use all classes (typically just person), detection models filter
         predict_kwargs = dict(
             source=frame,
             conf=self.confidence,
             iou=self.nms_threshold,
             verbose=False,
         )
-        if not getattr(self, "is_pose_model", False):
+        if self.classes is not None and not getattr(self, "is_pose_model", False):
             predict_kwargs["classes"] = self.classes
+        elif self._person_class_ids and not getattr(self, "is_pose_model", False):
+            predict_kwargs["classes"] = self._person_class_ids
         results = self.model.predict(**predict_kwargs)
 
         detections = []
@@ -110,6 +137,12 @@ class PersonDetector:
                 x1, y1, x2, y2 = xyxy
                 class_id = int(box.cls[0])
                 class_name = self.model.names.get(class_id, f"class_{class_id}") if self.model else "person"
+                if (
+                    self._person_class_ids
+                    and class_id not in self._person_class_ids
+                    and not getattr(self, "is_pose_model", False)
+                ):
+                    continue
                 kpts = None
                 if kpts_data is not None and i < len(kpts_data):
                     kpts = [[float(p[0]), float(p[1]), float(p[2])] for p in kpts_data[i]]

@@ -173,6 +173,11 @@ class CameraStream:
             # Read frame
             ret, frame = self._cap.read()
             if not ret:
+                if self.config.stream_type == StreamType.FILE and self._cap:
+                    self._cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    self._stats.error_message = None
+                    time.sleep(frame_interval)
+                    continue
                 self._stats.is_connected = False
                 self._stats.error_message = "Frame read failed"
                 if self._cap:

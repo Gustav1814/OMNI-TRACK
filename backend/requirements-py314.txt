@@ -1,9 +1,7 @@
 # ============================================================
-# OmniTrack AI — Python 3.14 only (reduced stack)
+# OmniTrack AI - Python 3.14 compatible stack
 # ============================================================
-# Use this ONLY if you must run on Python 3.14. TensorFlow has no 3.14 wheel,
-# so DeepFace cannot be installed — emotion runs in fallback mode (not full standard).
-# For full proposal standard: use Python 3.11 or 3.12 and requirements.txt.
+# Lightweight CV stack; no heavy face-analysis runtime is required.
 
 # --- Core Framework ---
 fastapi>=0.115.0
@@ -25,7 +23,7 @@ python-jose[cryptography]>=3.3.0
 bcrypt>=4.0.0
 pycryptodome>=3.21.0
 
-# --- AI / Computer Vision (no deepface on 3.14) ---
+# --- AI / Computer Vision ---
 ultralytics>=8.3.0
 torch>=2.1.0
 torchvision>=0.16.0

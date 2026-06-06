@@ -28,6 +28,7 @@ class TorchreidBackend(ReIDBackend):
         self._transform = None
         self._device = device
         self._dim = 512
+        self._torch = None
         try:
             import torch
             import torchvision.transforms as T
@@ -56,6 +57,42 @@ class TorchreidBackend(ReIDBackend):
         emb = f.cpu().numpy().flatten().astype(np.float32)
         n = np.linalg.norm(emb)
         return emb / n if n > 0 else emb
+
+    def extract_batch(self, crops: List[np.ndarray]) -> List[np.ndarray]:
+        """Batched GPU inference: single forward pass for all crops."""
+        if not crops:
+            return []
+        if self._model is None or self._transform is None or self._torch is None:
+            return [self.extract(c) for c in crops]
+
+        tensors = []
+        valid_indexes = []
+        for idx, crop in enumerate(crops):
+            if crop is None or crop.size == 0:
+                continue
+            try:
+                rgb = crop[:, :, ::-1].copy()
+                tensors.append(self._transform(rgb))
+                valid_indexes.append(idx)
+            except Exception:
+                continue
+
+        # Fallback results for invalid crops
+        output = [self.extract(c) if c is not None and c.size > 0 else np.random.randn(self._dim).astype(np.float32) for c in crops]
+        if not tensors:
+            return output
+
+        # Single batched forward pass on GPU
+        batch = self._torch.stack(tensors, dim=0).to(self._device)
+        with self._torch.no_grad():
+            features = self._model(batch)
+        embeddings = features.cpu().numpy()
+        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+        embeddings = embeddings / np.maximum(norms, 1e-9)
+
+        for idx, emb in zip(valid_indexes, embeddings):
+            output[idx] = emb.astype(np.float32)
+        return output
 
     @property
     def is_loaded(self) -> bool:

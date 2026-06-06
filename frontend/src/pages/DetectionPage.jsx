@@ -8,43 +8,19 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { motion } from 'framer-motion';
 import {
-    PlayCircle, StopCircle, Plus, Upload, Video, Circle, Square, RefreshCw,
-    BrainCircuit, Receipt, ShoppingCart, AlertTriangle, PackagePlus, Store, ScanLine,
+    Plus, Upload, Video, Circle, Square, RefreshCw,
 } from 'lucide-react';
 import {
-    detectionAPI, pipelineAPI, footageAPI, modelAPI, humanlessAPI,
+    detectionAPI, pipelineAPI, footageAPI, modelAPI,
 } from '../services/api';
 import useLivePoll from '../hooks/useLivePoll';
 import useWebSocket from '../hooks/useWebSocket';
 import CameraStream from '../components/CameraStream';
 import ContentCard from '../components/ui/ContentCard';
-import StatusTile from '../components/ui/StatusTile';
 
-const money = (value) => `$${Number(value || 0).toFixed(2)}`;
 const title = (value) => String(value || 'unknown').replace(/[_-]/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
-const moduleLabel = (name) => ({
-    detector: 'Detector',
-    tracker: 'Tracker',
-    crowd: 'Crowd',
-    reid: 'Re-ID',
-    fire: 'Fire',
-    emotion: 'Emotion',
-    shelf: 'Shelf',
-    checkout: 'Checkout',
-}[name] || title(name));
-
-function ModuleChip({ name, enabled, status }) {
-    const ran = status?.ran;
-    const tone = ran ? 'pill-success' : enabled ? 'pill-info' : 'pill-warning';
-    const reason = status?.reason || (enabled ? 'allowed' : 'disabled by camera role');
-    return (
-        <span className={`pill ${tone}`} title={reason}>
-            {moduleLabel(name)}
-        </span>
-    );
-}
+const filename = (value) => String(value || '').split(/[\\/]/).pop();
 
 export default function DetectionPage() {
     const [form, setForm] = useState({
@@ -53,24 +29,17 @@ export default function DetectionPage() {
         source: '',
         zone: 'entrance',
         fps: 30,
+        modelMode: 'auto',
         models: [],
+        enableReid: true,
     });
     const [models, setModels] = useState([]);
     const [selectedModelInfo, setSelectedModelInfo] = useState([]);
+    const [minimizedFeeds, setMinimizedFeeds] = useState(() => new Set());
+    const [maximizedFeed, setMaximizedFeed] = useState(null);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState(null);
     const [notice, setNotice] = useState(null);
-    const [productForm, setProductForm] = useState({ sku: '', name: '', category: '', price: '' });
-    const [zoneForm, setZoneForm] = useState({ zone_id: '', name: '', camera_id: '', product_id: '', current_stock: 0 });
-    const [eventForm, setEventForm] = useState({
-        session_id: '',
-        global_id: '',
-        product_id: '',
-        shelf_zone_id: '',
-        event_type: 'pickup',
-        quantity_delta: 1,
-        confidence: 0.85,
-    });
 
     const { data: pipeState, refresh: refreshPipeline } = useLivePoll(
         () => pipelineAPI.status(), { intervalMs: 3000 }
@@ -84,26 +53,8 @@ export default function DetectionPage() {
     const { data: footage, refresh: refreshFootage } = useLivePoll(
         () => footageAPI.list(), { intervalMs: 10000 }
     );
-    const { data: modelsData, refresh: refreshModels } = useLivePoll(
+    const { data: modelsData } = useLivePoll(
         () => modelAPI.list(), { intervalMs: 30000 }
-    );
-    const { data: pipelineResults } = useLivePoll(
-        () => pipelineAPI.results(), { intervalMs: 2500 }
-    );
-    const { data: humanlessOverview } = useLivePoll(
-        () => humanlessAPI.overview(8), { intervalMs: 5000 }
-    );
-    const { data: cashierQueue } = useLivePoll(
-        () => humanlessAPI.cashierQueue(null, 8), { intervalMs: 3000 }
-    );
-    const { data: products, refresh: refreshProducts } = useLivePoll(
-        () => humanlessAPI.products(false), { intervalMs: 12000 }
-    );
-    const { data: zones, refresh: refreshZones } = useLivePoll(
-        () => humanlessAPI.shelfZones(false), { intervalMs: 12000 }
-    );
-    const { data: alerts } = useLivePoll(
-        () => humanlessAPI.alerts('open', 8), { intervalMs: 8000 }
     );
 
     // Update models list when data changes
@@ -113,14 +64,48 @@ export default function DetectionPage() {
         }
     }, [modelsData]);
 
+    const allWeightNames = useMemo(
+        () => models.map((m) => m.filename).filter(Boolean),
+        [models]
+    );
+
+    const getModelTypeTag = (modelInfo) => {
+        const name = String(modelInfo?.filename || '').toLowerCase();
+        if (/(fire|smoke)/.test(name)) return '🔥 Fire/Smoke';
+        if (/(face)/.test(name)) return '👤 Face';
+        if (/(product)/.test(name)) return '📦 Product';
+        if (/(pose|pe_)/.test(name)) return '🏃 Pose';
+        if (/(seg|sam)/.test(name)) return '🎯 Segment';
+        return '👁 General';
+    };
+
+    const isPersonCapableModel = (modelInfo) => {
+        const name = String(modelInfo?.filename || '').toLowerCase();
+        if (/(fire|smoke|product|face|pose|pe_)/.test(name)) return false;
+        const classes = Array.isArray(modelInfo?.classes) ? modelInfo.classes : [];
+        if (!classes.length) return true;
+        return classes.some((c) => String(c?.name || '').toLowerCase() === 'person');
+    };
+
+    const ensembleModelOptions = useMemo(
+        () => models.filter(isPersonCapableModel),
+        [models]
+    );
+
+    const selectedWeightNames = useMemo(() => {
+        if (form.modelMode === 'auto') return [];
+        if (form.modelMode === 'auto_ensemble') return [];
+        return form.models || [];
+    }, [allWeightNames, form.modelMode, form.models]);
+
     // Update selected model info when model changes
     React.useEffect(() => {
-        if (form.models?.length && models.length > 0) {
-            setSelectedModelInfo(models.filter(m => form.models.includes(m.filename)));
+        if (selectedWeightNames.length && models.length > 0) {
+            setSelectedModelInfo(models.filter(m => selectedWeightNames.includes(m.filename)));
         } else {
             setSelectedModelInfo([]);
         }
-    }, [form.models, models]);
+    }, [selectedWeightNames, models]);
 
     // Per-camera detection counters via WebSocket
     const [cameraLive, setCameraLive] = useState({});
@@ -146,57 +131,92 @@ export default function DetectionPage() {
 
     const cameraStats = detStatus?.camera_stats || {};
     const cameraZones = pipeState?.cameras?.zones || {};
-    const cameraRoles = pipeState?.cameras?.roles || {};
-    const cameraRoleRows = Object.entries(cameraRoles).map(([cameraId, role]) => ({
-        cameraId,
-        ...role,
-        latest: pipelineResults?.[cameraId] || pipelineResults?.[Number(cameraId)] || null,
-    }));
-    const routerStats = {
-        cameras: cameraRoleRows.length,
-        shelf: cameraRoleRows.filter((r) => r.role === 'shelf').length,
-        checkout: cameraRoleRows.filter((r) => r.role === 'checkout').length,
-        safety: cameraRoleRows.filter((r) => r.role === 'safety').length,
-    };
-    const cashierRows = Array.isArray(cashierQueue) ? cashierQueue : [];
-    const smartSessions = Array.isArray(humanlessOverview?.sessions) ? humanlessOverview.sessions : [];
-    const productRows = Array.isArray(products) ? products : [];
-    const zoneRows = Array.isArray(zones) ? zones : [];
-    const alertRows = Array.isArray(alerts) ? alerts : [];
-    const productOptions = productRows.filter((p) => p.is_active !== false);
-    const zoneOptions = zoneRows.filter((z) => z.is_active !== false);
+    const cameraModels = pipeState?.cameras?.models || {};
+    const processingStatus = pipeState?.processing || {};
+    const frameCounts = processingStatus.frame_counts || {};
+    const totalFramesProcessed = Object.values(frameCounts).reduce((sum, value) => sum + Number(value || 0), 0);
+    const trackerLabel = pipeState?.ai_modules?.tracker
+        ? title(pipeState.ai_modules.tracker)
+        : 'No Cameras';
     const recordingIds = new Set(
         (recStatus?.recording_cameras || recStatus?.recording || []).map(Number)
     );
+    const activeModelSummary = Object.entries(cameraModels)
+        .map(([cameraId, info]) => {
+            const names = (info?.paths || []).map(filename).filter(Boolean);
+            return `Feed ${cameraId}: ${info?.mode === 'ensemble' ? 'Ensemble' : 'Single'} ${names.join(' + ') || filename(info?.label) || 'default'}`;
+        })
+        .join(' | ');
 
-    const togglePipeline = async () => {
-        setBusy(true); setError(null);
-        try {
-            if (pipeState?.state === 'running') await pipelineAPI.stop();
-            else await pipelineAPI.start();
-            await refreshPipeline();
-        } catch (e) {
-            setError(e?.response?.data?.detail || e.message);
-        } finally { setBusy(false); }
+    const toggleMinimizedFeed = (id) => {
+        setMinimizedFeeds((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+        if (maximizedFeed === id) setMaximizedFeed(null);
+    };
+
+    const toggleMaximizedFeed = (id) => {
+        setMaximizedFeed((current) => (current === id ? null : id));
+        setMinimizedFeeds((prev) => {
+            if (!prev.has(id)) return prev;
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+        });
+    };
+
+    const toggleModelWeight = (modelFilename) => {
+        setForm((prev) => {
+            const current = new Set(prev.models || []);
+            if (current.has(modelFilename)) current.delete(modelFilename);
+            else current.add(modelFilename);
+            return { ...prev, models: Array.from(current) };
+        });
     };
 
     const addCamera = async (e) => {
         e.preventDefault();
         setBusy(true); setError(null); setNotice(null);
         try {
-            const { cameraId, streamType, source, zone, fps, models: selectedModels } = form;
+            const { cameraId, streamType, source, zone, fps, enableReid, modelMode } = form;
+            const selectedModels = modelMode === 'auto' ? [] : selectedWeightNames;
+            const modelsForRequest = modelMode === 'auto_ensemble' ? [] : selectedModels;
             if (!source?.toString().trim()) throw new Error('Pick a video source before adding the feed.');
-            await pipelineAPI.addCamera(
-                Number(cameraId), source, streamType, zone || 'default', Number(fps) || 30, 1, selectedModels
-            );
-            // Start detection with selected model
+            if (modelMode === 'single' && selectedModels.length !== 1) {
+                throw new Error('Select exactly one model weight for Single model mode.');
+            }
+            if (modelMode === 'ensemble' && selectedModels.length < 2) {
+                throw new Error('Multi-model ensemble needs at least two model weights.');
+            }
+            const modelPayload = {
+                model: modelMode === 'single' ? selectedModels[0] : null,
+                models: modelMode === 'ensemble' ? modelsForRequest : null,
+            };
             await detectionAPI.start(Number(cameraId), {
                 source,
                 stream_type: streamType,
                 zone: zone || 'default',
-                models: selectedModels,
+                fps: Number(fps) || 30,
+                skip_frames: 1,
+                model: modelPayload.model,
+                models: modelPayload.models,
+                model_mode: modelMode,
+                enable_reid: enableReid,
+                tracker: 'bytetrack',
             });
-            setNotice(`Camera ${cameraId} added with ${selectedModels?.length > 1 ? 'ensemble' : 'model'} ${(selectedModels?.length ? selectedModels.join(' + ') : 'default')}.`);
+            const modeLabel = modelMode === 'auto'
+                ? 'auto default'
+                : modelMode === 'single'
+                    ? 'single model'
+                    : 'ensemble';
+            setNotice(
+                modelMode === 'auto_ensemble'
+                    ? `Camera ${cameraId} added with smart auto ensemble. ByteTrack. Re-ID ${enableReid ? 'on' : 'off'}.`
+                    : `Camera ${cameraId} added with ${modeLabel} ${(selectedModels?.length ? selectedModels.join(' + ') : 'default')} · ByteTrack · Re-ID ${enableReid ? 'on' : 'off'}.`
+            );
             await Promise.all([refreshPipeline(), refreshDet()]);
         } catch (e) {
             setError(e?.response?.data?.detail || e.message);
@@ -235,89 +255,19 @@ export default function DetectionPage() {
         } finally { setBusy(false); }
     };
 
-    const createProduct = async (e) => {
-        e.preventDefault();
-        if (!productForm.sku || !productForm.name) return;
-        setBusy(true); setError(null);
-        try {
-            await humanlessAPI.createProduct({
-                ...productForm,
-                price: Number(productForm.price || 0),
-            });
-            setProductForm({ sku: '', name: '', category: '', price: '' });
-            setNotice('Product added to catalog.');
-            await refreshProducts();
-        } catch (e) {
-            setError(e?.response?.data?.detail || e.message);
-        } finally { setBusy(false); }
-    };
-
-    const createZone = async (e) => {
-        e.preventDefault();
-        if (!zoneForm.zone_id || !zoneForm.name) return;
-        setBusy(true); setError(null);
-        try {
-            await humanlessAPI.createShelfZone({
-                zone_id: zoneForm.zone_id,
-                name: zoneForm.name,
-                camera_id: zoneForm.camera_id ? Number(zoneForm.camera_id) : null,
-                product_id: zoneForm.product_id ? Number(zoneForm.product_id) : null,
-                current_stock: Number(zoneForm.current_stock || 0),
-                low_stock_threshold: 3,
-            });
-            setZoneForm({ zone_id: '', name: '', camera_id: '', product_id: '', current_stock: 0 });
-            setNotice('Shelf zone mapped.');
-            await refreshZones();
-        } catch (e) {
-            setError(e?.response?.data?.detail || e.message);
-        } finally { setBusy(false); }
-    };
-
-    const createEvent = async (e) => {
-        e.preventDefault();
-        if (!eventForm.session_id && !eventForm.global_id) return;
-        setBusy(true); setError(null);
-        try {
-            const qty = Number(eventForm.quantity_delta || 0);
-            await humanlessAPI.createCartEvent({
-                session_id: eventForm.session_id ? Number(eventForm.session_id) : null,
-                global_id: eventForm.global_id || null,
-                product_id: eventForm.product_id ? Number(eventForm.product_id) : null,
-                shelf_zone_id: eventForm.shelf_zone_id ? Number(eventForm.shelf_zone_id) : null,
-                event_type: eventForm.event_type,
-                quantity_delta: eventForm.event_type === 'putback' ? -Math.abs(qty || 1) : Math.abs(qty || 1),
-                confidence: Number(eventForm.confidence || 0.85),
-                rule_source: 'operator_console',
-                evidence: { source: 'video_feeds_page' },
-            });
-            setNotice('Cart event recorded.');
-        } catch (e) {
-            setError(e?.response?.data?.detail || e.message);
-        } finally { setBusy(false); }
-    };
-
     return (
-        <div className="page-scroll">
+        <div className="page-scroll detection-page">
             <div className="page-header">
                 <div>
                     <h1 className="page-title">Video Feeds</h1>
                     <p className="page-subtitle">Use uploaded videos as virtual cameras and monitor them live</p>
                 </div>
-                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <div className="detection-page-header-actions">
                     <span className={`pill ${pipeState?.state === 'running' ? 'pill-success' : 'pill-warn'}`}>
                         session · {pipeState?.state || 'idle'}
                     </span>
                     <button className="btn btn-secondary btn-xs" onClick={() => { refreshPipeline(); refreshDet(); }}>
                         <RefreshCw size={12} /> Refresh
-                    </button>
-                    <button
-                        className={`btn ${pipeState?.state === 'running' ? 'btn-danger' : 'btn-primary'} btn-xs`}
-                        onClick={togglePipeline}
-                        disabled={busy}
-                    >
-                        {pipeState?.state === 'running'
-                            ? (<><StopCircle size={14} /> Stop Session</>)
-                            : (<><PlayCircle size={14} /> Start Session</>)}
                     </button>
                 </div>
             </div>
@@ -325,14 +275,69 @@ export default function DetectionPage() {
             {error && <div className="alert-banner danger">{error}</div>}
             {notice && <div className="alert-banner info">{notice}</div>}
 
-            <div className="two-col">
+            <ContentCard
+                className="detection-feeds-panel"
+                title={<> <Video size={16} style={{ verticalAlign: -3, marginRight: 6 }} /> Active Video Feeds ({activeCameras.length}) </>}
+                subtitle="People counts update in real time; FPS refreshes every 2 seconds"
+                accent="sky"
+            >
+                {activeCameras.length === 0 ? (
+                    <div className="page-empty-hint">
+                        No active feeds. Upload a video and add it as a feed in the panel below.
+                    </div>
+                ) : (
+                    <div className={`camera-grid detection-feed-grid ${maximizedFeed ? 'has-maximized-feed' : ''}`}>
+                        {activeCameras.map((id) => {
+                            const s = cameraStats[id] || cameraStats[String(id)] || {};
+                            const live = cameraLive[id] || cameraLive[String(id)] || {};
+                            const isRecording = recordingIds.has(id);
+                            const isMinimized = minimizedFeeds.has(id);
+                            const isMaximized = maximizedFeed === id;
+                            return (
+                                <div
+                                    key={id}
+                                    className={`feed-shell ${isMinimized ? 'feed-shell-minimized' : ''} ${isMaximized ? 'feed-shell-maximized' : ''}`}
+                                >
+                                    <CameraStream
+                                        cameraId={id}
+                                        label={`Camera ${id}`}
+                                        zone={cameraZones[id] || cameraZones[String(id)]}
+                                        fps={s.fps ?? s.fps_actual}
+                                        connected={s.connected !== false}
+                                        detectionCount={live.person_count}
+                                        trackCount={live.active_tracks}
+                                        minimized={isMinimized}
+                                        maximized={isMaximized}
+                                        onMinimize={() => toggleMinimizedFeed(id)}
+                                        onMaximize={() => toggleMaximizedFeed(id)}
+                                        onClose={() => stopCamera(id)}
+                                    />
+                                    {!isMinimized && (
+                                        <div className="feed-shell-actions">
+                                            <button
+                                                className={`btn ${isRecording ? 'btn-danger' : 'btn-secondary'} btn-xs`}
+                                                onClick={() => toggleRecord(id)}
+                                            >
+                                                {isRecording ? <Square size={12} /> : <Circle size={12} />}
+                                                {isRecording ? 'Stop Recording' : 'Record Feed'}
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </ContentCard>
+
+            <div className="two-col detection-page-controls">
                 <ContentCard
                     title="Add Video Feed"
                     subtitle="Primary flow: upload a video and run it as a virtual camera"
                     accent="teal"
                 >
-                    <form onSubmit={addCamera} style={{ display: 'grid', gap: 10 }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <form onSubmit={addCamera} className="detection-form">
+                        <div className="detection-form-row-2">
                             <div>
                                 <label className="form-label">Feed Slot ID</label>
                                 <input
@@ -355,32 +360,97 @@ export default function DetectionPage() {
                         </div>
 
                         <div>
-                            <label className="form-label">Detection Weights</label>
+                            <label className="form-label">Detection Mode</label>
                             <select
                                 className="form-select"
-                                multiple
-                                size={Math.min(Math.max(models.length, 3), 6)}
-                                value={form.models}
-                                onChange={(e) => setForm({
-                                    ...form,
-                                    models: Array.from(e.target.selectedOptions).map((option) => option.value),
-                                })}
+                                value={form.modelMode}
+                                onChange={(e) => setForm({ ...form, modelMode: e.target.value, models: [] })}
                             >
-                                {models.map((m) => (
-                                    <option key={m.filename} value={m.filename}>
-                                        {m.filename} ({m.num_classes} classes)
-                                    </option>
-                                ))}
+                                <option value="auto">Auto / default weight</option>
+                                <option value="auto_ensemble">Smart auto ensemble</option>
+                                <option value="single">Single model weight</option>
+                                <option value="ensemble">Multi-model ensemble</option>
                             </select>
-                            {selectedModelInfo.length > 0 && (
-                                <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
-                                    <strong>{selectedModelInfo.length > 1 ? 'Ensemble:' : 'Selected:'}</strong> {selectedModelInfo.map((m) => m.filename).join(' + ')}
+                        </div>
+
+                        {form.modelMode === 'single' && (
+                            <div>
+                                <label className="form-label">Model Weight</label>
+                                <select
+                                    className="form-select"
+                                    value={form.models[0] || ''}
+                                    onChange={(e) => setForm({ ...form, models: e.target.value ? [e.target.value] : [] })}
+                                    required
+                                >
+                                    <option value="">Select a model weight...</option>
+                                    {models.map((m) => (
+                                        <option key={m.filename} value={m.filename}>
+                                            {m.filename} ({m.num_classes || 'all'} classes)
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+
+                        {form.modelMode === 'ensemble' && (
+                            <div>
+                                <label className="form-label">Model Weights (select 2 or more)</label>
+                                <div className="detection-form-toolbar">
+                                    <button
+                                        type="button"
+                                        className="btn btn-secondary btn-xs"
+                                        onClick={() => setForm({
+                                            ...form,
+                                            models: models.map((m) => m.filename),
+                                        })}
+                                    >
+                                        Select all
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="btn btn-secondary btn-xs"
+                                        onClick={() => setForm({
+                                            ...form,
+                                            models: ensembleModelOptions.map((m) => m.filename),
+                                        })}
+                                    >
+                                        Person models only
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="btn btn-secondary btn-xs"
+                                        onClick={() => setForm({ ...form, models: [] })}
+                                    >
+                                        Clear
+                                    </button>
                                 </div>
+                                <div className="detection-model-picker">
+                                    {models.map((m) => (
+                                        <label key={m.filename} className="detection-model-option">
+                                            <input
+                                                type="checkbox"
+                                                checked={(form.models || []).includes(m.filename)}
+                                                onChange={() => toggleModelWeight(m.filename)}
+                                            />
+                                            <span className="detection-model-name">{m.filename}</span>
+                                            <span className="detection-model-tag">{getModelTypeTag(m)}</span>
+                                            <span className="detection-model-classes">({m.num_classes || 'all'} classes)</span>
+                                        </label>
+                                    ))}
+                                    {models.length === 0 && (
+                                        <div className="page-empty-hint">No model weights found in model_weight directory.</div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="detection-form-hint">
+                            {form.modelMode === 'auto' && <>Default: {modelsData?.default_model || 'yolov8n.pt'}</>}
+                            {form.modelMode === 'auto_ensemble' && (
+                                <>Smart auto ensemble chooses a small compatible person-detection set from model_weight ({allWeightNames.length} file{allWeightNames.length === 1 ? '' : 's'} available) and merges detections.</>
                             )}
-                            {selectedModelInfo.length === 0 && (
-                                <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
-                                    Default: {modelsData?.default_model || 'yolov8n.pt'}
-                                </div>
+                            {selectedModelInfo.length > 0 && (
+                                <><strong>{selectedModelInfo.length > 1 ? `Ensemble (${selectedModelInfo.length}):` : 'Selected:'}</strong> {selectedModelInfo.map((m) => m.filename).join(' + ')}</>
                             )}
                         </div>
 
@@ -397,6 +467,15 @@ export default function DetectionPage() {
                                 <option value="http">HTTP(S) / MJPEG URL (advanced)</option>
                             </select>
                         </div>
+
+                        <label className="detection-form-check">
+                            <input
+                                type="checkbox"
+                                checked={form.enableReid}
+                                onChange={(e) => setForm({ ...form, enableReid: e.target.checked })}
+                            />
+                            <span>Enable Re-ID on this feed</span>
+                        </label>
 
                         <div>
                             <label className="form-label">Source</label>
@@ -427,7 +506,7 @@ export default function DetectionPage() {
                             )}
                         </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, alignItems: 'end' }}>
+                        <div className="detection-form-actions">
                             <div>
                                 <label className="form-label">FPS cap</label>
                                 <input
@@ -441,12 +520,9 @@ export default function DetectionPage() {
                             </button>
                         </div>
 
-                        <label
-                            className="btn btn-secondary"
-                            style={{ display: 'inline-flex', cursor: 'pointer', justifyContent: 'center' }}
-                        >
+                        <label className="btn btn-secondary detection-upload-btn">
                             <Upload size={14} />
-                            <span style={{ marginLeft: 8 }}>Upload video</span>
+                            <span>Upload video</span>
                             <input
                                 type="file" accept="video/*" hidden
                                 onChange={(e) => uploadClip(e.target.files)}
@@ -460,237 +536,32 @@ export default function DetectionPage() {
                     subtitle="Live counters for your active video feeds"
                     accent="cyan"
                 >
-                    <div style={{ display: 'grid', gap: 10 }}>
+                    <div className="detection-status-list">
                         <Row label="State" value={pipeState?.state || 'idle'} />
                         <Row label="Total feeds" value={pipeState?.cameras?.total ?? activeCameras.length} />
-                        <Row label="Frames processed"
-                            value={pipeState?.frame_counts
-                                ? Object.values(pipeState.frame_counts).reduce((a, b) => a + b, 0)
-                                : 0} />
+                        <Row label="Frames processed" value={totalFramesProcessed} />
                         <Row label="People detections"
-                            value={pipeState?.total_detections_processed ?? 0} />
+                            value={processingStatus.total_detections_processed ?? 0} />
                         <Row label="Cross-feed memory size"
                             value={pipeState?.ai_modules?.reid?.gallery_size ?? 0} />
+                        <Row label="Tracker"
+                            value={trackerLabel} />
+                        <Row label="Detection weights"
+                            value={activeModelSummary || (modelsData?.default_model ? `Auto ${modelsData.default_model}` : 'Auto default')} />
                         <Row label="Recording"
                             value={recordingIds.size ? `${recordingIds.size} feed(s)` : 'idle'} />
                     </div>
                 </ContentCard>
             </div>
-
-            <div className="two-col">
-                <ContentCard
-                    title="Camera Model Router"
-                    subtitle="Automatic per-camera model decisions from area labels, shopper activity, and scheduler guardrails"
-                >
-                    <div className="ui-status-grid" style={{ marginBottom: 14 }}>
-                        <StatusTile icon={Video} label="Routed feeds" value={routerStats.cameras} tone="sky" compact />
-                        <StatusTile icon={ShoppingCart} label="Shelf roles" value={routerStats.shelf} tone="teal" compact />
-                        <StatusTile icon={Receipt} label="Checkout roles" value={routerStats.checkout} tone="ok" compact />
-                        <StatusTile icon={AlertTriangle} label="Safety roles" value={routerStats.safety} tone="warn" compact />
-                    </div>
-                    <div className="ui-feed-list" style={{ maxHeight: 330, overflow: 'auto' }}>
-                        {cameraRoleRows.length === 0 ? (
-                            <div className="page-empty-hint">
-                                No routed feeds yet. Add area labels like entrance, aisle, shelf, checkout, or storage.
-                            </div>
-                        ) : cameraRoleRows.map((camera) => {
-                            const modules = camera.modules || {};
-                            const status = camera.latest?.model_status || {};
-                            const latestReason = status.router?.reason || camera.reason || 'auto_role';
-                            return (
-                                <div key={camera.cameraId} className="ui-lane-row" style={{ gridTemplateColumns: '90px 96px 1fr' }}>
-                                    <span className="ui-lane-row-title">Feed {camera.cameraId}</span>
-                                    <span className="pill pill-info">{title(camera.role)}</span>
-                                    <span>
-                                        <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
-                                            {Object.entries(modules).map(([name, enabled]) => (
-                                                <ModuleChip key={name} name={name} enabled={enabled} status={status[name]} />
-                                            ))}
-                                        </span>
-                                        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                                            {latestReason}
-                                        </span>
-                                    </span>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </ContentCard>
-
-                <ContentCard
-                    title="Cart Handoff"
-                    subtitle="Counter queue and active smart carts mapped from shopper identity instead of cart tracking"
-                >
-                    <div className="ui-status-grid" style={{ marginBottom: 14 }}>
-                        <StatusTile icon={ShoppingCart} label="Open carts" value={humanlessOverview?.open_carts || 0} tone="teal" compact />
-                        <StatusTile icon={Receipt} label="At counter" value={cashierRows.length} tone="sky" compact />
-                        <StatusTile icon={BrainCircuit} label="Adaptive gating" value={pipeState?.processing?.adaptive_model_gating ? 'On' : 'Off'} tone={pipeState?.processing?.adaptive_model_gating ? 'ok' : 'warn'} compact />
-                    </div>
-                    <div className="ui-feed-list" style={{ maxHeight: 330, overflow: 'auto' }}>
-                        {cashierRows.length === 0 && smartSessions.length === 0 ? (
-                            <div className="page-empty-hint">
-                                No cart handoffs yet. When a shopper reaches checkout, their bill appears here.
-                            </div>
-                        ) : [...cashierRows, ...smartSessions].slice(0, 6).map((session) => (
-                            <div key={`${session.id}-${session.global_id}`} className="ui-lane-row" style={{ gridTemplateColumns: '120px 1fr 96px' }}>
-                                <span className="ui-lane-row-title">{session.global_id || `Session ${session.id}`}</span>
-                                <span>{session.last_zone || session.counter_id || 'shopping floor'}</span>
-                                <span style={{ fontWeight: 700 }}>{money(session.cart?.subtotal)}</span>
-                            </div>
-                        ))}
-                    </div>
-                </ContentCard>
-            </div>
-
-            <div className="two-col">
-                <ContentCard title="Product & Shelf Setup" subtitle="Planogram mapping for low-cost cart inference">
-                    <div className="two-col" style={{ gap: 12 }}>
-                        <form className="settings-form" onSubmit={createProduct}>
-                            <input className="form-input" placeholder="SKU" value={productForm.sku} onChange={(e) => setProductForm((f) => ({ ...f, sku: e.target.value }))} />
-                            <input className="form-input" placeholder="Product name" value={productForm.name} onChange={(e) => setProductForm((f) => ({ ...f, name: e.target.value }))} />
-                            <input className="form-input" placeholder="Category" value={productForm.category} onChange={(e) => setProductForm((f) => ({ ...f, category: e.target.value }))} />
-                            <input className="form-input" placeholder="Price" type="number" step="0.01" value={productForm.price} onChange={(e) => setProductForm((f) => ({ ...f, price: e.target.value }))} />
-                            <button type="submit" className="topbar-pill topbar-pill-button" disabled={busy}>
-                                <PackagePlus size={13} />
-                                Add Product
-                            </button>
-                        </form>
-                        <form className="settings-form" onSubmit={createZone}>
-                            <input className="form-input" placeholder="Zone ID, e.g. aisle1-drinks" value={zoneForm.zone_id} onChange={(e) => setZoneForm((f) => ({ ...f, zone_id: e.target.value }))} />
-                            <input className="form-input" placeholder="Zone name" value={zoneForm.name} onChange={(e) => setZoneForm((f) => ({ ...f, name: e.target.value }))} />
-                            <input className="form-input" placeholder="Camera ID" type="number" value={zoneForm.camera_id} onChange={(e) => setZoneForm((f) => ({ ...f, camera_id: e.target.value }))} />
-                            <select className="form-input" value={zoneForm.product_id} onChange={(e) => setZoneForm((f) => ({ ...f, product_id: e.target.value }))}>
-                                <option value="">No product yet</option>
-                                {productOptions.map((p) => (
-                                    <option key={p.id} value={p.id}>{p.name}</option>
-                                ))}
-                            </select>
-                            <input className="form-input" placeholder="Current stock" type="number" value={zoneForm.current_stock} onChange={(e) => setZoneForm((f) => ({ ...f, current_stock: e.target.value }))} />
-                            <button type="submit" className="topbar-pill topbar-pill-button" disabled={busy}>
-                                <Store size={13} />
-                                Add Zone
-                            </button>
-                        </form>
-                    </div>
-                    <div className="ui-feed-list" style={{ marginTop: 14, maxHeight: 220, overflow: 'auto' }}>
-                        {[...productRows.slice(0, 4).map((p) => ({ id: `p-${p.id}`, name: p.name, meta: p.sku, value: money(p.price) })),
-                          ...zoneRows.slice(0, 4).map((z) => ({ id: `z-${z.id}`, name: z.name, meta: `Cam ${z.camera_id || '-'}`, value: `${z.current_stock} left` }))].map((item) => (
-                            <div key={item.id} className="ui-lane-row" style={{ gridTemplateColumns: '1fr 90px 86px' }}>
-                                <span className="ui-lane-row-title">{item.name}</span>
-                                <span>{item.meta}</span>
-                                <span>{item.value}</span>
-                            </div>
-                        ))}
-                    </div>
-                </ContentCard>
-
-                <ContentCard title="Manual Correction & Review" subtitle="Operator fallback for demos, low-confidence events, and training data">
-                    <form className="settings-form" onSubmit={createEvent}>
-                        <select className="form-input" value={eventForm.session_id} onChange={(e) => setEventForm((f) => ({ ...f, session_id: e.target.value }))}>
-                            <option value="">Use global ID instead</option>
-                            {smartSessions.map((s) => (
-                                <option key={s.id} value={s.id}>{s.global_id} / session {s.id}</option>
-                            ))}
-                        </select>
-                        <input className="form-input" value={eventForm.global_id} placeholder="PERSON-00042" onChange={(e) => setEventForm((f) => ({ ...f, global_id: e.target.value }))} />
-                        <select className="form-input" value={eventForm.product_id} onChange={(e) => setEventForm((f) => ({ ...f, product_id: e.target.value }))}>
-                            <option value="">Infer from shelf zone</option>
-                            {productOptions.map((p) => (
-                                <option key={p.id} value={p.id}>{p.name} / {money(p.price)}</option>
-                            ))}
-                        </select>
-                        <select className="form-input" value={eventForm.shelf_zone_id} onChange={(e) => setEventForm((f) => ({ ...f, shelf_zone_id: e.target.value }))}>
-                            <option value="">No shelf zone</option>
-                            {zoneOptions.map((z) => (
-                                <option key={z.id} value={z.id}>{z.name}</option>
-                            ))}
-                        </select>
-                        <div className="two-col" style={{ gap: 10 }}>
-                            <select className="form-input" value={eventForm.event_type} onChange={(e) => setEventForm((f) => ({ ...f, event_type: e.target.value }))}>
-                                <option value="pickup">Pickup</option>
-                                <option value="putback">Putback</option>
-                                <option value="adjustment">Adjustment</option>
-                                <option value="uncertain">Uncertain</option>
-                            </select>
-                            <input className="form-input" type="number" value={eventForm.quantity_delta} onChange={(e) => setEventForm((f) => ({ ...f, quantity_delta: e.target.value }))} />
-                        </div>
-                        <button type="submit" className="topbar-pill topbar-pill-primary" disabled={busy}>
-                            <ScanLine size={13} />
-                            Record Event
-                        </button>
-                    </form>
-                    <div className="ui-feed-list" style={{ marginTop: 14, maxHeight: 220, overflow: 'auto' }}>
-                        {alertRows.length === 0 ? (
-                            <div className="page-empty-hint">No open review alerts.</div>
-                        ) : alertRows.map((a) => (
-                            <div key={a.id} className="ui-lane-row" style={{ gridTemplateColumns: '1fr 92px 70px' }}>
-                                <span className="ui-lane-row-title">{a.description || a.alert_type}</span>
-                                <span className="pill pill-warning">{a.severity}</span>
-                                <span style={{ fontSize: 12 }}>{Math.round((a.confidence || 0) * 100)}%</span>
-                            </div>
-                        ))}
-                    </div>
-                </ContentCard>
-            </div>
-
-            <ContentCard
-                title={<> <Video size={16} style={{ verticalAlign: -3, marginRight: 6 }} /> Active Video Feeds ({activeCameras.length}) </>}
-                subtitle="People counts update in real time; FPS refreshes every 2 seconds"
-                accent="sky"
-            >
-                {activeCameras.length === 0 ? (
-                    <div className="page-empty-hint">
-                        No active feeds. Upload a video and add it as a feed above.
-                    </div>
-                ) : (
-                    <div className="camera-grid">
-                        {activeCameras.map((id) => {
-                            const s = cameraStats[id] || cameraStats[String(id)] || {};
-                            const live = cameraLive[id] || cameraLive[String(id)] || {};
-                            const isRecording = recordingIds.has(id);
-                            return (
-                                <div key={id} style={{ position: 'relative' }}>
-                                    <CameraStream
-                                        cameraId={id}
-                                        label={`Camera ${id}`}
-                                        zone={cameraZones[id] || cameraZones[String(id)]}
-                                        fps={s.fps ?? s.fps_actual}
-                                        connected={s.connected !== false}
-                                        detectionCount={live.person_count}
-                                        trackCount={live.active_tracks}
-                                        onClose={() => stopCamera(id)}
-                                    />
-                                    <div style={{
-                                        display: 'flex', gap: 6, justifyContent: 'flex-end',
-                                        padding: '8px 2px',
-                                    }}>
-                                        <button
-                                            className={`btn ${isRecording ? 'btn-danger' : 'btn-secondary'} btn-xs`}
-                                            onClick={() => toggleRecord(id)}
-                                        >
-                                            {isRecording ? <Square size={12} /> : <Circle size={12} />}
-                                            {isRecording ? 'Stop Recording' : 'Record Feed'}
-                                        </button>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                )}
-            </ContentCard>
         </div>
     );
 }
 
 function Row({ label, value }) {
     return (
-        <div style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            padding: '8px 10px', background: 'var(--bg-glass)',
-            borderRadius: 10, border: '1px solid var(--border)',
-        }}>
-            <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{label}</span>
-            <span style={{ fontWeight: 600, fontSize: 13 }}>{String(value)}</span>
+        <div className="detection-status-row">
+            <span className="detection-status-label">{label}</span>
+            <span className="detection-status-value" title={String(value)}>{String(value)}</span>
         </div>
     );
 }

@@ -50,7 +50,7 @@ def _get_model_classes(model_path: str) -> List[Dict[str, Any]]:
         return []
 
 
-def _scan_models() -> List[ModelInfo]:
+def _scan_models(include_classes: bool = False) -> List[ModelInfo]:
     """Scan model_weight folder for available YOLO models."""
     models = []
     if not MODEL_WEIGHTS_DIR.exists():
@@ -61,7 +61,7 @@ def _scan_models() -> List[ModelInfo]:
             continue
         if file.suffix.lower() not in {".pt", ".onnx", ".engine", ".tflite"}:
             continue
-        classes = _get_model_classes(str(file))
+        classes = _get_model_classes(str(file)) if include_classes else []
         models.append(ModelInfo(
             filename=file.name,
             path=str(file.resolve()),
@@ -75,9 +75,12 @@ def _scan_models() -> List[ModelInfo]:
 
 
 @router.get("/", response_model=ModelListResponse)
-async def list_models(current_user: User = Depends(get_current_user)):
+async def list_models(
+    include_classes: bool = False,
+    current_user: User = Depends(get_current_user),
+):
     """List all available YOLO models from the model_weight folder."""
-    models = _scan_models()
+    models = _scan_models(include_classes=include_classes)
     return ModelListResponse(
         models=models,
         default_model=settings.DEFAULT_YOLO_MODEL,
@@ -116,17 +119,33 @@ async def get_loaded_models(
     Shows which models are actively being used for inference.
     """
     pipeline = request.app.state.pipeline
+    active_assignments = {
+        str(model_path): []
+        for models in pipeline._camera_models.values()
+        for model_path in models
+    }
+    for cam_id, models in pipeline._camera_models.items():
+        for model_path in models:
+            active_assignments.setdefault(str(model_path), []).append(cam_id)
+
     loaded = []
     for model_path, detector in pipeline._detectors.items():
         if detector.is_loaded:
+            assigned_cameras = active_assignments.get(str(model_path), [])
             loaded.append({
                 "model_path": model_path,
                 "class_names": detector.get_class_names(),
                 "num_classes": len(detector.get_class_names()),
+                "active": bool(assigned_cameras),
+                "assigned_cameras": assigned_cameras,
             })
+    active_loaded = [item for item in loaded if item["active"]]
     return {
         "loaded_models": loaded,
+        "active_loaded_models": active_loaded,
+        "cached_inactive_models": [item for item in loaded if not item["active"]],
         "total_loaded": len(loaded),
+        "total_active_loaded": len(active_loaded),
         "camera_assignments": {
             cam_id: {
                 "paths": list(models),

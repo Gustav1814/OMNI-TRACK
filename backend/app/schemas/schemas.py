@@ -99,6 +99,8 @@ class DetectionResult(BaseModel):
     class_name: str = "person"
     zone: Optional[str] = None
     timestamp: Optional[datetime] = None
+    model_path: Optional[str] = None
+    ensemble_models: Optional[List[str]] = None
 
 
 class DetectionFrame(BaseModel):
@@ -501,6 +503,38 @@ class LossPreventionAlertResponse(BaseModel):
     confidence: float
     evidence: Optional[Dict[str, Any]]
     timestamp: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ---- Store Setup ----
+
+class StoreTemplate(BaseModel):
+    id: str
+    label: str
+    modules: List[str]
+    default_zones: List[str]
+    description: Optional[str] = None
+
+
+class StoreProfileUpdate(BaseModel):
+    store_name: Optional[str] = Field(None, min_length=1, max_length=160)
+    deployment_type: Optional[str] = Field(None, max_length=80)
+    enabled_modules: Optional[List[str]] = None
+    zone_templates: Optional[List[str]] = None
+    setup_completed: Optional[bool] = None
+
+
+class StoreProfileResponse(BaseModel):
+    id: int
+    store_name: str
+    deployment_type: str
+    enabled_modules: List[str]
+    zone_templates: List[str]
+    setup_completed_at: Optional[datetime]
+    created_at: Optional[datetime]
+    updated_at: Optional[datetime]
 
     class Config:
         from_attributes = True

@@ -17,11 +17,13 @@ from app.models.user import User
 from app.security.dependencies import get_current_user
 from app.schemas.schemas import DetectionResult, DetectionFrame
 from app.config import settings
+from app.services import model_selection as model_select
 
 router = APIRouter(prefix="/api/detection", tags=["Detection"])
 
 FOOTAGE_DIR = Path(settings.FOOTAGE_DIR)
 VIDEO_EXTENSIONS = {".mp4", ".avi", ".mkv", ".webm", ".mov"}
+MODEL_EXTENSIONS = {".pt", ".onnx", ".engine", ".tflite"}
 
 
 def _resolve_source(source: str, stream_type: str) -> Tuple[str, str]:
@@ -82,13 +84,94 @@ def _parse_model_selection(model: Optional[str] = None, models: Optional[str] = 
 
 
 def _resolve_model_paths(selected: List[str]) -> List[str]:
+    if not selected:
+        return []
     paths = []
     for name in selected:
         model_file = Path(settings.MODEL_WEIGHTS_DIR) / name
-        if not model_file.exists():
-            raise HTTPException(status_code=404, detail=f"Model {name} not found in {settings.MODEL_WEIGHTS_DIR}")
-        paths.append(str(model_file.resolve()))
+        if model_file.exists():
+            paths.append(str(model_file.resolve()))
+            continue
+        cwd_candidate = Path(name)
+        if cwd_candidate.is_file():
+            paths.append(str(cwd_candidate.resolve()))
+            continue
+        if name == settings.DEFAULT_YOLO_MODEL:
+            # Ultralytics can resolve/download the default weight by filename.
+            paths.append(name)
+            continue
+        raise HTTPException(status_code=404, detail=f"Model {name} not found in {settings.MODEL_WEIGHTS_DIR}")
     return paths
+
+
+def _default_weight_names() -> List[str]:
+    return [settings.DEFAULT_YOLO_MODEL]
+
+
+def _list_all_weight_names() -> List[str]:
+    weights_dir = Path(settings.MODEL_WEIGHTS_DIR)
+    if not weights_dir.is_dir():
+        return []
+    names = [
+        f.name
+        for f in weights_dir.iterdir()
+        if f.is_file() and f.suffix.lower() in MODEL_EXTENSIONS and not f.name.startswith(".")
+    ]
+    return sorted(dict.fromkeys(names))
+
+
+def _select_smart_weight_names(zone: str = "", source: str = "", prefer_ensemble: bool = False) -> List[str]:
+    """
+    Select a small compatible model set for a feed.
+    Brute-force all weights is slow and noisy because face, fire, product, and
+    general-person weights solve different tasks.
+    """
+    names = _list_all_weight_names()
+    if not names:
+        return []
+
+    lower_by_name = {name: name.lower() for name in names}
+
+    def first_matching(*needles: str) -> Optional[str]:
+        for needle in needles:
+            for name, lower in lower_by_name.items():
+                if needle in lower:
+                    return name
+        return None
+
+    def lightweight_general_candidates() -> List[str]:
+        ordered = []
+        for needle in ("yolo11", "yolov8", "yolo26", "general"):
+            hit = first_matching(needle)
+            if hit and hit not in ordered:
+                ordered.append(hit)
+        for name in names:
+            lower = lower_by_name[name]
+            if name not in ordered and not any(k in lower for k in ("face", "fire", "smoke", "product", "pose", "pe_")):
+                ordered.append(name)
+        return ordered
+
+    zone_text = f"{zone} {source}".lower()
+    selected: List[str] = []
+    general = lightweight_general_candidates()
+
+    def add(name: Optional[str]):
+        if name and name not in selected:
+            selected.append(name)
+
+    if any(k in zone_text for k in ("fire", "smoke", "kitchen", "storage", "safety")):
+        add(first_matching("fire", "smoke"))
+        add(general[0] if general else None)
+    elif any(k in zone_text for k in ("shelf", "product", "aisle", "inventory", "stock")):
+        add(first_matching("product"))
+        add(general[0] if general else None)
+    else:
+        add(general[0] if general else None)
+        if prefer_ensemble and len(general) > 1:
+            add(general[1])
+
+    # Auto should stay fast. Manual ensemble remains available for broader experiments.
+    return selected[:2] or names[:1]
 
 
 @router.post("/start/{camera_id}")
@@ -100,6 +183,11 @@ async def start_detection(
     zone: str = "default",
     model: str = None,
     models: str = None,
+    model_mode: str = "manual",
+    fps: int = settings.PROCESSING_FPS,
+    skip_frames: int = settings.DEFAULT_SKIP_FRAMES,
+    enable_reid: bool = True,
+    tracker: str = "bytetrack",
     current_user: User = Depends(get_current_user),
     pipeline=Depends(get_pipeline),
 ):
@@ -111,39 +199,66 @@ async def start_detection(
     """
     source, stream_type = _resolve_source(source, stream_type)
     
-    selected_models = _parse_model_selection(model=model, models=models)
-    model_paths = _resolve_model_paths(selected_models)
+    mode = (model_mode or "manual").strip().lower()
+    try:
+        selected_models, effective_model_mode = model_select.select_model_names(
+            model_mode=mode,
+            model=model,
+            models=models,
+            zone=zone,
+            source=source,
+        )
+        model_paths = model_select.resolve_model_paths(selected_models)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     
     try:
+        await request.app.state.cache.invalidate_pipeline_state()
         pipeline.add_camera(
             camera_id=camera_id,
             source=source,
             stream_type=stream_type,
             zone=zone,
+            fps=fps,
+            skip_frames=skip_frames,
             model_path=model_paths or None,
+            enable_reid=enable_reid,
+            tracker_mode=tracker,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if pipeline.state.value != "running":
         await pipeline.start()
+    status = pipeline.get_status()
+    await request.app.state.cache.cache_pipeline_state(status)
     return {
         "message": f"Detection started on camera {camera_id}",
         "status": "running",
         "source": source,
         "model": selected_models[0] if len(selected_models) == 1 else None,
         "models": selected_models or [settings.DEFAULT_YOLO_MODEL],
-        "model_mode": "ensemble" if len(selected_models) > 1 else "single",
+        "model_mode": effective_model_mode,
+        "requested_model_mode": mode,
+        "reid_enabled": enable_reid,
+        "tracker": tracker,
+        "pipeline_state": status,
     }
 
 
 @router.post("/stop/{camera_id}")
 async def stop_detection(
     camera_id: int,
+    request: Request,
     current_user: User = Depends(get_current_user),
     pipeline=Depends(get_pipeline),
 ):
     """Stop detection on a camera feed (removes from pipeline)."""
+    await request.app.state.cache.invalidate_pipeline_state()
     pipeline.remove_camera(camera_id)
+    status = pipeline.get_status()
+    await request.app.state.cache.cache_pipeline_state(status)
     return {"message": f"Detection stopped on camera {camera_id}", "status": "stopped"}
 
 
@@ -224,6 +339,8 @@ async def get_detection_results(
                     confidence=float(d.get("confidence", 0)),
                     class_name=str(d.get("class_name", "person")),
                     zone=d.get("zone"),
+                    model_path=d.get("model_path"),
+                    ensemble_models=d.get("ensemble_models"),
                 )
             )
     return out

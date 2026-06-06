@@ -8,6 +8,7 @@ import { synopsisAPI, footageAPI } from '../services/api';
 import useLivePoll from '../hooks/useLivePoll';
 import StatCard from '../components/ui/StatCard';
 import ContentCard from '../components/ui/ContentCard';
+import HighlightReelTool from '../components/HighlightReelTool';
 
 export default function SynopsisPage() {
     const { data: list, refresh: refreshList } = useLivePoll(() => synopsisAPI.list(), { intervalMs: 10000 });
@@ -60,8 +61,8 @@ export default function SynopsisPage() {
         <div className="page-scroll">
             <div className="page-header">
                 <div>
-                    <h1 className="page-title">Video Synopsis</h1>
-                    <p className="page-subtitle">Compress hours of footage into minutes</p>
+                    <h1 className="page-title">Highlights Reel</h1>
+                    <p className="page-subtitle">Generate compressed video synopsis files and subject highlight reels</p>
                 </div>
             </div>
 
@@ -161,7 +162,7 @@ export default function SynopsisPage() {
                                     </span>
                                     <span className="pill pill-info">{Number(s.compression_ratio || 0).toFixed(1)}x</span>
                                     <a
-                                        href={footageAPI.serveUrl(filename || '')}
+                                        href={synopsisAPI.serveUrl(filename || '')}
                                         target="_blank" rel="noreferrer"
                                         className="btn btn-secondary btn-xs"
                                         style={{ textDecoration: 'none', justifyContent: 'center' }}
@@ -174,6 +175,8 @@ export default function SynopsisPage() {
                     </div>
                 </ContentCard>
             </div>
+
+            <HighlightReelTool />
         </div>
     );
 }

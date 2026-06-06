@@ -16,6 +16,10 @@ export default defineConfig({
                 target: `ws://localhost:${backendPort}`,
                 ws: true,
             },
+            '/admin': {
+                target: `http://localhost:${backendPort}`,
+                changeOrigin: true,
+            },
         },
     },
 })

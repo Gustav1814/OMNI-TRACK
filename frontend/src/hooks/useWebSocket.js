@@ -21,6 +21,7 @@ export default function useWebSocket(path = '/ws/live', { onEvent, onType } = {}
     const wsRef = useRef(null);
     const attemptRef = useRef(0);
     const stoppedRef = useRef(false);
+    const reconnectTimerRef = useRef(null);
     const typeMapRef = useRef(onType || {});
     const eventCbRef = useRef(onEvent);
 
@@ -37,15 +38,23 @@ export default function useWebSocket(path = '/ws/live', { onEvent, onType } = {}
         setStatus('connecting');
 
         ws.onopen = () => {
+            if (stoppedRef.current) {
+                try { ws.close(); } catch { /* noop */ }
+                return;
+            }
             attemptRef.current = 0;
             setStatus('open');
         };
         ws.onclose = () => {
+            if (stoppedRef.current) return;
             setStatus('closed');
             scheduleReconnect();
         };
-        ws.onerror = () => setStatus('error');
+        ws.onerror = () => {
+            if (!stoppedRef.current) setStatus('error');
+        };
         ws.onmessage = (ev) => {
+            if (stoppedRef.current) return;
             let payload;
             try { payload = JSON.parse(ev.data); }
             catch { return; }
@@ -61,7 +70,8 @@ export default function useWebSocket(path = '/ws/live', { onEvent, onType } = {}
         if (stoppedRef.current) return;
         attemptRef.current += 1;
         const delay = Math.min(RECONNECT_BASE_MS * 2 ** (attemptRef.current - 1), RECONNECT_MAX_MS);
-        setTimeout(() => connect(), delay);
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = setTimeout(() => connect(), delay);
     }
 
     useEffect(() => {
@@ -69,7 +79,11 @@ export default function useWebSocket(path = '/ws/live', { onEvent, onType } = {}
         connect();
         return () => {
             stoppedRef.current = true;
-            try { wsRef.current?.close(); } catch { /* noop */ }
+            clearTimeout(reconnectTimerRef.current);
+            const ws = wsRef.current;
+            try {
+                if (ws?.readyState === WebSocket.OPEN) ws.close();
+            } catch { /* noop */ }
         };
     }, [connect]);
 

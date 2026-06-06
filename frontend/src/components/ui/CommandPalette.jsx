@@ -1,17 +1,32 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, LayoutDashboard, Scan, Flame, Users, Command } from 'lucide-react';
+import {
+    Search, LayoutDashboard, Scan, Flame, Users, Command, Activity, Video,
+    ShoppingBag, UsersRound, ShoppingCart, TrendingUp, BarChart3, Smile,
+    Store, SlidersHorizontal, ClipboardList, ShieldCheck, Settings,
+} from 'lucide-react';
 
 const COMMANDS = [
-    { type: 'page', path: '/', label: 'Executive Overview', icon: LayoutDashboard, group: 'Navigate' },
-    { type: 'page', path: '/vibe', label: 'Store Atmosphere', icon: LayoutDashboard, group: 'Navigate' },
-    { type: 'page', path: '/detection', label: 'In-Store Cameras', icon: Scan, group: 'Navigate' },
-    { type: 'page', path: '/reid', label: 'Shopper Journey', icon: Users, group: 'Navigate' },
-    { type: 'page', path: '/fire', label: 'Safety Monitoring', icon: Flame, group: 'Navigate' },
-    { type: 'page', path: '/crowd', label: 'Store Traffic', icon: Users, group: 'Navigate' },
-    { type: 'page', path: '/checkout', label: 'Checkout Experience', icon: Users, group: 'Navigate' },
-    { type: 'page', path: '/peak-hours', label: 'Peak Performance', icon: LayoutDashboard, group: 'Navigate' },
+    { type: 'page', path: '/', label: 'Live Overview', icon: LayoutDashboard, group: 'Command Center' },
+    { type: 'page', path: '/vibe', label: 'Store Pulse', icon: Activity, group: 'Command Center' },
+    { type: 'page', path: '/peak-hours', label: 'Rush Hours', icon: TrendingUp, group: 'Command Center' },
+    { type: 'page', path: '/detection', label: 'Video Feeds', icon: Scan, group: 'Operations' },
+    { type: 'page', path: '/reid', label: 'Cross-Feed Match', icon: Users, group: 'Operations' },
+    { type: 'page', path: '/synopsis', label: 'Highlights Reel', icon: Video, group: 'Operations' },
+    { type: 'page', path: '/shelf', label: 'Shelf Activity', icon: ShoppingBag, group: 'Analytics' },
+    { type: 'page', path: '/crowd', label: 'Footfall', icon: UsersRound, group: 'Analytics' },
+    { type: 'page', path: '/checkout', label: 'Queue Insights', icon: ShoppingCart, group: 'Analytics' },
+    { type: 'page', path: '/emotion', label: 'Mood Trends', icon: Smile, group: 'Analytics' },
+    { type: 'page', path: '/demographics', label: 'Audience Mix', icon: BarChart3, group: 'Analytics' },
+    { type: 'page', path: '/fire', label: 'Safety Watch', icon: Flame, group: 'Analytics' },
+    { type: 'page', path: '/humanless', label: 'Smart Store', icon: Store, group: 'Smart Commerce' },
+    { type: 'page', path: '/setup', label: 'Store Setup', icon: SlidersHorizontal, group: 'Administration' },
+    { type: 'page', path: '/audit', label: 'Activity Log', icon: ClipboardList, group: 'Administration' },
+    { type: 'page', path: '/security', label: 'Model Health', icon: ShieldCheck, group: 'Administration' },
+    { type: 'page', path: '/settings', label: 'Appearance', icon: Settings, group: 'Administration' },
     { type: 'action', id: 'refresh', label: 'Refresh data', group: 'Actions' },
+    { type: 'action', id: 'start-session', label: 'Start monitoring session', group: 'Actions' },
+    { type: 'action', id: 'stop-session', label: 'Stop monitoring session', group: 'Actions' },
     { type: 'action', id: 'theme', label: 'Toggle light / dark theme', group: 'Actions' },
 ];
 

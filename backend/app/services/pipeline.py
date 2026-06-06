@@ -214,21 +214,35 @@ class ProcessingPipeline:
         # Cache of detectors by model path (allows per-camera model selection)
         self._detectors: Dict[str, PersonDetector] = {}
         self._camera_models: Dict[int, Tuple[str, ...]] = {}  # camera_id -> one or more model paths
-        # Initialize default detector
-        self.detector = self._get_or_create_detector(detector_model)
+        # Model inference lock: prevents GPU contention when multiple detectors
+        # run in ensemble mode. Only one model forward pass at a time.
+        self._model_inference_lock = threading.Lock()
+        # Detectors are loaded lazily by the camera assignment. This prevents
+        # the default weight from staying resident when a feed uses a different
+        # single selected weight.
+        self.detector: Optional[PersonDetector] = None
         # Per-camera trackers: each feed has its own ByteTrack state (local track IDs per camera).
         # Global identity across cameras is resolved by Re-ID, not by the tracker.
         self._trackers: Dict[int, MultiObjectTracker] = {}
         self.reid = PersonReID(
             model_name=reid_model,
-            device=device if device != "auto" else "cpu",
+            device=device,
             similarity_threshold=reid_threshold,
             max_embeddings_per_id=reid_embeddings_per_id,
+            max_identities=max(100, settings.REID_GALLERY_MAX_IDENTITIES),
         )
         # Temporal consistency: (camera_id, track_id) -> last global_id (avoids flicker when face not visible)
         self._last_global_by_track: Dict[Tuple[int, int], str] = {}
         self._last_reid_frame_by_track: Dict[Tuple[int, int], int] = {}
         self._recent_reid_memory: List[Dict[str, Any]] = []
+
+        # --- Disappeared persons pool (blind-spot recovery) ---
+        # When a tracked person stops being seen, they move here.
+        # Checked during _assign_global_id before creating a new ID.
+        # Entries: {global_id, embedding, last_seen, last_camera_id, last_bbox}
+        self._disappeared_pool: Dict[str, Dict[str, Any]] = {}
+        self._blind_spot_timeout = max(10.0, settings.REID_BLIND_SPOT_TIMEOUT_S)
+        self._ensemble_min_agreement = max(1, settings.ENSEMBLE_MIN_MODEL_AGREEMENT)
 
         # Optional modules
         self._enable_emotions = enable_emotions
@@ -266,6 +280,8 @@ class ProcessingPipeline:
         self._camera_zones: Dict[int, str] = {}
         self._camera_sources: Dict[int, str] = {}
         self._camera_roles: Dict[int, Dict[str, Any]] = {}
+        self._camera_reid_enabled: Dict[int, bool] = {}
+        self._camera_tracker_modes: Dict[int, str] = {}
         # Detections counter — powers dashboard "total_detections_today"
         self._total_detections: int = 0
         # Last-computed store vibe dict, so routers can serve without recomputing
@@ -317,47 +333,125 @@ class ProcessingPipeline:
                 confidence=self._detector_confidence,
                 device=self._detector_device,
             )
+        if model_path == self._detector_model:
+            self.detector = self._detectors[model_path]
         return self._detectors[model_path]
 
+    def _active_model_paths(self) -> set:
+        active = set()
+        for paths in self._camera_models.values():
+            active.update(paths)
+        return active
+
+    def _prune_unused_detectors(self) -> None:
+        """Unload cached detector weights that are not assigned to any camera."""
+        active = self._active_model_paths()
+        for model_path in list(self._detectors.keys()):
+            if model_path in active:
+                continue
+            detector = self._detectors.pop(model_path)
+            if self.detector is detector:
+                self.detector = None
+            try:
+                detector.unload()
+            except Exception as exc:
+                logger.debug(f"Detector unload skipped for {model_path}: {exc}")
+            logger.info(f"Unloaded inactive detector model: {model_path}")
+
     def _detect_with_models(self, frame: np.ndarray, model_paths: Tuple[str, ...]) -> List[Dict[str, Any]]:
+        """Run detection across one or more models with inference lock to prevent GPU contention."""
+        model_paths = self._normalize_model_paths(model_paths, self._detector_model)
         detections: List[Dict[str, Any]] = []
         for model_path in model_paths:
             detector = self._get_or_create_detector(model_path)
-            for raw in detector.detect(frame):
+            # Serialize GPU access: prevents OOM and memory fragmentation when
+            # multiple YOLO models run in ensemble mode on the same device.
+            with self._model_inference_lock:
+                raw_dets = detector.detect(frame)
+            for raw in raw_dets:
                 det = self._detection_to_dict(raw)
                 det["model_path"] = model_path
                 detections.append(det)
         if len(model_paths) <= 1:
             return detections
-        return self._merge_ensemble_detections(detections)
+        return self._merge_ensemble_detections(detections, len(model_paths))
 
-    def _merge_ensemble_detections(self, detections: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _merge_ensemble_detections(
+        self,
+        detections: List[Dict[str, Any]],
+        num_models: int = 2,
+    ) -> List[Dict[str, Any]]:
         """
-        De-duplicate overlapping boxes from multiple selected weights.
-        Highest confidence box wins geometry; source models are retained.
+        Smart Auto-Ensemble: de-duplicate overlapping boxes from multiple models.
+
+        Key differences from naive NMS:
+        - Uses ENSEMBLE_NMS_IOU_THRESHOLD (default 0.5) instead of intra-model NMS
+          threshold (0.45), reducing false merges of nearby different people.
+        - Confidence-weighted box averaging: merged box geometry is a weighted
+          average of contributing detections, not just the highest-confidence one.
+        - Model agreement tracking: each merged detection records how many models
+          independently detected it (ensemble_agreement count).
+        - ENSEMBLE_MIN_MODEL_AGREEMENT filtering: optionally require N models to
+          agree before accepting a detection (set to 2 for high-precision mode).
         """
         if len(detections) <= 1:
             return detections
+
+        ensemble_iou_th = settings.ENSEMBLE_NMS_IOU_THRESHOLD
+        min_agreement = self._ensemble_min_agreement
+
         ordered = sorted(detections, key=lambda d: float(d.get("confidence", 0.0)), reverse=True)
         merged: List[Dict[str, Any]] = []
+
         for det in ordered:
             bbox = det.get("bbox") or []
             if len(bbox) < 4:
                 continue
+            conf = float(det.get("confidence", 0.0))
             absorbed = False
             for kept in merged:
-                if self._iou(bbox, kept.get("bbox", [])) < settings.NMS_THRESHOLD:
+                if str(det.get("class_name", "")).lower() != str(kept.get("class_name", "")).lower():
                     continue
+                if self._iou(bbox, kept.get("bbox", [])) < ensemble_iou_th:
+                    continue
+
+                # Confidence-weighted box averaging for better geometry
+                kept_conf = float(kept.get("confidence", 0.0))
+                kept_bbox = kept.get("bbox", [])
+                total_conf = kept_conf * kept.get("_merge_count", 1) + conf
+                merge_count = kept.get("_merge_count", 1) + 1
+                w1 = kept_conf * (merge_count - 1) / total_conf
+                w2 = conf / total_conf
+                kept["bbox"] = [
+                    kept_bbox[0] * w1 + bbox[0] * w2,
+                    kept_bbox[1] * w1 + bbox[1] * w2,
+                    kept_bbox[2] * w1 + bbox[2] * w2,
+                    kept_bbox[3] * w1 + bbox[3] * w2,
+                ]
+                kept["_merge_count"] = merge_count
+
                 kept_models = set(kept.get("ensemble_models") or [kept.get("model_path")])
                 kept_models.add(det.get("model_path"))
                 kept["ensemble_models"] = sorted(m for m in kept_models if m)
-                kept["confidence"] = max(float(kept.get("confidence", 0.0)), float(det.get("confidence", 0.0)))
+                kept["ensemble_agreement"] = len(kept["ensemble_models"])
+                kept["confidence"] = max(kept_conf, conf)
                 absorbed = True
                 break
             if not absorbed:
                 clone = dict(det)
                 clone["ensemble_models"] = [det.get("model_path")] if det.get("model_path") else []
+                clone["ensemble_agreement"] = 1
+                clone["_merge_count"] = 1
                 merged.append(clone)
+
+        # Filter by minimum model agreement (enterprise precision mode)
+        if min_agreement > 1 and num_models >= min_agreement:
+            merged = [d for d in merged if d.get("ensemble_agreement", 1) >= min_agreement]
+
+        # Clean up internal bookkeeping keys
+        for d in merged:
+            d.pop("_merge_count", None)
+
         return merged
 
     def add_camera(
@@ -370,6 +464,8 @@ class ProcessingPipeline:
         skip_frames: int = settings.DEFAULT_SKIP_FRAMES,
         roi: Optional[Dict] = None,
         model_path: Optional[Union[str, List[str], Tuple[str, ...]]] = None,
+        enable_reid: Optional[bool] = True,
+        tracker_mode: str = "bytetrack",
     ):
         """
         Register a camera for processing.
@@ -399,6 +495,21 @@ class ProcessingPipeline:
                 f"Maximum camera limit reached ({self.max_cameras}). "
                 "Increase MAX_CAMERAS or remove an inactive camera."
             )
+        if replacing_existing:
+            self._stop_recording_impl(camera_id)
+            self._results_buffer.pop(camera_id, None)
+            self._trackers.pop(camera_id, None)
+            self._last_global_by_track = {
+                k: v for k, v in self._last_global_by_track.items() if k[0] != camera_id
+            }
+            self._last_reid_frame_by_track = {
+                k: v for k, v in self._last_reid_frame_by_track.items() if k[0] != camera_id
+            }
+            self._recent_reid_memory = [
+                item for item in self._recent_reid_memory
+                if item.get("camera_id") != camera_id
+            ]
+            self._latest_annotated_jpeg.pop(camera_id, None)
 
         effective_skip_frames = skip_frames if skip_frames is not None else self.default_skip_frames
         effective_fps = max(1, min(int(fps or self.processing_fps), self.processing_fps))
@@ -416,15 +527,33 @@ class ProcessingPipeline:
         self._camera_zones[camera_id] = zone
         self._camera_sources[camera_id] = str(source)
         self._camera_roles[camera_id] = self._infer_camera_role(camera_id, zone=zone, source=str(source))
+        self._camera_reid_enabled[camera_id] = bool(enable_reid)
+        role_modules = dict(self._camera_roles[camera_id].get("modules") or {})
+        role_modules["reid"] = bool(enable_reid)
+        self._camera_roles[camera_id]["modules"] = role_modules
+        self._camera_roles[camera_id]["reid_enabled"] = bool(enable_reid)
+        tracker_mode = (tracker_mode or "bytetrack").strip().lower()
+        if tracker_mode not in {"bytetrack", "iou"}:
+            tracker_mode = "bytetrack"
+        self._camera_tracker_modes[camera_id] = tracker_mode
         # Store model assignment for this camera (default if not specified)
         effective_models = self._normalize_model_paths(model_path, self._detector_model)
         self._camera_models[camera_id] = effective_models
         for effective_model in effective_models:
             self._get_or_create_detector(effective_model)
+        self._prune_unused_detectors()
         
         # One tracker per camera so local track IDs are per-feed; Re-ID assigns global_id across cameras.
-        if camera_id not in self._trackers:
-            self._trackers[camera_id] = MultiObjectTracker(model_path=effective_models[0], use_model=False)
+        existing_tracker = self._trackers.get(camera_id)
+        if (
+            existing_tracker is None
+            or getattr(existing_tracker, "model_path", None) != effective_models[0]
+            or replacing_existing
+        ):
+            self._trackers[camera_id] = MultiObjectTracker(
+                model_path=effective_models[0],
+                use_model=False,
+            )
 
         # Register zone in crowd density (one zone per camera).
         self.crowd.configure_zone(zone, camera_id=camera_id, max_capacity=50)
@@ -433,6 +562,7 @@ class ProcessingPipeline:
         logger.info(
             f"Camera {camera_id} added -> zone={zone} "
             f"models={self._model_label(effective_models)} "
+            f"tracker={tracker_mode} reid={self._camera_reid_enabled[camera_id]} "
             f"role={role_info.get('role')} modules={role_info.get('modules')}"
         )
         # Fire-and-forget: audit log this camera addition on the running loop
@@ -454,8 +584,11 @@ class ProcessingPipeline:
         self._results_buffer.pop(camera_id, None)
         self._trackers.pop(camera_id, None)
         self._camera_models.pop(camera_id, None)  # Clean up model assignment
+        self._prune_unused_detectors()
         self._camera_sources.pop(camera_id, None)
         self._camera_roles.pop(camera_id, None)
+        self._camera_reid_enabled.pop(camera_id, None)
+        self._camera_tracker_modes.pop(camera_id, None)
         zone = self._camera_zones.pop(camera_id, None)
         self._last_global_by_track = {k: v for k, v in self._last_global_by_track.items() if k[0] != camera_id}
         self._last_reid_frame_by_track = {k: v for k, v in self._last_reid_frame_by_track.items() if k[0] != camera_id}
@@ -562,6 +695,7 @@ class ProcessingPipeline:
             return {
                 "bbox": [float(det.x), float(det.y), float(det.w), float(det.h)],
                 "confidence": float(det.confidence),
+                "class_id": int(det.class_id),
                 "class_name": det.class_name,
                 "track_id": det.track_id if det.track_id is not None else track_id,
                 "keypoints": det.keypoints,
@@ -572,6 +706,7 @@ class ProcessingPipeline:
         return {
             "bbox": [float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])],
             "confidence": float(det.get("confidence", 0.0)),
+            "class_id": int(det.get("class_id", 0) or 0),
             "class_name": str(det.get("class_name", "person")),
             "track_id": det.get("track_id", track_id),
             "keypoints": det.get("keypoints"),
@@ -685,6 +820,10 @@ class ProcessingPipeline:
                 },
             }
         policy = dict(role)
+        modules = dict(policy.get("modules") or {})
+        modules["reid"] = bool(self._camera_reid_enabled.get(camera_id, True))
+        policy["modules"] = modules
+        policy["reid_enabled"] = bool(self._camera_reid_enabled.get(camera_id, True))
         policy["has_people"] = has_people
         return policy
 
@@ -742,6 +881,8 @@ class ProcessingPipeline:
         x, y, w, h = [int(v) for v in bbox[:4]]
         if h < settings.REID_MIN_CROP_HEIGHT or w <= 0:
             return None
+        if h / max(float(w), 1.0) < 1.15:
+            return None
         pad_x = max(2, int(w * 0.04))
         pad_y = max(2, int(h * 0.03))
         x1 = max(0, x - pad_x)
@@ -756,6 +897,7 @@ class ProcessingPipeline:
     def _find_recent_reid_match(
         self,
         cam_id: int,
+        track_id: Optional[int],
         bbox: List[float],
         embedding: np.ndarray,
         timestamp: float,
@@ -773,7 +915,8 @@ class ProcessingPipeline:
             iou = self._iou(bbox, entry.get("bbox") or [])
             center = self._center_distance_ratio(bbox, entry.get("bbox") or [])
             age = max(0.0, timestamp - float(entry.get("timestamp", timestamp)))
-            spatial_ok = iou >= 0.02 or center <= 0.35 or age <= 3.0
+            same_track = track_id is not None and entry.get("track_id") == track_id
+            spatial_ok = same_track or iou >= 0.04 or center <= 0.28
             if not spatial_ok:
                 continue
             if sim < settings.REID_RECENT_MATCH_THRESHOLD:
@@ -825,6 +968,16 @@ class ProcessingPipeline:
             if e.get("timestamp", 0.0) >= cutoff
         ]
 
+    @staticmethod
+    def _identity_claimed_by_other(
+        global_id: Optional[str],
+        track_key: Optional[Tuple[int, int]],
+        frame_identity_claims: Optional[Dict[str, Optional[Tuple[int, int]]]],
+    ) -> bool:
+        if not global_id or not frame_identity_claims or global_id not in frame_identity_claims:
+            return False
+        return frame_identity_claims.get(global_id) != track_key
+
     def _assign_global_id(
         self,
         cam_id: int,
@@ -832,14 +985,32 @@ class ProcessingPipeline:
         bbox: List[float],
         embedding: np.ndarray,
         timestamp: float,
+        quality_score: float = 1.0,
+        frame_identity_claims: Optional[Dict[str, Optional[Tuple[int, int]]]] = None,
     ) -> Tuple[str, str, float]:
-        key = (cam_id, track_id) if track_id is not None else None
+        """
+        Assign a global identity with enterprise-grade persistence:
+        1. Stable track: if this (cam, track) already has a global_id, keep it
+           unless a much stronger match is found (hysteresis prevents flicker).
+        2. Recent same-camera memory: short-term reactivation after occlusion.
+        3. Gallery search: cross-camera matching via centroid-first screening.
+        4. Disappeared persons pool: blind-spot recovery for up to REID_BLIND_SPOT_TIMEOUT_S.
+        5. New identity: only created when all above fail.
+        """
+        key = (cam_id, int(track_id)) if track_id is not None else None
         prev_global = self._last_global_by_track.get(key) if key else None
         matches = self.reid.search_gallery(embedding, top_k=3)
 
-        if prev_global:
+        if prev_global and not self._identity_claimed_by_other(prev_global, key, frame_identity_claims):
             prev_score = self.reid.best_similarity_for_id(prev_global, embedding)
-            best_other = next((m for m in matches if m.get("id") != prev_global), None)
+            best_other = next(
+                (
+                    m for m in matches
+                    if m.get("id") != prev_global
+                    and not self._identity_claimed_by_other(m.get("id"), key, frame_identity_claims)
+                ),
+                None,
+            )
             if (
                 best_other
                 and best_other.get("similarity", 0.0) >= self.reid.similarity_threshold + 0.04
@@ -848,28 +1019,161 @@ class ProcessingPipeline:
                 gid = best_other["id"]
                 sim = float(best_other.get("similarity", 0.0))
                 if sim < 0.92:
-                    self.reid.add_embedding_to_id(gid, embedding)
+                    self.reid.add_embedding_to_id(
+                        gid, embedding, camera_id=cam_id,
+                        timestamp=timestamp, quality_score=quality_score, bbox=bbox,
+                    )
+                # Remove from disappeared pool if re-found
+                self._disappeared_pool.pop(gid, None)
                 return gid, "gallery_strong_switch", sim
-            self.reid.add_embedding_to_id(prev_global, embedding)
+            self.reid.add_embedding_to_id(
+                prev_global, embedding, camera_id=cam_id,
+                timestamp=timestamp, quality_score=quality_score, bbox=bbox,
+            )
+            # Remove from disappeared pool — this person is actively tracked
+            self._disappeared_pool.pop(prev_global, None)
             return prev_global, "stable_track", prev_score
 
-        recent = self._find_recent_reid_match(cam_id, bbox, embedding, timestamp)
+        recent = self._find_recent_reid_match(cam_id, track_id, bbox, embedding, timestamp)
         if recent and recent.get("global_id"):
             gid = str(recent["global_id"])
-            self.reid.add_embedding_to_id(gid, embedding)
-            return gid, recent.get("source", "recent_same_camera"), float(recent.get("similarity", 0.0))
+            if not self._identity_claimed_by_other(gid, key, frame_identity_claims):
+                self.reid.add_embedding_to_id(
+                    gid, embedding, camera_id=cam_id,
+                    timestamp=timestamp, quality_score=quality_score, bbox=bbox,
+                )
+                self._disappeared_pool.pop(gid, None)
+                return gid, recent.get("source", "recent_same_camera"), float(recent.get("similarity", 0.0))
 
-        if matches:
-            gid = matches[0]["id"]
-            sim = float(matches[0].get("similarity", 0.0))
+        for match in matches:
+            gid = match["id"]
+            if self._identity_claimed_by_other(gid, key, frame_identity_claims):
+                continue
+            sim = float(match.get("similarity", 0.0))
             if sim < 0.92:
-                self.reid.add_embedding_to_id(gid, embedding)
+                self.reid.add_embedding_to_id(
+                    gid, embedding, camera_id=cam_id,
+                    timestamp=timestamp, quality_score=quality_score, bbox=bbox,
+                )
+            self._disappeared_pool.pop(gid, None)
             return gid, "gallery", sim
 
+        # ── Blind-spot recovery: check disappeared persons pool ──
+        pool_match = self._search_disappeared_pool(embedding, timestamp)
+        if pool_match:
+            gid = pool_match["global_id"]
+            if not self._identity_claimed_by_other(gid, key, frame_identity_claims):
+                sim = pool_match["similarity"]
+                self.reid.add_embedding_to_id(
+                    gid, embedding, camera_id=cam_id,
+                    timestamp=timestamp, quality_score=quality_score, bbox=bbox,
+                )
+                self._disappeared_pool.pop(gid, None)
+                logger.debug(
+                    f"Blind-spot recovery: {gid} re-identified on cam {cam_id} "
+                    f"(sim={sim:.3f}, gone {timestamp - pool_match.get('last_seen', 0):.1f}s)"
+                )
+                return gid, "blind_spot_recovery", sim
+
         gid = f"PERSON-{self.global_state.total_persons_tracked:05d}"
-        self.reid.add_to_gallery(gid, embedding)
+        while gid in self.reid._identities or (
+            frame_identity_claims is not None and gid in frame_identity_claims
+        ):
+            self.global_state.total_persons_tracked += 1
+            gid = f"PERSON-{self.global_state.total_persons_tracked:05d}"
+        self.reid.add_to_gallery(
+            gid, embedding, camera_id=cam_id,
+            timestamp=timestamp, quality_score=quality_score, bbox=bbox,
+        )
         self.global_state.total_persons_tracked += 1
         return gid, "new_identity", 0.0
+
+    def _search_disappeared_pool(
+        self,
+        query: np.ndarray,
+        timestamp: float,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Search the disappeared persons pool for blind-spot recovery.
+        Uses a slightly relaxed threshold (0.05 lower) since appearance may
+        have changed slightly during the blind-spot period.
+        """
+        if not self._disappeared_pool:
+            return None
+
+        relaxed_th = self.reid.similarity_threshold - 0.05
+        best: Optional[Dict[str, Any]] = None
+        best_sim = relaxed_th
+
+        expired = []
+        for gid, entry in self._disappeared_pool.items():
+            # Check expiry
+            age = timestamp - entry.get("last_seen", 0.0)
+            if age > self._blind_spot_timeout:
+                expired.append(gid)
+                continue
+
+            emb = entry.get("embedding")
+            if emb is None:
+                continue
+            sim = float(np.dot(query, emb))
+            if sim > best_sim:
+                best_sim = sim
+                best = {
+                    "global_id": gid,
+                    "similarity": sim,
+                    "last_seen": entry.get("last_seen", 0.0),
+                    "last_camera_id": entry.get("last_camera_id"),
+                }
+
+        # Clean expired entries
+        for gid in expired:
+            self._disappeared_pool.pop(gid, None)
+
+        return best
+
+    def _update_disappeared_pool(self, timestamp: float) -> None:
+        """
+        Move tracked persons who haven't been seen recently into the
+        disappeared pool for blind-spot recovery. Called at end of each tick.
+        """
+        disappeared_after = 5.0  # seconds without seeing before marking disappeared
+
+        # Collect currently active global_ids from this tick's results
+        active_gids = set()
+        for r in self._results_buffer.values():
+            for match in getattr(r, "reid_matches", []) or []:
+                gid = match.get("global_id")
+                if gid:
+                    active_gids.add(gid)
+
+        # Check all known identities in the gallery
+        for gid, identity in self.reid._identities.items():
+            if gid in active_gids:
+                # Still visible — remove from disappeared pool if there
+                self._disappeared_pool.pop(gid, None)
+                continue
+            if gid in self._disappeared_pool:
+                continue  # Already in pool
+
+            # Check if this identity has gone silent
+            time_since = timestamp - identity.last_seen
+            if time_since >= disappeared_after and identity.centroid is not None:
+                self._disappeared_pool[gid] = {
+                    "global_id": gid,
+                    "embedding": identity.centroid.copy(),
+                    "last_seen": identity.last_seen,
+                    "last_camera_id": identity.last_camera_id,
+                    "last_bbox": list(identity.last_bbox),
+                }
+
+        # Evict expired entries from pool
+        expired = [
+            gid for gid, entry in self._disappeared_pool.items()
+            if (timestamp - entry.get("last_seen", 0.0)) > self._blind_spot_timeout
+        ]
+        for gid in expired:
+            self._disappeared_pool.pop(gid, None)
 
     @staticmethod
     def _set_model_status(
@@ -920,13 +1224,18 @@ class ProcessingPipeline:
                 norm = np.linalg.norm(arr)
                 if norm > 0:
                     arr = arr / norm
-                self.reid.add_to_gallery(gid, arr)
+                self.reid.add_to_gallery(
+                    gid, arr,
+                    camera_id=int(row.get("camera_id") or -1),
+                    timestamp=float(row.get("timestamp") or 0.0),
+                    quality_score=float(row.get("confidence") or 0.5),
+                )
                 loaded += 1
             except Exception:
                 continue
         # Seed the global counter so new IDs don't collide with persisted ones
         max_suffix = 0
-        for gid, _ in self.reid._gallery:
+        for gid in self.reid._identities:
             try:
                 if gid.startswith("PERSON-"):
                     n = int(gid.split("-")[-1])
@@ -936,7 +1245,12 @@ class ProcessingPipeline:
                 continue
         if max_suffix >= self.global_state.total_persons_tracked:
             self.global_state.total_persons_tracked = max_suffix + 1
-        logger.info(f"Re-ID gallery warmed: {loaded} embeddings, counter seeded at {self.global_state.total_persons_tracked}")
+        gallery_stats = self.reid.get_gallery_stats()
+        logger.info(
+            f"Re-ID gallery warmed: {loaded} embeddings across "
+            f"{gallery_stats['total_identities']} identities, "
+            f"counter seeded at {self.global_state.total_persons_tracked}"
+        )
         return loaded
 
     def get_and_clear_pending_embeddings(self) -> List[Dict[str, Any]]:
@@ -1011,6 +1325,12 @@ class ProcessingPipeline:
         if self.state == PipelineState.RUNNING:
             logger.warning("Pipeline already running")
             return
+        if self.state == PipelineState.STARTING:
+            return
+        if self.stream_manager.total_count <= 0:
+            self.state = PipelineState.IDLE
+            logger.warning("Pipeline start skipped: no cameras registered")
+            return
 
         self.state = PipelineState.STARTING
         logger.info("🚀 Starting multi-camera pipeline...")
@@ -1035,7 +1355,7 @@ class ProcessingPipeline:
 
     async def stop(self):
         """Stop the pipeline gracefully."""
-        if self.state != PipelineState.RUNNING:
+        if self.state not in {PipelineState.STARTING, PipelineState.RUNNING, PipelineState.ERROR}:
             return
 
         self.state = PipelineState.STOPPING
@@ -1145,9 +1465,24 @@ class ProcessingPipeline:
                 norm_dets = await asyncio.to_thread(self._detect_with_models, frame, camera_models)
                 tracker = self._trackers.get(cam_id)
                 if tracker is None:
-                    tracker = MultiObjectTracker(model_path=camera_models[0], use_model=False)
+                    tracker = MultiObjectTracker(
+                        model_path=camera_models[0],
+                        use_model=False,
+                    )
                     self._trackers[cam_id] = tracker
-                tracks = tracker.update_from_detections(norm_dets)
+                tracker_mode = self._camera_tracker_modes.get(cam_id, "bytetrack")
+                if tracker_mode == "bytetrack":
+                    tracks = tracker.update_from_detections(norm_dets)
+                    tracker_backend = getattr(tracker, "last_backend", "iou_fallback")
+                    tracker_reason = (
+                        "tracker:bytetrack_detections"
+                        if tracker_backend == "bytetrack"
+                        else "tracker:iou_fallback"
+                    )
+                else:
+                    tracks = tracker.update_from_detections(norm_dets)
+                    tracker_backend = "iou_fallback"
+                    tracker_reason = "tracker:iou_fallback"
                 tracks_by_id = {getattr(t, "track_id", None): t for t in tracks}
 
                 for det in norm_dets:
@@ -1159,7 +1494,7 @@ class ProcessingPipeline:
                         det["_track_age"] = getattr(track, "age", 0)
                         det["_track_hits"] = getattr(track, "hits", 1)
 
-                return cam_id, frame_num, timestamp, norm_dets, tracks
+                return cam_id, frame_num, timestamp, norm_dets, tracks, tracker_reason
 
         phase1 = await asyncio.gather(
             *[
@@ -1172,7 +1507,7 @@ class ProcessingPipeline:
             if isinstance(item, Exception):
                 logger.debug(f"Camera detection phase failed: {item}")
                 continue
-            cam_id, frame_num, timestamp, norm_dets, tracks = item
+            cam_id, frame_num, timestamp, norm_dets, tracks, tracker_reason = item
             all_tracks[cam_id] = tracks
             all_detections[cam_id] = norm_dets
             self._total_detections += len(norm_dets)
@@ -1198,8 +1533,13 @@ class ProcessingPipeline:
                 results[cam_id],
                 "tracker",
                 True,
-                "tracker:detector_iou_reuse",
-                {"tracks": len(tracks)},
+                tracker_reason,
+                {
+                    "tracks": len(tracks),
+                    "mode": tracker_reason.replace("tracker:", ""),
+                    "backend": tracker_backend,
+                    "error": getattr(self._trackers.get(cam_id), "last_error", None),
+                },
             )
 
         # ── PHASE 2: Cross-Camera Re-ID (GLOBAL gallery) ──
@@ -1208,10 +1548,26 @@ class ProcessingPipeline:
         # (camera, track) keeps same global_id to avoid flicker when pose changes.
         # Each produced embedding is queued for pgvector persistence (drained by the
         # PersistencePipelineCallback each tick).
+        #
+        # IMPORTANT: Cameras are processed in DETERMINISTIC order (sorted by cam_id)
+        # to prevent race conditions where two cameras create different global_ids
+        # for the same person in the same tick. Earlier cameras' assignments are
+        # visible to later cameras via the shared gallery.
         new_embeddings: List[Dict[str, Any]] = []
-        for cam_id, (frame, timestamp) in frames.items():
+        sorted_cam_ids = sorted(frames.keys())
+        for cam_id in sorted_cam_ids:
+            if cam_id not in frames:
+                continue
+            frame, timestamp = frames[cam_id]
             frame_num = self._frame_counts.get(cam_id, 0)
             reid_candidates = all_detections.get(cam_id, [])
+            reid_candidates = [
+                d for d in reid_candidates
+                if str(d.get("class_name", "")).lower() == "person"
+                and d.get("track_id") is not None
+                and float(d.get("confidence", 0.0) or 0.0) >= 0.45
+                and int(d.get("_track_hits", 0) or 0) >= 2
+            ]
             zone = self._camera_zones.get(cam_id, "default")
             reid_policy = self._camera_policy(cam_id, zone, bool(reid_candidates))
             if not reid_policy.get("modules", {}).get("reid", True):
@@ -1236,8 +1592,21 @@ class ProcessingPipeline:
                 reverse=True,
             )
             if self._max_reid_per_frame:
-                reid_candidates = reid_candidates[: self._max_reid_per_frame]
+                # In ensemble mode, prefer high-agreement detections instead of
+                # hard-capping at 2. The ensemble NMS already filtered noise.
+                is_ensemble = len(self._camera_models.get(cam_id, ())) > 1
+                if is_ensemble:
+                    # Sort by ensemble agreement (high-agreement first), then by score
+                    reid_candidates.sort(
+                        key=lambda d: (
+                            d.get("ensemble_agreement", 1),
+                            self._reid_candidate_score(d, cam_id, frame.shape),
+                        ),
+                        reverse=True,
+                    )
+                reid_candidates = reid_candidates[:self._max_reid_per_frame]
 
+            camera_identity_claims: Dict[str, Optional[Tuple[int, int]]] = {}
             prepared: List[Tuple[Dict[str, Any], List[float], Optional[Tuple[int, int]], Optional[str], np.ndarray]] = []
             for det in reid_candidates:
                 try:
@@ -1245,7 +1614,7 @@ class ProcessingPipeline:
                     if len(bbox) < 4:
                         continue
                     track_id = det.get("track_id")
-                    key = (cam_id, track_id) if track_id is not None else None
+                    key = (cam_id, int(track_id)) if track_id is not None else None
                     prev_global = self._last_global_by_track.get(key) if key else None
                     last_reid_frame = self._last_reid_frame_by_track.get(key, -10**9) if key else -10**9
                     should_reid = (
@@ -1254,7 +1623,14 @@ class ProcessingPipeline:
                         or (frame_num - last_reid_frame) >= self._reid_interval
                     )
                     if not should_reid:
-                        if prev_global:
+                        cached_assigned = False
+                        if prev_global and not self._identity_claimed_by_other(
+                            prev_global,
+                            key,
+                            camera_identity_claims,
+                        ):
+                            cached_assigned = True
+                            camera_identity_claims[prev_global] = key
                             det["global_id"] = prev_global
                             results[cam_id].reid_matches.append({
                                 "global_id": prev_global,
@@ -1264,13 +1640,14 @@ class ProcessingPipeline:
                                 "timestamp": timestamp,
                                 "source": "cached_track",
                             })
-                        self._set_model_status(
-                            results[cam_id],
-                            "reid",
-                            False,
-                            f"reid:cached_until_{self._reid_interval}_frames",
-                        )
-                        continue
+                        if cached_assigned:
+                            self._set_model_status(
+                                results[cam_id],
+                                "reid",
+                                False,
+                                f"reid:cached_until_{self._reid_interval}_frames",
+                            )
+                            continue
                     crop = self._crop_for_reid(frame, bbox)
                     if crop is None:
                         continue
@@ -1290,13 +1667,27 @@ class ProcessingPipeline:
                     if embedding is None:
                         continue
                     track_id = det.get("track_id")
+                    # Compute quality score from detection confidence + crop aspect
+                    det_conf = float(det.get("confidence", 0.5))
+                    crop_h = float(bbox[3]) if len(bbox) >= 4 else 64
+                    crop_w = float(bbox[2]) if len(bbox) >= 4 else 32
+                    aspect_quality = min(1.0, max(0.0, crop_h / max(crop_w, 1.0)) / 2.5)
+                    q_score = det_conf * 0.6 + aspect_quality * 0.4
                     global_id, source, sim = self._assign_global_id(
                         cam_id=cam_id,
                         track_id=track_id,
                         bbox=bbox,
                         embedding=embedding,
                         timestamp=timestamp,
+                        quality_score=q_score,
+                        frame_identity_claims=camera_identity_claims,
                     )
+                    if self._identity_claimed_by_other(global_id, key, camera_identity_claims):
+                        logger.debug(
+                            f"Re-ID claim conflict cam={cam_id} track={track_id} global_id={global_id}"
+                        )
+                        continue
+                    camera_identity_claims[global_id] = key
                     if key:
                         self._last_global_by_track[key] = global_id
                         self._last_reid_frame_by_track[key] = frame_num
@@ -1504,8 +1895,11 @@ class ProcessingPipeline:
         except Exception as e:
             logger.debug(f"Vibe calc error: {e}")
 
-        # ── PHASE 5: Update global state ──
+        # ── PHASE 5: Update global state + blind-spot pool ──
         self.global_state.last_updated = time.time()
+
+        # Update disappeared persons pool for blind-spot recovery
+        self._update_disappeared_pool(time.time())
 
         # Zone occupancy from all cameras
         for cam_id, result in results.items():
@@ -1709,12 +2103,25 @@ class ProcessingPipeline:
     def get_status(self) -> Dict[str, Any]:
         """Get complete pipeline status for dashboard."""
         stream_stats = self.stream_manager.get_all_stats()
+        tracker_backends = {
+            cam_id: getattr(tracker, "last_backend", "uninitialized")
+            for cam_id, tracker in self._trackers.items()
+        }
+        if not self._trackers:
+            tracker_status = "no cameras"
+        elif any(backend == "bytetrack" for backend in tracker_backends.values()):
+            tracker_status = "bytetrack"
+        elif any(getattr(tracker, "byte_tracker", None) is not None for tracker in self._trackers.values()):
+            tracker_status = "bytetrack_ready"
+        else:
+            tracker_status = "iou_fallback"
         return {
             "state": self.state.value,
             "cameras": {
                 "total": self.stream_manager.total_count,
                 "active": self.stream_manager.active_count,
                 "max": self.max_cameras,
+                "zones": dict(self._camera_zones),
                 "stats": {
                     cam_id: {
                         "connected": s.is_connected,
@@ -1728,6 +2135,9 @@ class ProcessingPipeline:
                     for cam_id, s in stream_stats.items()
                 },
                 "roles": self._camera_roles,
+                "reid_enabled": self._camera_reid_enabled,
+                "tracker_modes": self._camera_tracker_modes,
+                "tracker_backends": tracker_backends,
                 "models": {
                     cam_id: {
                         "paths": list(paths),
@@ -1738,9 +2148,31 @@ class ProcessingPipeline:
                 },
             },
             "ai_modules": {
-                "detector": "loaded" if self.detector.model else "mock",
-                "tracker": "loaded" if (self._trackers and next(iter(self._trackers.values())).model) else "fallback" if self._trackers else "no cameras",
-                "reid": "loaded" if self.reid.model else "mock",
+                "detector": {
+                    "status": "loaded" if any(
+                        getattr(detector, "model", None) is not None
+                        for detector in self._detectors.values()
+                    ) else "idle",
+                    "active_models": sorted(self._active_model_paths()),
+                    "loaded_models": sorted(
+                        model_path
+                        for model_path, detector in self._detectors.items()
+                        if getattr(detector, "model", None) is not None
+                    ),
+                },
+                "tracker": tracker_status,
+                "reid": {
+                    "status": "loaded" if self.reid.model else "mock",
+                    "model": getattr(self.reid, "model_name", "unknown"),
+                    "threshold": getattr(self.reid, "similarity_threshold", None),
+                    "gallery_size": sum(len(i.embeddings) for i in self.reid._identities.values()),
+                    "unique_identities": len(self.reid._identities),
+                    "max_identities": self.reid.max_identities,
+                    "disappeared_pool_size": len(self._disappeared_pool),
+                    "blind_spot_timeout_s": self._blind_spot_timeout,
+                    "enabled_feeds": sum(1 for enabled in self._camera_reid_enabled.values() if enabled),
+                    "gallery_stats": self.reid.get_gallery_stats(),
+                },
                 "emotion": "enabled" if self._enable_emotions else "disabled",
                 "fire": "enabled" if self._enable_fire else "disabled",
                 "shelf": "enabled" if self._enable_shelf else "disabled",
@@ -1764,7 +2196,8 @@ class ProcessingPipeline:
                 "adaptive_model_gating": self._adaptive_gating,
                 "auto_camera_role_detection": self._auto_camera_roles,
                 "scheduler": {
-                    "tracker_mode": "detector_iou_reuse",
+                    "tracker_mode": "bytetrack",
+                    "fallback_tracker_mode": "iou",
                     "reid_interval_frames": self._reid_interval,
                     "fire_active_interval_frames": self._fire_active_interval,
                     "fire_idle_interval_frames": self._fire_idle_interval,
@@ -1781,6 +2214,7 @@ class ProcessingPipeline:
                 "callback_queue_max": settings.PIPELINE_RESULT_QUEUE_MAXSIZE,
                 "callback_dropped_cycles": self._callback_dropped,
                 "frame_counts": self._frame_counts,
+                "total_detections_processed": self._total_detections,
             },
         }
 

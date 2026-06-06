@@ -6,10 +6,20 @@ One shared gallery across ALL cameras: same person on Cam 1 and Cam 2 gets the s
 Body-based (not face): uses full-body appearance (clothing, shape, pose) so it works when
 the person's face is not towards the camera. Multiple embeddings per identity (different
 angles/poses) improve matching when the same person is seen from the back or side.
+
+Enterprise features:
+  - Structured gallery with Dict[str, GalleryIdentity] for O(1) lookup per ID
+  - Centroid embedding per identity for fast initial screening (avoids O(N×M) brute force)
+  - LRU eviction when gallery exceeds max_identities
+  - Temporal metadata (last_seen, last_camera, appearance_count) for blind-spot recovery
+  - merge_identities() for post-hoc deduplication
+  - prune_stale_identities() for memory management
 """
 
+import time
 import numpy as np
 from typing import List, Optional, Tuple, Dict
+from dataclasses import dataclass, field
 from loguru import logger
 from app.config import settings
 
@@ -29,12 +39,79 @@ except ImportError:
     logger.warning("Torchreid not installed. Re-ID will run in mock mode.")
 
 
+@dataclass
+class EmbeddingEntry:
+    """A single stored embedding with metadata for quality-aware matching."""
+    vector: np.ndarray          # 512-d L2-normalized float32
+    timestamp: float = 0.0      # epoch when this embedding was captured
+    camera_id: int = -1         # which camera captured this view
+    quality_score: float = 1.0  # higher = better crop (aspect, size, confidence)
+
+
+@dataclass
+class GalleryIdentity:
+    """
+    All information about one tracked person in the global gallery.
+    Supports multi-view matching, temporal tracking, and blind-spot recovery.
+    """
+    global_id: str
+    embeddings: List[EmbeddingEntry] = field(default_factory=list)
+    centroid: Optional[np.ndarray] = None  # running weighted average for fast screening
+    last_seen: float = 0.0                 # epoch — when was this person last detected
+    last_camera_id: int = -1               # last camera that saw this person
+    last_bbox: List[float] = field(default_factory=list)  # last bounding box [x,y,w,h]
+    appearance_count: int = 0              # total times this identity has been matched
+    created_at: float = 0.0                # epoch — when this identity was first created
+    max_embeddings: int = 8                # per-identity cap
+
+    def recompute_centroid(self) -> None:
+        """Recompute centroid as quality-weighted average of stored embeddings."""
+        if not self.embeddings:
+            self.centroid = None
+            return
+        weights = np.array([e.quality_score for e in self.embeddings], dtype=np.float32)
+        total = weights.sum()
+        if total <= 0:
+            weights = np.ones(len(self.embeddings), dtype=np.float32)
+            total = float(len(self.embeddings))
+        vectors = np.stack([e.vector for e in self.embeddings], axis=0)
+        centroid = (vectors * weights[:, None]).sum(axis=0) / total
+        norm = np.linalg.norm(centroid)
+        self.centroid = (centroid / norm).astype(np.float32) if norm > 0 else centroid.astype(np.float32)
+
+    def add_embedding(self, entry: EmbeddingEntry) -> None:
+        """Add embedding, evict oldest if at capacity, recompute centroid."""
+        if len(self.embeddings) >= self.max_embeddings:
+            # Evict lowest quality or oldest
+            self.embeddings.sort(key=lambda e: (e.quality_score, e.timestamp))
+            self.embeddings.pop(0)
+        self.embeddings.append(entry)
+        self.last_seen = max(self.last_seen, entry.timestamp)
+        self.last_camera_id = entry.camera_id
+        self.appearance_count += 1
+        self.recompute_centroid()
+
+    def best_similarity(self, query: np.ndarray) -> float:
+        """Best cosine similarity between query and any stored embedding."""
+        if not self.embeddings:
+            return 0.0
+        return max(float(np.dot(query, e.vector)) for e in self.embeddings)
+
+    def centroid_similarity(self, query: np.ndarray) -> float:
+        """Fast screening similarity using centroid embedding."""
+        if self.centroid is None:
+            return 0.0
+        return float(np.dot(query, self.centroid))
+
+
 class PersonReID:
     """
     Person Re-Identification using Torchreid (body-based, not face).
-    One GLOBAL gallery shared by all cameras. Supports multiple embeddings per
-    global_id so the same person seen from different angles (face away, side)
-    still matches.
+    One GLOBAL gallery shared by all cameras. Enterprise-grade with:
+    - Structured identity gallery with O(1) lookup
+    - Centroid-first search: screen candidates fast, then refine top-K
+    - LRU eviction at gallery capacity
+    - Temporal metadata for blind-spot recovery
     """
 
     EMBEDDING_DIM = 512
@@ -44,17 +121,33 @@ class PersonReID:
         model_name: str = "osnet_x1_0",
         device: str = "auto",
         similarity_threshold: float = 0.6,
-        max_embeddings_per_id: int = 5,
+        max_embeddings_per_id: int = 8,
+        max_identities: int = 5000,
     ):
         self.model_name = model_name
         self.device = self._resolve_device(device)
         self.similarity_threshold = similarity_threshold
         self.max_embeddings_per_id = max(1, max_embeddings_per_id)
+        self.max_identities = max(100, max_identities)
         self.model = None
         self.transform = self._build_transform()
-        # Gallery: (global_id, embedding). Same global_id can appear multiple times (multi-view).
-        self._gallery: List[Tuple[str, np.ndarray]] = []
+
+        # Enterprise gallery: global_id → GalleryIdentity
+        self._identities: Dict[str, GalleryIdentity] = {}
+        # LRU access order: most recently accessed global_id is at the end
+        self._lru_order: List[str] = []
+
         self._load_model()
+
+    # ── backward-compat property ──────────────────────────────
+    @property
+    def _gallery(self) -> List[Tuple[str, np.ndarray]]:
+        """Backward-compatible flat gallery view for warm-up and status code."""
+        result = []
+        for gid, identity in self._identities.items():
+            for entry in identity.embeddings:
+                result.append((gid, entry.vector))
+        return result
 
     def _resolve_device(self, device: str) -> str:
         if device == "auto":
@@ -157,34 +250,91 @@ class PersonReID:
 
     def best_similarity_for_id(self, global_id: str, query: np.ndarray) -> float:
         """Best cosine similarity between query and any stored view for one identity."""
-        best = 0.0
-        for gid, emb in self._gallery:
-            if gid != global_id:
-                continue
-            best = max(best, self.compute_similarity(query, emb))
-        return best
+        identity = self._identities.get(global_id)
+        if identity is None:
+            return 0.0
+        return identity.best_similarity(query)
 
-    def add_to_gallery(self, global_id: str, embedding: np.ndarray) -> None:
+    # ── LRU management ────────────────────────────────────────
+
+    def _touch_lru(self, global_id: str) -> None:
+        """Move identity to end of LRU list (most recently used)."""
+        try:
+            self._lru_order.remove(global_id)
+        except ValueError:
+            pass
+        self._lru_order.append(global_id)
+
+    def _evict_lru(self) -> None:
+        """Evict least recently used identities until under capacity."""
+        while len(self._identities) >= self.max_identities and self._lru_order:
+            evict_id = self._lru_order.pop(0)
+            self._identities.pop(evict_id, None)
+            logger.debug(f"Gallery LRU evicted: {evict_id}")
+
+    # ── Gallery operations ────────────────────────────────────
+
+    def add_to_gallery(
+        self,
+        global_id: str,
+        embedding: np.ndarray,
+        camera_id: int = -1,
+        timestamp: float = 0.0,
+        quality_score: float = 1.0,
+        bbox: Optional[List[float]] = None,
+    ) -> None:
         """
-        Add a person to the global gallery. If this global_id already has
-        max_embeddings_per_id entries, drop the oldest so we keep diverse
-        views (front, back, side) for matching when face is not visible.
+        Add a person to the global gallery. Creates identity if new,
+        or adds a new view if existing.
         """
         emb = embedding.astype(np.float32)
-        same_id = [(i, g, e) for i, (g, e) in enumerate(self._gallery) if g == global_id]
-        if len(same_id) >= self.max_embeddings_per_id:
-            # Remove oldest (first occurrence) for this id
-            idx = same_id[0][0]
-            self._gallery.pop(idx)
-        self._gallery.append((global_id, emb))
+        now = timestamp or time.time()
 
-    def add_embedding_to_id(self, global_id: str, embedding: np.ndarray) -> None:
+        identity = self._identities.get(global_id)
+        if identity is None:
+            # Evict LRU if at capacity
+            if len(self._identities) >= self.max_identities:
+                self._evict_lru()
+
+            identity = GalleryIdentity(
+                global_id=global_id,
+                created_at=now,
+                max_embeddings=self.max_embeddings_per_id,
+            )
+            self._identities[global_id] = identity
+
+        entry = EmbeddingEntry(
+            vector=emb,
+            timestamp=now,
+            camera_id=camera_id,
+            quality_score=quality_score,
+        )
+        identity.add_embedding(entry)
+        if bbox:
+            identity.last_bbox = [float(v) for v in bbox[:4]]
+
+        self._touch_lru(global_id)
+
+    def add_embedding_to_id(
+        self,
+        global_id: str,
+        embedding: np.ndarray,
+        camera_id: int = -1,
+        timestamp: float = 0.0,
+        quality_score: float = 1.0,
+        bbox: Optional[List[float]] = None,
+    ) -> None:
         """
         Add another view/angle for an existing identity (e.g. person turned).
-        Uses same cap as add_to_gallery. Call when Re-ID matched so we store
-        back/side views for future matching.
+        If identity doesn't exist yet, creates it.
         """
-        self.add_to_gallery(global_id, embedding.astype(np.float32))
+        self.add_to_gallery(
+            global_id, embedding,
+            camera_id=camera_id,
+            timestamp=timestamp,
+            quality_score=quality_score,
+            bbox=bbox,
+        )
 
     def search_gallery(
         self,
@@ -193,13 +343,42 @@ class PersonReID:
         threshold: Optional[float] = None,
     ) -> List[Dict]:
         """
-        Search the GLOBAL gallery. For each global_id we take the BEST
-        similarity over all its embeddings (multi-view), so same person
-        from different angles still matches.
+        Search the GLOBAL gallery using centroid-first screening:
+        1. Compute centroid similarity for ALL identities (fast dot product)
+        2. Take top candidates (3× top_k)
+        3. Refine with best-of-N multi-view similarity
+        Only returns matches above threshold.
         """
         th = threshold if threshold is not None else self.similarity_threshold
-        matches = self.find_matches(query, self._gallery, threshold=th, top_k=top_k)
-        return [{"id": m["global_id"], "similarity": m["similarity"]} for m in matches]
+
+        if not self._identities:
+            return []
+
+        # Phase 1: centroid screening (fast)
+        centroid_scores: List[Tuple[str, float]] = []
+        for gid, identity in self._identities.items():
+            csim = identity.centroid_similarity(query)
+            # Use a relaxed threshold for centroid screening (allow 0.1 below)
+            if csim >= th - 0.12:
+                centroid_scores.append((gid, csim))
+
+        # Sort by centroid similarity, take top candidates for refinement
+        centroid_scores.sort(key=lambda x: x[1], reverse=True)
+        refine_count = min(len(centroid_scores), max(top_k * 3, 15))
+        candidates = centroid_scores[:refine_count]
+
+        # Phase 2: multi-view refinement (accurate but slower)
+        refined: List[Dict] = []
+        for gid, _csim in candidates:
+            identity = self._identities.get(gid)
+            if identity is None:
+                continue
+            best_sim = identity.best_similarity(query)
+            if best_sim >= th:
+                refined.append({"id": gid, "similarity": best_sim})
+
+        refined.sort(key=lambda x: x["similarity"], reverse=True)
+        return refined[:top_k]
 
     def find_matches(
         self,
@@ -209,7 +388,8 @@ class PersonReID:
         top_k: int = 10,
     ) -> List[Dict]:
         """
-        Find top-K matches. Each global_id can have multiple embeddings;
+        Find top-K matches against an external flat gallery.
+        Each global_id can have multiple embeddings;
         we use the best similarity per identity (so multiple views help).
         """
         best_per_id: Dict[str, float] = {}
@@ -220,6 +400,89 @@ class PersonReID:
         scores = [{"global_id": gid, "similarity": sim} for gid, sim in best_per_id.items()]
         scores.sort(key=lambda x: x["similarity"], reverse=True)
         return scores[:top_k]
+
+    # ── Identity management ───────────────────────────────────
+
+    def get_identity(self, global_id: str) -> Optional[GalleryIdentity]:
+        """Get a gallery identity by ID."""
+        return self._identities.get(global_id)
+
+    def update_identity_seen(
+        self,
+        global_id: str,
+        camera_id: int,
+        bbox: List[float],
+        timestamp: float = 0.0,
+    ) -> None:
+        """Update last-seen metadata without adding a new embedding."""
+        identity = self._identities.get(global_id)
+        if identity is None:
+            return
+        now = timestamp or time.time()
+        identity.last_seen = now
+        identity.last_camera_id = camera_id
+        identity.last_bbox = [float(v) for v in bbox[:4]]
+        identity.appearance_count += 1
+        self._touch_lru(global_id)
+
+    def merge_identities(self, keep_id: str, merge_id: str) -> bool:
+        """
+        Merge two identities that are discovered to be the same person.
+        Keeps keep_id, absorbs embeddings from merge_id, deletes merge_id.
+        Returns True if merge happened.
+        """
+        keep = self._identities.get(keep_id)
+        merge = self._identities.get(merge_id)
+        if keep is None or merge is None or keep_id == merge_id:
+            return False
+
+        # Absorb embeddings from merge_id (respect capacity)
+        for entry in merge.embeddings:
+            keep.add_embedding(entry)
+
+        # Keep the older creation time, higher appearance count
+        keep.created_at = min(keep.created_at, merge.created_at)
+        keep.appearance_count += merge.appearance_count
+
+        # Remove merged identity
+        self._identities.pop(merge_id, None)
+        try:
+            self._lru_order.remove(merge_id)
+        except ValueError:
+            pass
+        self._touch_lru(keep_id)
+
+        logger.info(f"Merged identity {merge_id} → {keep_id}")
+        return True
+
+    def prune_stale_identities(self, max_age_seconds: float = 3600.0) -> int:
+        """
+        Remove identities not seen for longer than max_age_seconds.
+        Returns count of pruned identities.
+        """
+        now = time.time()
+        cutoff = now - max_age_seconds
+        stale = [gid for gid, ident in self._identities.items() if ident.last_seen < cutoff]
+        for gid in stale:
+            self._identities.pop(gid, None)
+            try:
+                self._lru_order.remove(gid)
+            except ValueError:
+                pass
+        if stale:
+            logger.info(f"Pruned {len(stale)} stale identities (older than {max_age_seconds:.0f}s)")
+        return len(stale)
+
+    def get_gallery_stats(self) -> Dict:
+        """Return gallery statistics for monitoring."""
+        total_embeddings = sum(len(i.embeddings) for i in self._identities.values())
+        return {
+            "total_identities": len(self._identities),
+            "total_embeddings": total_embeddings,
+            "max_identities": self.max_identities,
+            "max_embeddings_per_id": self.max_embeddings_per_id,
+            "lru_order_size": len(self._lru_order),
+        }
 
     def _mock_embedding(self) -> np.ndarray:
         """Generate a random normalized embedding for testing."""

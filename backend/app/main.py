@@ -33,20 +33,12 @@ import sys
 import time
 from datetime import datetime, timezone
 
-# Reduce verbose third-party startup noise (TensorFlow / torchreid warnings).
-os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
-os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")
+# Reduce verbose third-party startup noise.
 warnings.filterwarnings(
     "ignore",
     message="Cython evaluation .* unavailable.*",
     category=UserWarning,
 )
-warnings.filterwarnings(
-    "ignore",
-    message=".*sparse_softmax_cross_entropy is deprecated.*",
-    category=UserWarning,
-)
-logging.getLogger("tensorflow").setLevel(logging.ERROR)
 
 # Database
 from app.database import engine, get_db, AsyncSessionLocal
@@ -65,9 +57,10 @@ from app.services.broadcast import BroadcastService
 from app.services.pipeline import ProcessingPipeline
 from app.services.export import ExportService
 from app.services.persistence import PersistencePipelineCallback
+from app.services import model_selection as model_select
 
 # Routers
-from app.routers import auth, cameras, detection, reid, footage, model, humanless
+from app.routers import auth, cameras, detection, reid, footage, model, humanless, setup
 from app.routers.analytics import (
     synopsis_router,
     shelf_router,
@@ -300,6 +293,7 @@ app.include_router(reid.router)
 app.include_router(footage.router)
 app.include_router(model.router)
 app.include_router(humanless.router)
+app.include_router(setup.router)
 # Analytics sub-routers (each has its own prefix in analytics.py)
 app.include_router(synopsis_router)
 app.include_router(shelf_router)
@@ -395,11 +389,6 @@ async def health_check():
 @app.get("/api/pipeline/status", tags=["Pipeline"])
 async def get_pipeline_status(current_user: User = Depends(get_current_user)):
     """Get detailed multi-camera pipeline status."""
-    # Try cache first
-    cached = await cache.get_pipeline_state()
-    if cached:
-        return cached
-    
     status = pipeline.get_status()
     await cache.cache_pipeline_state(status)
     return status
@@ -408,17 +397,29 @@ async def get_pipeline_status(current_user: User = Depends(get_current_user)):
 @app.post("/api/pipeline/start", tags=["Pipeline"])
 async def start_pipeline(current_user: User = Depends(get_current_user)):
     """Start the multi-camera processing pipeline."""
+    await cache.invalidate_pipeline_state()
     if pipeline.state.value == "running":
-        raise HTTPException(400, "Pipeline already running")
+        status = pipeline.get_status()
+        await cache.cache_pipeline_state(status)
+        return {"status": "running", "cameras": pipeline.stream_manager.total_count, "state": status}
     await pipeline.start()
-    return {"status": "started", "cameras": pipeline.stream_manager.total_count}
+    status = pipeline.get_status()
+    await cache.cache_pipeline_state(status)
+    return {
+        "status": "started" if status.get("state") == "running" else status.get("state", "idle"),
+        "cameras": pipeline.stream_manager.total_count,
+        "state": status,
+    }
 
 
 @app.post("/api/pipeline/stop", tags=["Pipeline"])
 async def stop_pipeline(current_user: User = Depends(get_current_user)):
     """Stop the processing pipeline."""
+    await cache.invalidate_pipeline_state()
     await pipeline.stop()
-    return {"status": "stopped"}
+    status = pipeline.get_status()
+    await cache.cache_pipeline_state(status)
+    return {"status": "stopped", "state": status}
 
 
 @app.post("/api/pipeline/cameras/add", tags=["Pipeline"])
@@ -431,6 +432,9 @@ async def add_pipeline_camera(
     skip_frames: int = settings.DEFAULT_SKIP_FRAMES,
     model: str = None,
     models: str = None,
+    model_mode: str = "manual",
+    enable_reid: bool = True,
+    tracker: str = "bytetrack",
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -441,21 +445,23 @@ async def add_pipeline_camera(
       - File:  /path/to/test_video.mp4
       - Webcam: 0  (device index)
     """
-    selected_models = []
-    raw_models = models if models is not None else model
-    if raw_models:
-        for item in str(raw_models).replace(";", ",").split(","):
-            name = os.path.basename(item.strip())
-            if name and name not in selected_models:
-                selected_models.append(name)
-    model_paths = []
-    for name in selected_models:
-        model_file = Path(settings.MODEL_WEIGHTS_DIR) / name
-        if not model_file.exists():
-            raise HTTPException(status_code=404, detail=f"Model {name} not found in {settings.MODEL_WEIGHTS_DIR}")
-        model_paths.append(str(model_file.resolve()))
+    mode = (model_mode or "manual").strip().lower()
+    try:
+        selected_models, effective_model_mode = model_select.select_model_names(
+            model_mode=mode,
+            model=model,
+            models=models,
+            zone=zone,
+            source=source,
+        )
+        model_paths = model_select.resolve_model_paths(selected_models)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     try:
+        await cache.invalidate_pipeline_state()
         pipeline.add_camera(
             camera_id=camera_id,
             source=source,
@@ -464,15 +470,25 @@ async def add_pipeline_camera(
             fps=fps,
             skip_frames=skip_frames,
             model_path=model_paths or None,
+            enable_reid=enable_reid,
+            tracker_mode=tracker,
         )
+        if pipeline.state.value != "running":
+            await pipeline.start()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    status = pipeline.get_status()
+    await cache.cache_pipeline_state(status)
     return {
         "status": "added",
         "camera_id": camera_id,
         "zone": zone,
         "models": selected_models or [settings.DEFAULT_YOLO_MODEL],
-        "model_mode": "ensemble" if len(selected_models) > 1 else "single",
+        "model_mode": effective_model_mode,
+        "requested_model_mode": mode,
+        "reid_enabled": enable_reid,
+        "tracker": tracker,
+        "pipeline_state": status,
     }
 
 

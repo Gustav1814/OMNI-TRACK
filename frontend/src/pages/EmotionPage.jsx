@@ -30,7 +30,7 @@ export default function EmotionPage() {
     const { data: sentiment } = useLivePoll(() => emotionAPI.sentiment(), { intervalMs: 10000 });
 
     const zones = Array.isArray(current) ? current : [];
-    const sentimentScore = Number(sentiment?.sentiment_score ?? 0);
+    const sentimentScore = Number(sentiment?.overall_sentiment ?? sentiment?.sentiment_score ?? 0);
 
     const totalDist = zones.reduce((acc, z) => {
         const dist = z.emotion_distribution || {};
@@ -52,7 +52,7 @@ export default function EmotionPage() {
             <div className="page-header">
                 <div>
                     <h1 className="page-title">Emotion Recognition</h1>
-                    <p className="page-subtitle">DeepFace + FER · aggregated sentiment per zone</p>
+                    <p className="page-subtitle">OpenCV face sampling · aggregated sentiment per zone</p>
                 </div>
             </div>
 

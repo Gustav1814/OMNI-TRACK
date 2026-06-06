@@ -11,6 +11,13 @@
 import axios from 'axios';
 
 export const API_BASE = '/api';
+export const AUTH_CHANGE_EVENT = 'omnitrack-auth-change';
+
+const notifyAuthChange = () => {
+    if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event(AUTH_CHANGE_EVENT));
+    }
+};
 
 const api = axios.create({
     baseURL: API_BASE,
@@ -28,13 +35,18 @@ export const tokenStore = {
     set: (access, refresh) => {
         if (access) localStorage.setItem('omnitrack_token', access);
         if (refresh) localStorage.setItem('omnitrack_refresh_token', refresh);
+        notifyAuthChange();
     },
     clear: () => {
         localStorage.removeItem('omnitrack_token');
         localStorage.removeItem('omnitrack_refresh_token');
         localStorage.removeItem('omnitrack_user');
+        notifyAuthChange();
     },
-    setUser: (user) => localStorage.setItem('omnitrack_user', JSON.stringify(user || {})),
+    setUser: (user) => {
+        localStorage.setItem('omnitrack_user', JSON.stringify(user || {}));
+        notifyAuthChange();
+    },
     getUser: () => {
         try { return JSON.parse(localStorage.getItem('omnitrack_user') || 'null'); }
         catch { return null; }
@@ -84,6 +96,12 @@ export const systemAPI = {
     runRobustness: (params = {}) => api.post('/security/robustness/run', null, { params }),
 };
 
+export const setupAPI = {
+    templates: () => api.get('/setup/templates'),
+    profile: () => api.get('/setup/profile'),
+    updateProfile: (data) => api.put('/setup/profile', data),
+};
+
 // ────────────────────────────────────────────────────────────────
 // Dashboard
 // ────────────────────────────────────────────────────────────────
@@ -109,13 +127,30 @@ export const camerasAPI = {
 // ────────────────────────────────────────────────────────────────
 
 export const detectionAPI = {
-    start: (cameraId, { source = '0', stream_type = 'webcam', zone = 'default', model = null, models = null } = {}) =>
+    start: (cameraId, {
+        source = '0',
+        stream_type = 'webcam',
+        zone = 'default',
+        model = null,
+        models = null,
+        model_mode = 'manual',
+        fps = 30,
+        skip_frames = 1,
+        enable_reid = true,
+        tracker = 'bytetrack',
+    } = {}) =>
         api.post(`/detection/start/${cameraId}`, null, {
             params: {
                 source,
                 stream_type,
                 zone,
-                ...(models?.length ? { models: Array.isArray(models) ? models.join(',') : models } : { model }),
+                fps,
+                skip_frames,
+                enable_reid,
+                tracker,
+                model_mode,
+                ...(model ? { model } : {}),
+                ...(models?.length ? { models: Array.isArray(models) ? models.join(',') : models } : {}),
             },
         }),
     stop: (cameraId) => api.post(`/detection/stop/${cameraId}`),
@@ -134,7 +169,7 @@ export const pipelineAPI = {
     status: () => api.get('/pipeline/status'),
     start: () => api.post('/pipeline/start'),
     stop: () => api.post('/pipeline/stop'),
-    addCamera: (cameraId, source, streamType = 'webcam', zone = 'default', fps = 30, skipFrames = 1, models = null) =>
+    addCamera: (cameraId, source, streamType = 'webcam', zone = 'default', fps = 30, skipFrames = 1, models = null, enableReid = true, tracker = 'bytetrack', modelMode = 'manual', model = null) =>
         api.post('/pipeline/cameras/add', null, {
             params: {
                 camera_id: cameraId,
@@ -143,6 +178,10 @@ export const pipelineAPI = {
                 zone,
                 fps,
                 skip_frames: skipFrames,
+                enable_reid: enableReid,
+                tracker,
+                model_mode: modelMode,
+                ...(model ? { model } : {}),
                 ...(models?.length ? { models: Array.isArray(models) ? models.join(',') : models } : {}),
             },
         }),
@@ -172,6 +211,11 @@ export const synopsisAPI = {
             params: { camera_id: cameraId, hours, compression, ...(source ? { source } : {}) },
         }),
     job: (jobId) => api.get(`/synopsis/jobs/${jobId}`),
+    serveUrl: (filename) => {
+        const token = tokenStore.get();
+        const qs = token ? `?token=${encodeURIComponent(token)}` : '';
+        return `${API_BASE}/synopsis/serve/${encodeURIComponent(filename)}${qs}`;
+    },
 };
 
 // ────────────────────────────────────────────────────────────────
@@ -247,7 +291,7 @@ export const humanlessAPI = {
 // ────────────────────────────────────────────────────────────────
 
 export const modelAPI = {
-    list: () => api.get('/models/'),
+    list: (includeClasses = false) => api.get('/models/', { params: { include_classes: includeClasses } }),
     classes: (modelFilename) => api.get(`/models/${modelFilename}/classes`),
     current: () => api.get('/models/current'),
     loaded: () => api.get('/models/loaded'),
@@ -277,6 +321,10 @@ export const footageAPI = {
     logsList: () => api.get('/footage/logs/list'),
     logGet: (logFilename) => api.get(`/footage/logs/${encodeURIComponent(logFilename)}`),
     logTracks: (logFilename) => api.get(`/footage/logs/${encodeURIComponent(logFilename)}/tracks`),
+    logAnalytics: (logFilename, bins = 4, minTrackFrames = 30) =>
+        api.get(`/footage/logs/${encodeURIComponent(logFilename)}/analytics`, {
+            params: { bins, min_track_frames: minTrackFrames },
+        }),
     // Trim video by track ID
     trimByTrack: (logFilename, trackId, paddingFrames = 5) =>
         api.post('/footage/trim/by-track', null, {

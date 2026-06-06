@@ -1662,12 +1662,23 @@ a:hover {
   justify-content: space-between;
   gap: 8px;
   pointer-events: auto;
+  min-width: 0;
+}
+
+.camera-tile-top-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .camera-tile-bottom {
   background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.7));
   margin: -10px;
   padding: 14px 12px 10px;
+  min-width: 0;
+  gap: 6px;
 }
 
 .camera-live-badge {
@@ -1732,11 +1743,20 @@ a:hover {
   display: flex;
   align-items: baseline;
   gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.camera-label strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .camera-label .camera-zone {
   color: #cbd5e1;
   font-size: 11px;
+  flex-shrink: 0;
 }
 
 .camera-stats {
@@ -1744,6 +1764,7 @@ a:hover {
   gap: 8px;
   color: #cbd5e1;
   font-size: 11px;
+  flex-shrink: 0;
 }
 
 .camera-tile-compact { aspect-ratio: 4 / 3; }
@@ -2661,6 +2682,290 @@ html.light .stat-card::before {
 .health-empty-box {
   padding: 16px;
   font-size: 13px;
+}
+
+/* --- Detection page layout --- */
+.detection-page-header-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.detection-page .two-col {
+  margin-top: 0;
+  align-items: stretch;
+}
+
+.detection-status-list,
+.detection-form-toolbar {
+  display: grid;
+  gap: 10px;
+}
+
+.detection-form-toolbar {
+  margin-bottom: 8px;
+  grid-template-columns: repeat(auto-fit, auto);
+  justify-content: start;
+}
+
+.detection-upload-btn {
+  display: inline-flex;
+  cursor: pointer;
+  justify-content: center;
+  gap: 8px;
+}
+
+.detection-page-controls {
+  order: 2;
+}
+
+.detection-feeds-panel {
+  order: 1;
+}
+
+.detection-form {
+  display: grid;
+  gap: 12px;
+}
+
+.detection-form-row-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.detection-form-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.detection-form-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-glass);
+  font-size: 13px;
+}
+
+.detection-form-hint {
+  margin-top: -2px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.detection-model-picker {
+  display: grid;
+  gap: 6px;
+  max-height: 190px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-glass);
+}
+
+.detection-model-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.detection-model-name {
+  font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detection-model-tag {
+  flex-shrink: 0;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(124, 62, 237, 0.12);
+  border: 1px solid rgba(124, 62, 237, 0.22);
+  color: var(--t2);
+  white-space: nowrap;
+}
+
+.detection-model-classes {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--t3);
+  white-space: nowrap;
+}
+
+.detection-status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  background: var(--bg-glass);
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  min-width: 0;
+}
+
+.detection-status-label {
+  color: var(--text-secondary);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.detection-status-value {
+  font-weight: 600;
+  font-size: 13px;
+  text-align: right;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Feed minimize / maximize controls --- */
+.detection-feed-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr));
+  align-items: stretch;
+}
+
+.feed-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  height: 100%;
+}
+
+.feed-shell .camera-tile {
+  width: 100%;
+  flex: 1 1 auto;
+}
+
+.feed-shell-minimized {
+  align-self: start;
+  height: auto;
+}
+
+.feed-shell-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 2px;
+  flex-shrink: 0;
+}
+
+.detection-feed-grid .feed-shell-maximized {
+  grid-column: 1 / -1;
+}
+
+.detection-feed-grid.has-maximized-feed .feed-shell:not(.feed-shell-maximized):not(.feed-shell-minimized) {
+  opacity: 0.92;
+}
+
+.camera-tile-maximized {
+  aspect-ratio: 16 / 8;
+}
+
+.camera-tile-minimized {
+  aspect-ratio: auto;
+  min-height: 58px;
+}
+
+.camera-minimized-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 58px;
+  padding: 10px 12px;
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(2, 6, 23, 0.96));
+}
+
+.camera-minimized-meta,
+.camera-minimized-actions,
+.camera-control-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.camera-minimized-meta strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.camera-minimized-actions {
+  flex-shrink: 0;
+}
+
+.camera-control-group {
+  margin-left: auto;
+}
+
+.camera-control {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 7px;
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(0, 0, 0, 0.42);
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.camera-control:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.camera-control-danger:hover {
+  background: rgba(239, 68, 68, 0.28);
+  border-color: rgba(248, 113, 113, 0.42);
+}
+
+.camera-stats-inline {
+  position: static;
+  display: inline-flex;
+}
+
+@media (max-width: 720px) {
+  .camera-tile-maximized {
+    aspect-ratio: 16 / 10;
+  }
+
+  .camera-minimized-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .camera-minimized-actions {
+    justify-content: space-between;
+  }
+
+  .detection-form-row-2,
+  .detection-form-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .detection-page-header-actions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
 }
 
 /* --- Target screenshot parity: styling correction pass --- */

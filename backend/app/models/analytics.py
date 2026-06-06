@@ -61,7 +61,7 @@ class CustomerJourney(Base):
 
 
 class DemographicSnapshot(Base):
-    """Age/gender demographics estimated via DeepFace."""
+    """Age/gender demographics estimated by the configured vision module."""
     __tablename__ = "demographic_snapshots"
     __table_args__ = (
         Index("ix_demographics_camera_zone_ts", "camera_id", "zone", "timestamp"),

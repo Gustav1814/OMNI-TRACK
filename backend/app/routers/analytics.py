@@ -9,10 +9,14 @@ Audit endpoints always hit the DB (SHA-256 chain).
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
+import os
 import random
+import re
 from app.database import get_db
 from app.models.user import User
 from app.security.dependencies import get_current_user
@@ -43,6 +47,15 @@ synopsis_router = APIRouter(prefix="/api/synopsis", tags=["Video Synopsis"])
 # Synopsis job registry (kept in-process; promoted to DB if needed)
 _SYNOPSIS_JOBS: Dict[int, Dict[str, Any]] = {}
 _SYNOPSIS_NEXT_ID: Dict[str, int] = {"n": 1}
+_SAFE_SYNOPSIS_NAME_RE = re.compile(r"^[a-zA-Z0-9_\-\.]+$")
+
+
+def _within_dir(path: Path, base: Path) -> bool:
+    try:
+        path.resolve().relative_to(base.resolve())
+        return True
+    except ValueError:
+        return False
 
 
 def _list_synopsis_dir() -> List[Dict[str, Any]]:
@@ -148,6 +161,28 @@ async def list_synopses(current_user: User = Depends(get_current_user)):
         )
         for i, it in enumerate(items)
     ]
+
+
+@synopsis_router.get("/serve/{filename}")
+async def serve_synopsis(
+    filename: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Stream a generated synopsis file for dashboard preview/download."""
+    from app.config import settings as _settings
+
+    filename = os.path.basename(filename)
+    if ".." in filename or not _SAFE_SYNOPSIS_NAME_RE.match(filename):
+        raise HTTPException(400, "Invalid filename")
+
+    out_dir = Path(_settings.EXPORT_DIR) / "synopsis"
+    path = out_dir / filename
+    if path.suffix.lower() not in {".mp4", ".avi"}:
+        raise HTTPException(400, "Unsupported synopsis format")
+    if not _within_dir(path, out_dir) or not path.is_file():
+        raise HTTPException(404, "Synopsis file not found")
+
+    return FileResponse(path, media_type="video/mp4")
 
 
 @synopsis_router.post("/generate")

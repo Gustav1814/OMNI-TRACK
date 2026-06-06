@@ -55,10 +55,10 @@ export default function FirePage() {
             )}
 
             <div className="stats-grid">
-                <StatCard icon={Flame} label="Alerts Today" value={list.length} accent={list.length ? 'rose' : 'teal'} />
-                <StatCard icon={ShieldAlert} label="Model Loaded" value={status?.model_loaded ? 'yes' : 'no'} accent="emerald" />
-                <StatCard icon={ShieldAlert} label="Fire-Specific" value={status?.is_fire_specific ? 'yes' : 'no'} accent="cyan" />
-                <StatCard icon={Flame} label="Live (last 5 min)" value={live.length} accent="coral" />
+                <StatCard icon={Flame} label="Alerts Today" value={status?.total_today ?? list.length} accent={(status?.total_today ?? list.length) ? 'rose' : 'teal'} />
+                <StatCard icon={ShieldAlert} label="Active Alerts" value={status?.active_alerts ?? 0} accent="emerald" />
+                <StatCard icon={ShieldAlert} label="System Status" value={status?.system_status || 'unknown'} accent="cyan" />
+                <StatCard icon={Flame} label="Cameras Covered" value={status?.cameras_covered ?? 0} accent="coral" />
             </div>
 
             <ContentCard

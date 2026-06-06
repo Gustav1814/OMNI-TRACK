@@ -21,6 +21,7 @@ from app.models.humanless import (
     CartEvent,
     LossPreventionAlert,
 )
+from app.models.store_profile import StoreProfile
 
 __all__ = [
     "User",
@@ -42,4 +43,5 @@ __all__ = [
     "CartItem",
     "CartEvent",
     "LossPreventionAlert",
+    "StoreProfile",
 ]

@@ -74,6 +74,10 @@ class Settings(BaseSettings):
     REID_RECENT_MEMORY_SECONDS: float = 20.0  # How long to keep same-camera identity hints for reactivation
     REID_STRONG_SWITCH_MARGIN: float = 0.14   # Difference required before switching a stable local track to another global_id
     REID_MIN_CROP_HEIGHT: int = 64            # Skip tiny/partial crops that create noisy embeddings in crowds
+    REID_BLIND_SPOT_TIMEOUT_S: float = 300.0  # How long (seconds) a disappeared person's identity is kept for re-match (5 min default)
+    REID_GALLERY_MAX_IDENTITIES: int = 5000   # Hard cap on in-memory gallery identities; LRU eviction when exceeded
+    ENSEMBLE_NMS_IOU_THRESHOLD: float = 0.50  # IoU threshold for inter-model ensemble box merging (higher = less aggressive merge)
+    ENSEMBLE_MIN_MODEL_AGREEMENT: int = 1     # Min models that must detect a box to accept it (2 = high-precision mode)
     DETECTION_CONFIDENCE: float = 0.5        # Min confidence to count a detection
     NMS_THRESHOLD: float = 0.45              # Non-max suppression (reduces duplicate boxes)
     DEVICE: str = "auto"                     # "auto", "cpu", "cuda", "mps" (for Apple M-series)

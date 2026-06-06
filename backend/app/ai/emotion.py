@@ -1,33 +1,26 @@
 """
-OmniTrack AI — Emotion Recognition Module
-DeepFace/FER-based facial emotion classification.
-7-class: happy, sad, angry, surprise, neutral, fear, disgust.
+OmniTrack AI - lightweight emotion summary module.
+
+The module keeps the existing emotion APIs available with OpenCV face
+sampling, and uses mock output only when ALLOW_MOCK_AI=true.
 """
 
-import numpy as np
-from typing import List, Dict, Any, Optional
 from collections import defaultdict
-from loguru import logger
-from app.config import settings
+from typing import Any, Dict, List
 
-try:
-    from deepface import DeepFace
-    DEEPFACE_AVAILABLE = True
-except Exception as _deepface_err:
-    # Catches ImportError AND ValueError raised by retinaface when tf-keras is missing
-    # (TF 2.16+ split keras; retinaface crashes hard at import time otherwise).
-    DEEPFACE_AVAILABLE = False
-    DeepFace = None  # type: ignore
-    logger.warning(
-        f"DeepFace not available ({type(_deepface_err).__name__}). "
-        "Emotion module will return empty output unless ALLOW_MOCK_AI=true."
-    )
+import cv2
+import numpy as np
+
+from app.config import settings
 
 
 class EmotionRecognizer:
     """
-    Emotion recognition using DeepFace/FER.
-    Detects faces, classifies emotions, aggregates per zone.
+    Lightweight face sampling for sentiment dashboards.
+
+    Without a dedicated emotion classifier, detected faces are reported as
+    neutral samples. This avoids pretending to infer affect while preserving
+    the dashboard contract.
     """
 
     EMOTIONS = ["happy", "sad", "angry", "surprise", "neutral", "fear", "disgust"]
@@ -35,55 +28,43 @@ class EmotionRecognizer:
     def __init__(self, backend: str = "opencv", detector_backend: str = "opencv"):
         self.backend = backend
         self.detector_backend = detector_backend
-        self.zone_aggregation: Dict[str, List[Dict]] = defaultdict(list)
+        self.zone_aggregation: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+        self.face_cascade = cv2.CascadeClassifier(cascade_path)
 
     def analyze_frame(
         self, frame: np.ndarray, camera_id: int = 0, zone: str = None
     ) -> List[Dict[str, Any]]:
-        """
-        Analyze emotions in a frame.
-        Returns list of emotion results per detected face.
-        """
-        if not DEEPFACE_AVAILABLE:
-            if not settings.ALLOW_MOCK_AI:
-                return []
+        """Analyze a frame and return neutral face samples."""
+        if settings.ALLOW_MOCK_AI:
             return self._mock_analyze(camera_id, zone)
 
-        try:
-            results = DeepFace.analyze(
-                img_path=frame,
-                actions=["emotion"],
-                enforce_detection=False,
-                detector_backend=self.detector_backend,
-                silent=True,
-            )
-
-            if not isinstance(results, list):
-                results = [results]
-
-            emotions = []
-            for face in results:
-                emotion_scores = face.get("emotion", {})
-                dominant = face.get("dominant_emotion", "neutral")
-                result = {
-                    "dominant_emotion": dominant,
-                    "confidence": emotion_scores.get(dominant, 0.0) / 100.0,
-                    "all_emotions": {k: round(v / 100.0, 3) for k, v in emotion_scores.items()},
-                    "camera_id": camera_id,
-                    "zone": zone,
-                }
-                emotions.append(result)
-
-                if zone:
-                    self.zone_aggregation[zone].append(result)
-                    if len(self.zone_aggregation[zone]) > 500:
-                        self.zone_aggregation[zone] = self.zone_aggregation[zone][-250:]
-
-            return emotions
-
-        except Exception as e:
-            logger.error(f"Emotion analysis failed: {e}")
+        if frame is None or self.face_cascade.empty():
             return []
+
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
+        faces = self.face_cascade.detectMultiScale(
+            gray,
+            scaleFactor=1.1,
+            minNeighbors=5,
+            minSize=(36, 36),
+        )
+
+        emotions: List[Dict[str, Any]] = []
+        frame_area = max(float(frame.shape[0] * frame.shape[1]), 1.0)
+        for _x, _y, w, h in faces[:8]:
+            confidence = min(0.95, max(0.35, float(w * h) / frame_area * 8))
+            result = {
+                "dominant_emotion": "neutral",
+                "confidence": round(confidence, 3),
+                "all_emotions": {"neutral": 1.0},
+                "camera_id": camera_id,
+                "zone": zone,
+            }
+            emotions.append(result)
+            self._remember_zone_sample(zone, result)
+
+        return emotions
 
     def analyze_frame_summary(
         self,
@@ -91,11 +72,7 @@ class EmotionRecognizer:
         camera_id: int = 0,
         zone: str = None,
     ) -> Dict[str, Any]:
-        """
-        Per-frame summary aggregating all detected faces.
-        Returns a single dict (dominant emotion, distribution, sentiment_score)
-        rather than a list — convenient for pipeline aggregation.
-        """
+        """Return a per-frame aggregate summary for pipeline snapshots."""
         faces = self.analyze_frame(frame, camera_id=camera_id, zone=zone)
         if not faces:
             return {
@@ -106,20 +83,14 @@ class EmotionRecognizer:
                 "emotion_distribution": {},
                 "sentiment_score": 0.0,
             }
+
         emotion_counts = defaultdict(int)
-        for f in faces:
-            emotion_counts[f.get("dominant_emotion", "neutral")] += 1
+        for face in faces:
+            emotion_counts[face.get("dominant_emotion", "neutral")] += 1
         total = sum(emotion_counts.values())
         dominant = max(emotion_counts, key=emotion_counts.get)
         distribution = {k: round(v / total, 3) for k, v in emotion_counts.items()}
-        positive = emotion_counts.get("happy", 0) + emotion_counts.get("surprise", 0)
-        negative = (
-            emotion_counts.get("sad", 0)
-            + emotion_counts.get("angry", 0)
-            + emotion_counts.get("fear", 0)
-            + emotion_counts.get("disgust", 0)
-        )
-        sentiment = (positive - negative) / max(total, 1)
+        sentiment = self._sentiment_from_counts(emotion_counts, total)
         return {
             "camera_id": camera_id,
             "zone": zone,
@@ -130,38 +101,10 @@ class EmotionRecognizer:
         }
 
     def analyze_demographics(self, frame: np.ndarray) -> List[Dict[str, Any]]:
-        """
-        Extended analysis: age + gender + emotion (for Store Vibe).
-        """
-        if not DEEPFACE_AVAILABLE:
-            if not settings.ALLOW_MOCK_AI:
-                return []
+        """Demographics require a dedicated model; mock only when enabled."""
+        if settings.ALLOW_MOCK_AI:
             return self._mock_demographics()
-
-        try:
-            results = DeepFace.analyze(
-                img_path=frame,
-                actions=["emotion", "age", "gender"],
-                enforce_detection=False,
-                detector_backend=self.detector_backend,
-                silent=True,
-            )
-            if not isinstance(results, list):
-                results = [results]
-
-            demographics = []
-            for face in results:
-                demographics.append({
-                    "estimated_age": face.get("age", None),
-                    "estimated_gender": face.get("dominant_gender", None),
-                    "gender_confidence": max(face.get("gender", {}).values()) / 100.0 if face.get("gender") else None,
-                    "dominant_emotion": face.get("dominant_emotion", "neutral"),
-                    "emotion_scores": {k: round(v / 100.0, 3) for k, v in face.get("emotion", {}).items()},
-                })
-            return demographics
-        except Exception as e:
-            logger.error(f"Demographic analysis failed: {e}")
-            return []
+        return []
 
     def get_zone_summary(self, zone: str) -> Dict[str, Any]:
         """Get aggregated emotion summary for a zone."""
@@ -170,17 +113,13 @@ class EmotionRecognizer:
             return {"zone": zone, "sample_count": 0, "sentiment_score": 0.0}
 
         emotion_counts = defaultdict(int)
-        for e in entries:
-            emotion_counts[e["dominant_emotion"]] += 1
+        for entry in entries:
+            emotion_counts[entry["dominant_emotion"]] += 1
 
         total = len(entries)
         distribution = {k: round(v / total, 3) for k, v in emotion_counts.items()}
         dominant = max(emotion_counts, key=emotion_counts.get)
-
-        # Sentiment score: -1 (negative) to +1 (positive)
-        positive = emotion_counts.get("happy", 0) + emotion_counts.get("surprise", 0)
-        negative = emotion_counts.get("sad", 0) + emotion_counts.get("angry", 0) + emotion_counts.get("fear", 0) + emotion_counts.get("disgust", 0)
-        sentiment = (positive - negative) / max(total, 1)
+        sentiment = self._sentiment_from_counts(emotion_counts, total)
 
         return {
             "zone": zone,
@@ -191,7 +130,7 @@ class EmotionRecognizer:
         }
 
     def get_store_sentiment(self) -> Dict[str, Any]:
-        """Aggregate sentiment across all zones — feeds Store Vibe Score."""
+        """Aggregate sentiment across all zones."""
         all_zones = {}
         total_sentiment = 0.0
         zone_count = 0
@@ -209,17 +148,37 @@ class EmotionRecognizer:
             "total_zones": zone_count,
         }
 
+    def _remember_zone_sample(self, zone: str, result: Dict[str, Any]) -> None:
+        if not zone:
+            return
+        self.zone_aggregation[zone].append(result)
+        if len(self.zone_aggregation[zone]) > 500:
+            self.zone_aggregation[zone] = self.zone_aggregation[zone][-250:]
+
+    @staticmethod
+    def _sentiment_from_counts(emotion_counts: Dict[str, int], total: int) -> float:
+        positive = emotion_counts.get("happy", 0) + emotion_counts.get("surprise", 0)
+        negative = (
+            emotion_counts.get("sad", 0)
+            + emotion_counts.get("angry", 0)
+            + emotion_counts.get("fear", 0)
+            + emotion_counts.get("disgust", 0)
+        )
+        return (positive - negative) / max(total, 1)
+
     def _mock_analyze(self, camera_id: int, zone: str = None) -> List[Dict[str, Any]]:
         emotions = np.random.dirichlet(np.ones(7))
         emotion_map = dict(zip(self.EMOTIONS, [round(float(e), 3) for e in emotions]))
         dominant = max(emotion_map, key=emotion_map.get)
-        return [{
+        result = {
             "dominant_emotion": dominant,
             "confidence": emotion_map[dominant],
             "all_emotions": emotion_map,
             "camera_id": camera_id,
             "zone": zone,
-        }]
+        }
+        self._remember_zone_sample(zone, result)
+        return [result]
 
     def _mock_demographics(self) -> List[Dict[str, Any]]:
         return [{

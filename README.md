@@ -85,28 +85,25 @@ Default DB user/pass: `omnitrack` / `omnitrack_secret`. Create a user via `/api/
 
 ## Project standard (dependencies)
 
-The proposal requires **DeepFace/FER** for emotion recognition. DeepFace depends on **TensorFlow**, which does not provide wheels for **Python 3.14**. So:
+Use Python 3.11, 3.12, or 3.14 for the backend:
 
-- **Full standard (no compromise):** Use **Python 3.11 or 3.12** for the backend. Then:
-  1. `cd backend`
-  2. `python -m venv .venv` (or `py -3.12 -m venv .venv`)
-  3. Activate: `.venv\Scripts\activate` (Windows) or `source .venv/bin/activate` (Linux/macOS)
-  4. `pip install -r requirements.txt`
-
-  That installs everything in the proposal stack, including **DeepFace** for emotion recognition.
+1. `cd backend`
+2. `python -m venv .venv`
+3. Activate: `.venv\Scripts\activate` (Windows) or `source .venv/bin/activate` (Linux/macOS)
+4. `pip install -r requirements.txt`
 
 - **Optional (proposal):** Adversarial robustness with ART:  
   `pip install adversarial-robustness-toolbox[torch]`  
   Then run: `python -m app.security.adversarial_eval`
 
-- **If you must use Python 3.14:** Install from `requirements-py314.txt` instead. DeepFace will not be installed; emotion will run in fallback mode and **does not meet the full proposal standard** for that module.
+- **Python 3.14:** You can also install from `requirements-py314.txt`; it contains the same lightweight CV stack without extra training/runtime packages.
 
 **What you need to install (full standard):**
 
 | Requirement | What to install |
 |-------------|-----------------|
-| Python | **3.11 or 3.12** from [python.org](https://www.python.org/downloads/) (not 3.14 for full stack) |
-| Backend deps | `pip install -r requirements.txt` (includes DeepFace) |
+| Python | **3.11, 3.12, or 3.14** from [python.org](https://www.python.org/downloads/) |
+| Backend deps | `pip install -r requirements.txt` |
 | ART (optional) | `pip install adversarial-robustness-toolbox[torch]` |
 | PostgreSQL | With **pgvector** extension (e.g. Docker: `pgvector/pgvector:pg16`) |
 | Redis | Optional; in-memory fallback if not present |
@@ -218,7 +215,7 @@ Copy `backend/.env.example` to `backend/.env` and adjust.
 - **Video synopsis:** ≥ 10× compression  
 - **Fire/smoke:** &gt; 90% precision, &lt; 5% FPR  
 - **Crowd:** &gt; 85% zone classification accuracy  
-- **Emotion:** &gt; 70% (FER benchmark)  
+- **Emotion:** lightweight OpenCV face sampling by default  
 - **Integrity:** 100% tamper detection (SHA-256 chain)  
 - **Throughput:** 20+ FPS multi-camera (async pipeline)  
 

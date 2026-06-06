@@ -9,43 +9,60 @@ import { motion } from 'framer-motion';
 import {
     LayoutDashboard, Users, Scan, Video, ShoppingBag,
     Flame, UsersRound, ShoppingCart,
-    Activity, TrendingUp, BarChart3, Scissors, Settings
+    Activity, TrendingUp, BarChart3, Settings, Smile, ShieldCheck, ClipboardList,
+    SlidersHorizontal, Store
 } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { tokenStore } from '../services/api';
+import useUserRole from '../hooks/useUserRole';
 
 const navItems = [
-    { section: 'Home' },
-    { path: '/', icon: LayoutDashboard, label: 'Live Overview' },
-    { path: '/vibe', icon: Activity, label: 'Store Pulse' },
-    { section: 'Video Workspace' },
-    { path: '/detection', icon: Scan, label: 'Video Feeds' },
-    { path: '/reid', icon: Users, label: 'Cross-Feed Match' },
-    { path: '/synopsis', icon: Video, label: 'Highlights Reel' },
-    { path: '/trim', icon: Scissors, label: 'Video Trimmer' },
-    { section: 'Insights' },
-    { path: '/shelf', icon: ShoppingBag, label: 'Shelf Activity' },
-    { path: '/fire', icon: Flame, label: 'Safety Watch' },
-    { path: '/crowd', icon: UsersRound, label: 'Footfall' },
-    { path: '/checkout', icon: ShoppingCart, label: 'Queue Insights' },
-    { section: 'Business View' },
-    { path: '/peak-hours', icon: TrendingUp, label: 'Rush Hours' },
-    { path: '/demographics', icon: BarChart3, label: 'Audience Mix' },
-    { section: 'System' },
-    { path: '/settings', icon: Settings, label: 'Settings' },
+    { section: 'Command Center' },
+    { path: '/', icon: LayoutDashboard, label: 'Live Overview', roles: ['admin', 'operator', 'viewer'] },
+    { path: '/vibe', icon: Activity, label: 'Store Pulse', roles: ['admin', 'operator', 'viewer'] },
+    { path: '/peak-hours', icon: TrendingUp, label: 'Rush Hours', roles: ['admin', 'operator', 'viewer'] },
+    { section: 'Operations' },
+    { path: '/detection', icon: Scan, label: 'Video Feeds', roles: ['admin', 'operator', 'viewer'] },
+    { path: '/reid', icon: Users, label: 'Cross-Feed Match', roles: ['admin', 'operator', 'viewer'] },
+    { path: '/synopsis', icon: Video, label: 'Highlights Reel', roles: ['admin', 'operator', 'viewer'] },
+    { section: 'Analytics' },
+    { path: '/shelf', icon: ShoppingBag, label: 'Shelf Activity', roles: ['admin', 'operator', 'viewer'] },
+    { path: '/crowd', icon: UsersRound, label: 'Footfall', roles: ['admin', 'operator', 'viewer'] },
+    { path: '/checkout', icon: ShoppingCart, label: 'Queue Insights', roles: ['admin', 'operator', 'viewer'] },
+    { path: '/emotion', icon: Smile, label: 'Mood Trends', roles: ['admin', 'operator', 'viewer'] },
+    { path: '/demographics', icon: BarChart3, label: 'Audience Mix', roles: ['admin', 'operator', 'viewer'] },
+    { path: '/fire', icon: Flame, label: 'Safety Watch', roles: ['admin', 'operator', 'viewer'] },
+    { section: 'Smart Commerce' },
+    { path: '/humanless', icon: Store, label: 'Smart Store', roles: ['admin', 'operator', 'viewer'] },
+    { section: 'Administration' },
+    { path: '/setup', icon: SlidersHorizontal, label: 'Store Setup', roles: ['admin', 'operator'] },
+    { path: '/audit', icon: ClipboardList, label: 'Activity Log', roles: ['admin', 'operator'] },
+    { path: '/security', icon: ShieldCheck, label: 'Model Health', roles: ['admin', 'operator'] },
+    { path: '/settings', icon: Settings, label: 'Appearance', roles: ['admin', 'operator', 'viewer'] },
 ];
+
+function visibleNavItems(role) {
+    return navItems.reduce((items, item, index) => {
+        if (item.section) {
+            const hasVisibleChild = navItems
+                .slice(index + 1)
+                .some((candidate) => candidate.section || candidate.roles?.includes(role));
+            if (hasVisibleChild) items.push(item);
+            return items;
+        }
+        if (item.roles?.includes(role)) items.push(item);
+        return items;
+    }, []);
+}
 
 export default function Sidebar() {
     const navigate = useNavigate();
     const location = useLocation();
     const { theme, toggleTheme } = useTheme();
+    const { role } = useUserRole();
 
     const user = tokenStore.getUser();
-
-    const handleLogout = () => {
-        tokenStore.clear();
-        navigate('/login');
-    };
+    const filteredNavItems = visibleNavItems(role);
 
     return (
         <motion.aside
@@ -72,7 +89,7 @@ export default function Sidebar() {
             </div>
 
             <nav className="sidebar-nav">
-                {navItems.map((item, i) => {
+                {filteredNavItems.map((item, i) => {
                     if (item.section) {
                         return (
                             <motion.div
