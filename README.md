@@ -67,6 +67,8 @@ Default DB user/pass: `omnitrack` / `omnitrack_secret`. Create a user via `/api/
    Example if Python is in `C:\Python312`: run `C:\Python312\python.exe -m venv .venv` then `.venv\Scripts\activate` and `pip install -r requirements.txt`.  
    If the project has a Python 3.12 venv named `.venv312`, use: `.\.venv312\Scripts\Activate.ps1` then `pip install -r requirements.txt` and `uvicorn app.main:app --reload --host 0.0.0.0 --port 8000`.
 
+   > On some Windows/Linux systems, `localhost:8000` may resolve differently than `127.0.0.1:8000`. If the docs or API routes do not appear at `localhost`, use `http://127.0.0.1:8000`.
+
 3. **Frontend**
 
    ```bash

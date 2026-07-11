@@ -32,6 +32,7 @@ const AuditPage = lazy(() => import('./pages/AuditPage'));
 const VibePage = lazy(() => import('./pages/VibePage'));
 const PeakHoursPage = lazy(() => import('./pages/PeakHoursPage'));
 const DemographicsPage = lazy(() => import('./pages/DemographicsPage'));
+const LicensePlatePage = lazy(() => import('./pages/LicensePlatePage'));
 const SecurityPage = lazy(() => import('./pages/SecurityPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const SetupPage = lazy(() => import('./pages/SetupPage'));
@@ -47,6 +48,7 @@ const pageTitles = {
     '/fire': 'Safety Watch',
     '/crowd': 'Footfall',
     '/checkout': 'Queue Insights',
+    '/license-plate': 'License Plate',
     '/emotion': 'Mood Trends',
     '/audit': 'Activity Log',
     '/vibe': 'Store Pulse',
@@ -186,6 +188,7 @@ function ProtectedLayout() {
                                 <Route path="/fire" element={<FirePage />} />
                                 <Route path="/crowd" element={<CrowdPage />} />
                                 <Route path="/checkout" element={<CheckoutPage />} />
+                                <Route path="/license-plate" element={<LicensePlatePage />} />
                                 <Route path="/emotion" element={<EmotionPage />} />
                                 <Route path="/audit" element={<AuditPage />} />
                                 <Route path="/vibe" element={<VibePage />} />

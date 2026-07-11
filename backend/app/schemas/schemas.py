@@ -156,6 +156,26 @@ class SynopsisResponse(BaseModel):
     status: str
 
 
+class LicensePlatePrediction(BaseModel):
+    text: str
+    confidence: float
+    bbox: List[float] = Field(..., description="[x, y, w, h]")
+    region: Optional[str] = None
+    ocr_confidence: Optional[float] = None
+
+
+class LicensePlateResponse(BaseModel):
+    detector_model: str
+    ocr_model: str
+    predictions: List[LicensePlatePrediction]
+    annotated_image_base64: str
+
+
+class LicensePlateModelsResponse(BaseModel):
+    detector_models: List[str]
+    ocr_models: List[str]
+
+
 # ---- Shelf Analytics ----
 
 class ShelfZone(BaseModel):

@@ -74,6 +74,7 @@ from app.routers.analytics import (
     peak_hours_router,
     dashboard_router,
 )
+from app.routers.license_plate import license_plate_router
 
 # Config
 from app.config import settings
@@ -294,6 +295,7 @@ app.include_router(footage.router)
 app.include_router(model.router)
 app.include_router(humanless.router)
 app.include_router(setup.router)
+app.include_router(license_plate_router)
 # Analytics sub-routers (each has its own prefix in analytics.py)
 app.include_router(synopsis_router)
 app.include_router(shelf_router)

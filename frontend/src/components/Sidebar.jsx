@@ -10,7 +10,7 @@ import {
     LayoutDashboard, Users, Scan, Video, ShoppingBag,
     Flame, UsersRound, ShoppingCart,
     Activity, TrendingUp, BarChart3, Settings, Smile, ShieldCheck, ClipboardList,
-    SlidersHorizontal, Store
+    SlidersHorizontal, Store, Barcode
 } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { tokenStore } from '../services/api';
@@ -24,11 +24,13 @@ const navItems = [
     { section: 'Operations' },
     { path: '/detection', icon: Scan, label: 'Video Feeds', roles: ['admin', 'operator', 'viewer'] },
     { path: '/reid', icon: Users, label: 'Cross-Feed Match', roles: ['admin', 'operator', 'viewer'] },
+    { path: '/license-plate', icon: Barcode, label: 'License Plates', roles: ['admin', 'operator', 'viewer'] },
     { path: '/synopsis', icon: Video, label: 'Highlights Reel', roles: ['admin', 'operator', 'viewer'] },
     { section: 'Analytics' },
     { path: '/shelf', icon: ShoppingBag, label: 'Shelf Activity', roles: ['admin', 'operator', 'viewer'] },
     { path: '/crowd', icon: UsersRound, label: 'Footfall', roles: ['admin', 'operator', 'viewer'] },
     { path: '/checkout', icon: ShoppingCart, label: 'Queue Insights', roles: ['admin', 'operator', 'viewer'] },
+    { path: '/license-plate', icon: Barcode, label: 'License Plates', roles: ['admin', 'operator', 'viewer'] },
     { path: '/emotion', icon: Smile, label: 'Mood Trends', roles: ['admin', 'operator', 'viewer'] },
     { path: '/demographics', icon: BarChart3, label: 'Audience Mix', roles: ['admin', 'operator', 'viewer'] },
     { path: '/fire', icon: Flame, label: 'Safety Watch', roles: ['admin', 'operator', 'viewer'] },

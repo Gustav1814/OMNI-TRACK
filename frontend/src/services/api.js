@@ -10,7 +10,7 @@
 
 import axios from 'axios';
 
-export const API_BASE = '/api';
+export const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.DEV ? 'http://127.0.0.1:8000/api' : '/api');
 export const AUTH_CHANGE_EVENT = 'omnitrack-auth-change';
 
 const notifyAuthChange = () => {
@@ -22,7 +22,6 @@ const notifyAuthChange = () => {
 const api = axios.create({
     baseURL: API_BASE,
     timeout: 20000,
-    headers: { 'Content-Type': 'application/json' },
 });
 
 // ────────────────────────────────────────────────────────────────
@@ -240,6 +239,18 @@ export const crowdAPI = {
 export const checkoutAPI = {
     metrics: () => api.get('/checkout/metrics'),
     summary: () => api.get('/checkout/summary'),
+};
+
+export const licensePlateAPI = {
+    health: () => api.get('/license-plate/health'),
+    models: () => api.get('/license-plate/models'),
+    recognize: (file, detectorModel, ocrModel) => {
+        const form = new FormData();
+        form.append('file', file);
+        form.append('detector_model', detectorModel);
+        form.append('ocr_model', ocrModel);
+        return api.post('/license-plate/recognize', form);
+    },
 };
 
 export const emotionAPI = {
