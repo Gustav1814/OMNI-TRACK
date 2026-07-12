@@ -162,41 +162,6 @@ html.light .vibe-score-value { -webkit-text-fill-color: #4338ca; }
 html.light .vibe-score-label { color: #6b7280; }
 html.light .gradient-headline { background: linear-gradient(135deg, #1e293b 0%, #4338ca 40%, #0d9488 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
 
-/* Premium custom cursor (hidden on touch devices via JS) */
-body.cursor-custom {
-  cursor: none;
-}
-body.cursor-custom * {
-  cursor: none;
-}
-.cursor-dot {
-  position: fixed;
-  left: 0;
-  top: 0;
-  width: 8px;
-  height: 8px;
-  background: var(--accent-primary);
-  border-radius: 50%;
-  pointer-events: none;
-  z-index: 99999;
-  mix-blend-mode: screen;
-  box-shadow: 0 0 12px var(--accent-primary-glow);
-}
-.cursor-ring {
-  position: fixed;
-  left: 0;
-  top: 0;
-  width: 40px;
-  height: 40px;
-  border: 1.5px solid rgba(99, 102, 241, 0.5);
-  border-radius: 50%;
-  pointer-events: none;
-  z-index: 99998;
-  transition: border-color 0.2s ease, width 0.3s ease, height 0.3s ease;
-}
-.cursor-ring:hover {
-  border-color: var(--accent-primary);
-}
 
 /* 3D scene wrapper — dashboard background */
 .scene3d-wrapper {

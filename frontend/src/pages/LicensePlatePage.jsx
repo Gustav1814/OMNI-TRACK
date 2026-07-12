@@ -3,11 +3,11 @@
  * Accepts images or video sources and runs ALPR inference through the backend.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { UploadCloud, AlertTriangle, Link2 } from 'lucide-react';
 import ContentCard from '../components/ui/ContentCard';
 import SegmentedControl from '../components/ui/SegmentedControl';
-import { licensePlateAPI } from '../services/api';
+import api, { API_BASE, licensePlateAPI, tokenStore } from '../services/api';
 
 const DEFAULT_DETECTOR_MODEL = 'license_plate_detection.pt';
 const DEFAULT_OCR_MODEL = 'cct-s-v2-global-model';
@@ -37,12 +37,15 @@ export default function LicensePlatePage() {
     const [detectionThreshold, setDetectionThreshold] = useState(0.4);
     const [ocrThreshold, setOcrThreshold] = useState(0.0);
     const [result, setResult] = useState(null);
+    const [liveLogs, setLiveLogs] = useState([]);
+    const [streaming, setStreaming] = useState(false);
     const [error, setError] = useState('');
     const [busy, setBusy] = useState(false);
     const [activeResultTab, setActiveResultTab] = useState('live');
+    const abortController = useRef(null);
 
     const snapshots = Array.isArray(result?.snapshots) ? result.snapshots : [];
-    const logs = Array.isArray(result?.logs) ? result.logs : [];
+    const logs = liveLogs.length ? liveLogs : (Array.isArray(result?.logs) ? result.logs : []);
     const platesDetected = result?.plates_detected ?? 0;
     const framesProcessed = result?.frames_processed ?? 0;
 
@@ -52,6 +55,8 @@ export default function LicensePlatePage() {
         setDetectorModel(DEFAULT_DETECTOR_MODEL);
         setOcrModel(DEFAULT_OCR_MODEL);
         setResult(null);
+        setLiveLogs([]);
+        setStreaming(false);
         setError('');
         setBusy(false);
         setActiveResultTab('live');
@@ -63,6 +68,14 @@ export default function LicensePlatePage() {
         setError('');
         setResult(null);
     };
+
+    useEffect(() => {
+        return () => {
+            if (abortController.current) {
+                abortController.current.abort();
+            }
+        };
+    }, []);
 
     const hasValidSource = () => {
         if (inputType === 'file') return Boolean(selectedFile);
@@ -83,31 +96,123 @@ export default function LicensePlatePage() {
 
     const submitRecognition = async () => {
         if (!validateSource()) return;
+        if (abortController.current) {
+            abortController.current.abort();
+        }
+        abortController.current = new AbortController();
         setError('');
         setBusy(true);
+        setStreaming(false);
         setResult(null);
 
-        try {
-            const payload = await licensePlateAPI.recognize({
-                file: inputType === 'file' ? selectedFile : null,
-                mediaType,
-                sourceUrl: inputType === 'link' ? sourceUrl.trim() : '',
-                detectorModel,
-                ocrModel,
-                detectionThreshold,
-                ocrThreshold,
-            });
-            setResult(payload.data);
-        } catch (err) {
-            console.error('ALPR request failed', err);
-            setError(
-                err?.response?.data?.detail ||
-                err?.response?.statusText ||
-                err?.message ||
-                'Inference failed.'
-            );
-        } finally {
-            setBusy(false);
+        const form = new FormData();
+        form.append('media_type', mediaType);
+        form.append('detector_model', detectorModel);
+        form.append('ocr_model', ocrModel);
+        form.append('detection_threshold', detectionThreshold);
+        form.append('ocr_threshold', ocrThreshold);
+        if (inputType === 'file' && selectedFile) {
+            form.append('file', selectedFile);
+        }
+        if (inputType === 'link' && sourceUrl.trim()) {
+            form.append('source_url', sourceUrl.trim());
+        }
+
+        if (mediaType === 'video') {
+            setStreaming(true);
+            const token = tokenStore.get();
+            try {
+                const response = await fetch(`${API_BASE}/license-plate/recognize/stream`, {
+                    method: 'POST',
+                    body: form,
+                    signal: abortController.current.signal,
+                    headers: token ? { Authorization: `Bearer ${token}` } : {},
+                });
+
+                if (!response.ok) {
+                    const text = await response.text();
+                    throw new Error(text || `Stream failed with status ${response.status}`);
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder('utf-8');
+                let buffer = '';
+                let completed = false;
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+
+                    let boundary = buffer.indexOf('\n\n');
+                    while (boundary !== -1) {
+                        const chunk = buffer.slice(0, boundary).trim();
+                        buffer = buffer.slice(boundary + 2);
+                        boundary = buffer.indexOf('\n\n');
+
+                        if (!chunk) continue;
+                        const lines = chunk.split('\n');
+                        for (const line of lines) {
+                            if (!line.startsWith('data:')) continue;
+                            const jsonText = line.replace(/^data:\s*/, '');
+                            if (!jsonText) continue;
+                            const payload = JSON.parse(jsonText);
+                            if (payload?.type === 'frame' || payload?.type === 'complete') {
+                                setLiveLogs((prevLogs) => [
+                                    ...prevLogs,
+                                    ...(payload.logs || []),
+                                ]);
+                                setResult((prevResult) => ({
+                                    ...prevResult,
+                                    ...payload,
+                                    logs: [
+                                        ...(prevResult?.logs || []),
+                                        ...(payload.logs || []),
+                                    ],
+                                }));
+                                if (payload?.type === 'complete') {
+                                    completed = true;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (!completed) {
+                    setError('Stream ended before completion.');
+                }
+            } catch (err) {
+                if (err.name !== 'AbortError') {
+                    console.error('ALPR stream failed', err);
+                    setError(err?.message || 'Inference failed.');
+                }
+            } finally {
+                setBusy(false);
+                setStreaming(false);
+            }
+        } else {
+            try {
+                const payload = await licensePlateAPI.recognize({
+                    file: inputType === 'file' ? selectedFile : null,
+                    mediaType,
+                    sourceUrl: inputType === 'link' ? sourceUrl.trim() : '',
+                    detectorModel,
+                    ocrModel,
+                    detectionThreshold,
+                    ocrThreshold,
+                });
+                setResult(payload.data);
+            } catch (err) {
+                console.error('ALPR request failed', err);
+                setError(
+                    err?.response?.data?.detail ||
+                    err?.response?.statusText ||
+                    err?.message ||
+                    'Inference failed.'
+                );
+            } finally {
+                setBusy(false);
+            }
         }
     };
 
@@ -285,15 +390,17 @@ export default function LicensePlatePage() {
                     </button>
                 </div>
 
-                {busy && (
-                    <div className="page-empty-hint">Running inference, please wait...</div>
+                {busy && streaming && (
+                    <div className="page-empty-hint">Streaming inference in progress...</div>
                 )}
 
-                {!busy && !result && (
-                    <div className="page-empty-hint">Run inference to see logs and snapshots here.</div>
+                {!result && !busy && (
+                    <div className="page-empty-hint">
+                        Run inference to see license plate results here. For video sources, the annotated result appears after processing completes.
+                    </div>
                 )}
 
-                {!busy && result && activeResultTab === 'live' && (
+                {result && activeResultTab === 'live' && (
                     <div>
                         <div className="form-stat-row" style={{ marginBottom: 16 }}>
                             <div className="form-static-value">Source: {result.source_type === 'image' ? 'Image' : 'Video'}</div>

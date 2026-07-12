@@ -253,7 +253,7 @@ export const licensePlateAPI = {
         form.append('ocr_threshold', ocrThreshold);
         if (file) form.append('file', file);
         if (sourceUrl) form.append('source_url', sourceUrl);
-        return api.post('/license-plate/recognize', form, { timeout: 120000 });
+        return api.post('/license-plate/recognize', form, { timeout: 300000 });
     },
 };
 

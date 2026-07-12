@@ -9,7 +9,6 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-route
 import { motion } from 'framer-motion';
 import { RefreshCw, PlayCircle, Check, Radio, StopCircle } from 'lucide-react';
 import Sidebar from './components/Sidebar';
-import CustomCursor from './components/CustomCursor';
 import CommandPalette from './components/ui/CommandPalette';
 import useLivePoll from './hooks/useLivePoll';
 import useUserRole from './hooks/useUserRole';
@@ -155,7 +154,6 @@ function ProtectedLayout() {
 
     return (
         <div className="app-layout">
-            <CustomCursor />
             <div className="ambient-bg" aria-hidden>
                 <div className="ambient-blob ambient-blob-a" />
                 <div className="ambient-blob ambient-blob-b" />

@@ -262,8 +262,8 @@ def recognize_license_plate_image(
     }
 
 
-VIDEO_MAX_FRAMES = 120
-VIDEO_FRAME_STEP = 6
+VIDEO_MAX_FRAMES = 10000
+VIDEO_FRAME_STEP = 1
 
 
 def recognize_license_plate_video(
@@ -437,4 +437,200 @@ def recognize_license_plate_video(
         "plates_detected": plates_detected,
         "annotated_image_base64": annotated_image_base64,
         "logs": logs,
+    }
+
+
+def stream_license_plate_video(
+    source: str,
+    detector_model: str,
+    ocr_model: str,
+    detection_threshold: float = 0.4,
+    ocr_threshold: float = 0.0,
+    max_frames: int = VIDEO_MAX_FRAMES,
+    frame_step: int = VIDEO_FRAME_STEP,
+):
+    source_file = source
+    capture = _open_video_capture(source)
+    if not capture.isOpened():
+        if source.lower().startswith("http"):
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+            temp_file.close()
+            try:
+                urllib.request.urlretrieve(source, temp_file.name)
+                capture = _open_video_capture(temp_file.name)
+            except Exception as exc:
+                raise RuntimeError(f"Unable to open video source: {exc}")
+            finally:
+                source_file = temp_file.name
+        else:
+            raise RuntimeError(f"Unable to open video source: {source}")
+
+    detector = _get_detector(detector_model)
+    ocr = _get_ocr(ocr_model)
+    tracker = MultiObjectTracker(use_model=False)
+
+    track_predictions: Dict[int, Dict[str, Any]] = {}
+    track_snapshots: Dict[int, Dict[str, Any]] = {}
+    frame_count = 0
+    processed_frames = 0
+    annotated_frame: Optional[np.ndarray] = None
+
+    while processed_frames < max_frames:
+        ret, frame = capture.read()
+        if not ret:
+            break
+
+        frame_count += 1
+        if frame_count % frame_step != 0:
+            continue
+
+        processed_frames += 1
+        logs = [f"Analyzed frame {processed_frames}..."]
+
+        results = detector(frame, verbose=False)
+        if len(results) == 0:
+            yield {
+                "type": "frame",
+                "frame": processed_frames,
+                "frames_processed": processed_frames,
+                "plates_detected": len(track_predictions),
+                "predictions": list(track_predictions.values()),
+                "snapshots": list(track_snapshots.values()),
+                "annotated_image_base64": None,
+                "logs": logs,
+            }
+            continue
+
+        result = results[0]
+        boxes = getattr(result, "boxes", None)
+        if boxes is None:
+            yield {
+                "type": "frame",
+                "frame": processed_frames,
+                "frames_processed": processed_frames,
+                "plates_detected": len(track_predictions),
+                "predictions": list(track_predictions.values()),
+                "snapshots": list(track_snapshots.values()),
+                "annotated_image_base64": None,
+                "logs": logs,
+            }
+            continue
+
+        if hasattr(boxes, "data"):
+            detection_array = boxes.data.cpu().numpy() if hasattr(boxes.data, "cpu") else np.array(boxes.data)
+        else:
+            detection_array = np.array(getattr(boxes, "xyxy", []))
+
+        frame_candidates: List[Dict[str, Any]] = []
+        detections_for_tracking: List[Dict[str, Any]] = []
+        for row in detection_array:
+            if len(row) < 5:
+                continue
+            x1, y1, x2, y2, object_confidence = [float(v) for v in row[:5]]
+            x1, y1, x2, y2 = (
+                int(max(round(x1), 0)),
+                int(max(round(y1), 0)),
+                int(min(round(x2), frame.shape[1] - 1)),
+                int(min(round(y2), frame.shape[0] - 1)),
+            )
+            if x2 <= x1 or y2 <= y1:
+                continue
+
+            crop = frame[y1:y2, x1:x2]
+            if crop.size == 0:
+                continue
+
+            ocr_result = ocr.predict(crop)
+            bbox = [x1, y1, x2 - x1, y2 - y1]
+            prediction = _normalize_prediction(ocr_result, bbox, object_confidence)
+            if not _filter_prediction(prediction, detection_threshold, ocr_threshold):
+                continue
+
+            normalized_text = _normalize_plate_text(prediction["text"])
+            if not normalized_text:
+                continue
+
+            image_base64 = _crop_to_base64(frame, bbox)
+            frame_candidates.append({
+                "bbox": bbox,
+                "confidence": prediction["confidence"],
+                "class_id": 0,
+                "class_name": "license_plate",
+                "prediction": prediction,
+                "image_base64": image_base64,
+            })
+            detections_for_tracking.append({
+                "bbox": bbox,
+                "confidence": prediction["confidence"],
+                "class_id": 0,
+                "class_name": "license_plate",
+            })
+
+        if detections_for_tracking:
+            tracks = tracker.update_from_detections(detections_for_tracking)
+            for track in tracks:
+                best_match = None
+                best_iou = 0.0
+                for candidate in frame_candidates:
+                    iou = _bbox_iou(track.bbox, candidate["bbox"])
+                    if iou > best_iou:
+                        best_iou = iou
+                        best_match = candidate
+                if best_match is None or best_iou < 0.2:
+                    continue
+
+                track_id = track.track_id
+                current_prediction = best_match["prediction"].copy()
+                current_prediction["track_id"] = track_id
+                current_snapshot = {
+                    "text": current_prediction["text"],
+                    "confidence": current_prediction["confidence"],
+                    "ocr_confidence": current_prediction.get("ocr_confidence"),
+                    "bbox": current_prediction["bbox"],
+                    "image_base64": best_match["image_base64"],
+                    "track_id": track_id,
+                }
+
+                existing_prediction = track_predictions.get(track_id)
+                if existing_prediction is None or current_prediction["confidence"] > existing_prediction["confidence"]:
+                    track_predictions[track_id] = current_prediction
+                    track_snapshots[track_id] = current_snapshot
+
+                frame_candidates = [c for c in frame_candidates if c is not best_match]
+
+        if frame_candidates:
+            annotated_frame = _draw_annotations(frame, [c["prediction"] for c in frame_candidates])
+
+        annotated_image_base64 = None
+        if annotated_frame is not None:
+            ok, encoded = cv2.imencode('.jpg', annotated_frame)
+            if ok and encoded is not None:
+                annotated_image_base64 = base64.b64encode(encoded.tobytes()).decode('ascii')
+
+        yield {
+            "type": "frame",
+            "frame": processed_frames,
+            "frames_processed": processed_frames,
+            "plates_detected": len(track_predictions),
+            "predictions": list(track_predictions.values()),
+            "snapshots": list(track_snapshots.values()),
+            "annotated_image_base64": annotated_image_base64,
+            "logs": logs,
+        }
+
+    capture.release()
+    if source_file != source and os.path.exists(source_file):
+        try:
+            os.unlink(source_file)
+        except Exception:
+            pass
+
+    yield {
+        "type": "complete",
+        "frames_processed": processed_frames,
+        "plates_detected": len(track_predictions),
+        "predictions": list(track_predictions.values()),
+        "snapshots": list(track_snapshots.values()),
+        "annotated_image_base64": annotated_image_base64,
+        "logs": [f"Video inference complete: {len(track_predictions)} unique plate(s) found after {processed_frames} frames."],
     }
