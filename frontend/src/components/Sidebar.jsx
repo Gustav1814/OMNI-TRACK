@@ -24,7 +24,6 @@ const navItems = [
     { section: 'Operations' },
     { path: '/detection', icon: Scan, label: 'Video Feeds', roles: ['admin', 'operator', 'viewer'] },
     { path: '/reid', icon: Users, label: 'Cross-Feed Match', roles: ['admin', 'operator', 'viewer'] },
-    { path: '/license-plate', icon: Barcode, label: 'License Plates', roles: ['admin', 'operator', 'viewer'] },
     { path: '/synopsis', icon: Video, label: 'Highlights Reel', roles: ['admin', 'operator', 'viewer'] },
     { section: 'Analytics' },
     { path: '/shelf', icon: ShoppingBag, label: 'Shelf Activity', roles: ['admin', 'operator', 'viewer'] },

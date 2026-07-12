@@ -162,13 +162,28 @@ class LicensePlatePrediction(BaseModel):
     bbox: List[float] = Field(..., description="[x, y, w, h]")
     region: Optional[str] = None
     ocr_confidence: Optional[float] = None
+    track_id: Optional[int] = None
+
+
+class LicensePlateSnapshot(BaseModel):
+    text: str
+    confidence: float
+    ocr_confidence: Optional[float] = None
+    bbox: List[float]
+    image_base64: str
+    track_id: Optional[int] = None
 
 
 class LicensePlateResponse(BaseModel):
     detector_model: str
     ocr_model: str
+    source_type: str
     predictions: List[LicensePlatePrediction]
-    annotated_image_base64: str
+    snapshots: List[LicensePlateSnapshot]
+    frames_processed: Optional[int] = None
+    plates_detected: Optional[int] = None
+    annotated_image_base64: Optional[str] = None
+    logs: Optional[List[str]] = None
 
 
 class LicensePlateModelsResponse(BaseModel):

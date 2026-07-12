@@ -244,12 +244,16 @@ export const checkoutAPI = {
 export const licensePlateAPI = {
     health: () => api.get('/license-plate/health'),
     models: () => api.get('/license-plate/models'),
-    recognize: (file, detectorModel, ocrModel) => {
+    recognize: ({ file, mediaType, sourceUrl, detectorModel, ocrModel, detectionThreshold, ocrThreshold }) => {
         const form = new FormData();
-        form.append('file', file);
+        form.append('media_type', mediaType);
         form.append('detector_model', detectorModel);
         form.append('ocr_model', ocrModel);
-        return api.post('/license-plate/recognize', form);
+        form.append('detection_threshold', detectionThreshold);
+        form.append('ocr_threshold', ocrThreshold);
+        if (file) form.append('file', file);
+        if (sourceUrl) form.append('source_url', sourceUrl);
+        return api.post('/license-plate/recognize', form, { timeout: 120000 });
     },
 };
 

@@ -1,71 +1,109 @@
 /**
  * OmniTrack AI — License Plate Recognition Demo
- * Upload a vehicle image and run ALPR inference using the backend.
+ * Accepts images or video sources and runs ALPR inference through the backend.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
-import { Barcode, UploadCloud, ImagePlus, CheckCircle, AlertTriangle } from 'lucide-react';
+import React, { useState } from 'react';
+import { UploadCloud, AlertTriangle, Link2 } from 'lucide-react';
 import ContentCard from '../components/ui/ContentCard';
-import StatCard from '../components/ui/StatCard';
-import RecordCard from '../components/ui/RecordCard';
+import SegmentedControl from '../components/ui/SegmentedControl';
 import { licensePlateAPI } from '../services/api';
 
 const DEFAULT_DETECTOR_MODEL = 'license_plate_detection.pt';
 const DEFAULT_OCR_MODEL = 'cct-s-v2-global-model';
+const OCR_DISPLAY_LABEL = 'fast-alpr/cct-s-v2';
+const DETECTOR_MODELS = [DEFAULT_DETECTOR_MODEL];
+const OCR_MODELS = [
+    'cct-s-v2-global-model',
+    'cct-xs-v2-global-model',
+    'cct-s-v1-global-model',
+    'cct-xs-v1-global-model',
+];
+const MODEL_LABELS = {
+    'license_plate_detection.pt': 'License Plate Detector',
+    'cct-s-v2-global-model': 'fast-alpr cct-s-v2',
+    'cct-xs-v2-global-model': 'fast-alpr cct-xs-v2',
+    'cct-s-v1-global-model': 'fast-alpr cct-s-v1',
+    'cct-xs-v1-global-model': 'fast-alpr cct-xs-v1',
+};
 
 export default function LicensePlatePage() {
-    const detectorModel = DEFAULT_DETECTOR_MODEL;
-    const ocrModel = DEFAULT_OCR_MODEL;
+    const [mediaType, setMediaType] = useState('image');
+    const [inputType, setInputType] = useState('file');
     const [selectedFile, setSelectedFile] = useState(null);
-    const [previewUrl, setPreviewUrl] = useState('');
+    const [sourceUrl, setSourceUrl] = useState('');
+    const [detectorModel, setDetectorModel] = useState(DEFAULT_DETECTOR_MODEL);
+    const [ocrModel, setOcrModel] = useState(DEFAULT_OCR_MODEL);
+    const [detectionThreshold, setDetectionThreshold] = useState(0.4);
+    const [ocrThreshold, setOcrThreshold] = useState(0.0);
     const [result, setResult] = useState(null);
     const [error, setError] = useState('');
     const [busy, setBusy] = useState(false);
+    const [activeResultTab, setActiveResultTab] = useState('live');
 
-    useEffect(() => {
-        return () => {
-            if (previewUrl) {
-                URL.revokeObjectURL(previewUrl);
-            }
-        };
-    }, [previewUrl]);
+    const snapshots = Array.isArray(result?.snapshots) ? result.snapshots : [];
+    const logs = Array.isArray(result?.logs) ? result.logs : [];
+    const platesDetected = result?.plates_detected ?? 0;
+    const framesProcessed = result?.frames_processed ?? 0;
 
-    const predictions = Array.isArray(result?.predictions) ? result.predictions : [];
-    const avgConfidence = useMemo(() => {
-        if (!predictions.length) return 0;
-        return predictions.reduce((sum, item) => sum + (item.confidence || 0), 0) / predictions.length;
-    }, [predictions]);
+    const resetForm = () => {
+        setSelectedFile(null);
+        setSourceUrl('');
+        setDetectorModel(DEFAULT_DETECTOR_MODEL);
+        setOcrModel(DEFAULT_OCR_MODEL);
+        setResult(null);
+        setError('');
+        setBusy(false);
+        setActiveResultTab('live');
+    };
 
     const handleFileChange = (files) => {
         if (!files?.length) return;
-        const file = files[0];
-        setSelectedFile(file);
+        setSelectedFile(files[0]);
         setError('');
         setResult(null);
-        if (previewUrl) {
-            URL.revokeObjectURL(previewUrl);
+    };
+
+    const hasValidSource = () => {
+        if (inputType === 'file') return Boolean(selectedFile);
+        return Boolean(sourceUrl.trim());
+    };
+
+    const validateSource = () => {
+        if (inputType === 'file' && !selectedFile) {
+            setError(`Please choose a ${mediaType} file.`);
+            return false;
         }
-        setPreviewUrl(URL.createObjectURL(file));
+        if (inputType === 'link' && !sourceUrl.trim()) {
+            setError('Please paste a valid link.');
+            return false;
+        }
+        return true;
     };
 
     const submitRecognition = async () => {
-        if (!selectedFile) {
-            setError('Please upload an image first.');
-            return;
-        }
+        if (!validateSource()) return;
         setError('');
         setBusy(true);
         setResult(null);
 
         try {
-            const response = await licensePlateAPI.recognize(selectedFile, detectorModel, ocrModel);
-            setResult(response.data);
+            const payload = await licensePlateAPI.recognize({
+                file: inputType === 'file' ? selectedFile : null,
+                mediaType,
+                sourceUrl: inputType === 'link' ? sourceUrl.trim() : '',
+                detectorModel,
+                ocrModel,
+                detectionThreshold,
+                ocrThreshold,
+            });
+            setResult(payload.data);
         } catch (err) {
             console.error('ALPR request failed', err);
             setError(
-                err.response?.data?.detail ||
-                err.response?.statusText ||
-                err.message ||
+                err?.response?.data?.detail ||
+                err?.response?.statusText ||
+                err?.message ||
                 'Inference failed.'
             );
         } finally {
@@ -73,124 +111,249 @@ export default function LicensePlatePage() {
         }
     };
 
+    const inputLabel = mediaType === 'image' ? 'Upload Image or Paste Image Link' : 'Upload Video or Paste Video Link';
+    const sourceHint = mediaType === 'image'
+        ? 'Supported image files or direct image URLs.'
+        : 'Supported video files, RTSP/HTTP URLs, or hosted video links.';
+
     return (
         <div className="page-scroll">
             <div className="page-header">
                 <div>
                     <h1 className="page-title">License Plate Recognition</h1>
-                    <p className="page-subtitle">Upload an image and run ALPR inference through the backend.</p>
-                    <p className="page-note">Note: use the access token for API authorization, not the refresh token.</p>
+                    <p className="page-subtitle">Run ALPR on uploaded images or remote video feeds.</p>
+                    <p className="page-note">For a live demo, use an image upload or a video URL / RTSP stream.</p>
                 </div>
             </div>
 
-            <div className="stats-grid">
-                <StatCard icon={Barcode} label="Plates Detected" value={predictions.length} accent="cyan" />
-                <StatCard icon={CheckCircle} label="Average Confidence" value={avgConfidence.toFixed(2)} suffix="%" accent="emerald" />
-                <StatCard icon={ImagePlus} label="Selected File" value={selectedFile?.name || 'None'} accent="teal" />
-                <StatCard icon={UploadCloud} label="Model Pair" value={`${detectorModel} / ${ocrModel}`} accent="violet" />
-            </div>
+            <ContentCard title="Input & Model Selection" accent="cyan">
+                <div style={{ display: 'grid', gap: 20 }}>
+                    <div>
+                        <label className="form-label">Content Type</label>
+                        <SegmentedControl
+                            options={[
+                                { label: 'Image', value: 'image' },
+                                { label: 'Video', value: 'video' },
+                            ]}
+                            value={mediaType}
+                            onChange={(value) => {
+                                setMediaType(value);
+                                setSelectedFile(null);
+                                setSourceUrl('');
+                                setResult(null);
+                                setError('');
+                            }}
+                        />
+                    </div>
 
-            <div className="two-col">
-                <ContentCard title="Input & Model Selection" accent="cyan">
+                    <div>
+                        <label className="form-label">Input Source</label>
+                        <SegmentedControl
+                            options={['file', 'link']}
+                            value={inputType}
+                            onChange={(value) => {
+                                setInputType(value);
+                                setSelectedFile(null);
+                                setSourceUrl('');
+                                setResult(null);
+                                setError('');
+                            }}
+                        />
+                    </div>
+
                     <div className="form-field">
                         <label className="form-label">Detector Model</label>
-                        <div className="form-static-value">{detectorModel}</div>
+                        <select
+                            className="form-input"
+                            value={detectorModel}
+                            onChange={(e) => setDetectorModel(e.target.value)}
+                        >
+                            {DETECTOR_MODELS.map((model) => (
+                                <option key={model} value={model}>
+                                    {MODEL_LABELS[model] || model}
+                                </option>
+                            ))}
+                        </select>
                     </div>
+
                     <div className="form-field">
                         <label className="form-label">OCR Model</label>
-                        <div className="form-static-value">{ocrModel}</div>
+                        <select
+                            className="form-input"
+                            value={ocrModel}
+                            onChange={(e) => setOcrModel(e.target.value)}
+                        >
+                            {OCR_MODELS.map((model) => (
+                                <option key={model} value={model}>
+                                    {MODEL_LABELS[model] || model}
+                                </option>
+                            ))}
+                        </select>
                     </div>
 
                     <div className="form-field">
-                        <label className="form-label">Upload Image</label>
-                        <label className="btn btn-secondary" style={{ alignItems: 'center', display: 'inline-flex' }}>
-                            <UploadCloud size={14} />
-                            <span style={{ marginLeft: 8 }}>Choose Image</span>
-                            <input
-                                type="file"
-                                accept="image/*"
-                                hidden
-                                onChange={(e) => handleFileChange(e.target.files)}
-                            />
-                        </label>
+                        <label className="form-label">{inputLabel}</label>
+                        {inputType === 'file' ? (
+                            <label className="btn btn-secondary" style={{ alignItems: 'center', display: 'inline-flex' }}>
+                                <UploadCloud size={14} />
+                                <span style={{ marginLeft: 8 }}>Choose {mediaType === 'image' ? 'Image' : 'Video'}</span>
+                                <input
+                                    type="file"
+                                    accept={mediaType === 'image' ? 'image/*' : 'video/*'}
+                                    hidden
+                                    onChange={(e) => handleFileChange(e.target.files)}
+                                />
+                            </label>
+                        ) : (
+                            <div className="form-input-group">
+                                <input
+                                    type="text"
+                                    value={sourceUrl}
+                                    onChange={(e) => setSourceUrl(e.target.value)}
+                                    placeholder="https://example.com/your-media.mp4"
+                                    className="form-input"
+                                />
+                                <span className="form-input-hint">
+                                    <Link2 size={14} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+                                    Paste a direct URL or RTSP link
+                                </span>
+                            </div>
+                        )}
+                        <p className="form-help-text">{sourceHint}</p>
                     </div>
 
-                    {previewUrl ? (
-                        <div className="page-preview-card">
-                            <img src={previewUrl} alt="Preview" className="preview-image" />
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                        <div className="form-field">
+                            <label className="form-label">Detection Threshold</label>
+                            <input
+                                type="range"
+                                min={0.0}
+                                max={1.0}
+                                step={0.01}
+                                value={detectionThreshold}
+                                onChange={(e) => setDetectionThreshold(Number(e.target.value))}
+                            />
+                            <div className="form-static-value">{(detectionThreshold * 100).toFixed(0)}%</div>
                         </div>
-                    ) : (
-                        <div className="page-empty-hint">Select an image to preview before running inference.</div>
-                    )}
+                        <div className="form-field">
+                            <label className="form-label">OCR Threshold</label>
+                            <input
+                                type="range"
+                                min={0.0}
+                                max={1.0}
+                                step={0.01}
+                                value={ocrThreshold}
+                                onChange={(e) => setOcrThreshold(Number(e.target.value))}
+                            />
+                            <div className="form-static-value">{(ocrThreshold * 100).toFixed(0)}%</div>
+                        </div>
+                    </div>
 
                     <div style={{ marginTop: 16, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                        <button className="btn btn-primary" type="button" onClick={submitRecognition} disabled={busy || !selectedFile}>
+                        <button className="btn btn-primary" type="button" onClick={submitRecognition} disabled={busy || !hasValidSource()}>
                             {busy ? 'Running...' : 'Run ALPR'}
                         </button>
-                        <button className="btn btn-ghost" type="button" onClick={() => {
-                            setSelectedFile(null);
-                            setResult(null);
-                            setError('');
-                            if (previewUrl) {
-                                URL.revokeObjectURL(previewUrl);
-                                setPreviewUrl('');
-                            }
-                        }}>
+                        <button className="btn btn-ghost" type="button" onClick={resetForm}>
                             Reset
                         </button>
                     </div>
+
                     {error ? (
                         <div className="page-empty-hint page-empty-hint--error" style={{ marginTop: 12 }}>
                             <AlertTriangle size={16} style={{ marginRight: 8, verticalAlign: 'middle' }} />
                             {error}
                         </div>
                     ) : null}
-                </ContentCard>
+                </div>
+            </ContentCard>
 
-                <ContentCard title="Recognition Results" accent="teal">
-                    {!result ? (
-                        <div className="page-empty-hint">No results yet. Upload an image and run inference.</div>
-                    ) : (
-                        <>
-                            <div className="ui-feed-list" style={{ marginBottom: 16 }}>
-                                {predictions.length === 0 ? (
-                                    <RecordCard
-                                        icon={AlertTriangle}
-                                        accent="rose"
-                                        title="No license plates detected"
-                                        meta="Try a different image or improve lighting."
-                                    />
-                                ) : predictions.map((prediction, index) => (
-                                    <RecordCard
-                                        key={index}
-                                        icon={CheckCircle}
-                                        accent="emerald"
-                                        title={prediction.text || 'Plate detected'}
-                                        meta={
-                                            <>
-                                                <span>Confidence: {(prediction.confidence * 100).toFixed(1)}%</span>
-                                                <span style={{ marginLeft: 10 }}>
-                                                    OCR Confidence: {prediction.ocr_confidence != null ? `${(prediction.ocr_confidence * 100).toFixed(1)}%` : 'n/a'}
-                                                </span>
-                                            </>
-                                        }
-                                    />
+            <ContentCard title="Recognition Results" accent="teal">
+                <div style={{ marginBottom: 20, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                    <button
+                        type="button"
+                        className={`btn ${activeResultTab === 'live' ? 'btn-primary' : 'btn-ghost'}`}
+                        onClick={() => setActiveResultTab('live')}
+                    >
+                        Live Streaming
+                    </button>
+                    <button
+                        type="button"
+                        className={`btn ${activeResultTab === 'snapshots' ? 'btn-primary' : 'btn-ghost'}`}
+                        onClick={() => setActiveResultTab('snapshots')}
+                    >
+                        Snapshots
+                    </button>
+                </div>
+
+                {busy && (
+                    <div className="page-empty-hint">Running inference, please wait...</div>
+                )}
+
+                {!busy && !result && (
+                    <div className="page-empty-hint">Run inference to see logs and snapshots here.</div>
+                )}
+
+                {!busy && result && activeResultTab === 'live' && (
+                    <div>
+                        <div className="form-stat-row" style={{ marginBottom: 16 }}>
+                            <div className="form-static-value">Source: {result.source_type === 'image' ? 'Image' : 'Video'}</div>
+                            <div className="form-static-value">Plates detected: {platesDetected}</div>
+                            {result.source_type === 'video' ? (
+                                <div className="form-static-value">Frames processed: {framesProcessed}</div>
+                            ) : null}
+                        </div>
+                        <div className="form-stat-row" style={{ marginBottom: 16 }}>
+                            <div className="form-static-value">Detector: {MODEL_LABELS[result.detector_model] || result.detector_model}</div>
+                            <div className="form-static-value">OCR: {MODEL_LABELS[result.ocr_model] || result.ocr_model}</div>
+                        </div>
+                        {result.annotated_image_base64 ? (
+                            <div className="page-preview-card" style={{ padding: 16, marginBottom: 16 }}>
+                                <img
+                                    src={`data:image/jpeg;base64,${result.annotated_image_base64}`}
+                                    alt="Annotated result"
+                                    style={{ width: '100%', maxHeight: 420, objectFit: 'contain', borderRadius: 8 }}
+                                />
+                            </div>
+                        ) : (
+                            <div className="page-empty-hint" style={{ marginBottom: 16 }}>
+                                Annotated preview is not available for this result.
+                            </div>
+                        )}
+                        <div className="page-preview-card" style={{ padding: 16, maxHeight: 360, overflowY: 'auto' }}>
+                            {logs.length ? logs.map((line, index) => (
+                                <div key={index} style={{ marginBottom: 8 }}>{line}</div>
+                            )) : (
+                                <div>No logs available.</div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {!busy && result && activeResultTab === 'snapshots' && (
+                    <div>
+                        {snapshots.length === 0 ? (
+                            <div className="page-empty-hint">No license plate snapshots were detected.</div>
+                        ) : (
+                            <div className="page-card-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+                                {snapshots.map((snapshot, index) => (
+                                    <div key={index} className="page-preview-card" style={{ padding: 12 }}>
+                                        <img
+                                            src={`data:image/jpeg;base64,${snapshot.image_base64}`}
+                                            alt={snapshot.text}
+                                            className="preview-image"
+                                        />
+                                        <div style={{ marginTop: 10 }}>
+                                            <strong>{snapshot.text || 'Unknown plate'}</strong>
+                                            <div>Det: {(snapshot.confidence * 100).toFixed(1)}%</div>
+                                            <div>OCR: {snapshot.ocr_confidence != null ? `${(snapshot.ocr_confidence * 100).toFixed(1)}%` : 'n/a'}</div>
+                                        </div>
+                                    </div>
                                 ))}
                             </div>
-
-                            {result.annotated_image_base64 ? (
-                                <div className="page-preview-card">
-                                    <img
-                                        src={`data:image/jpeg;base64,${result.annotated_image_base64}`}
-                                        alt="Annotated license plate"
-                                        className="preview-image"
-                                    />
-                                </div>
-                            ) : null}
-                        </>
-                    )}
-                </ContentCard>
-            </div>
+                        )}
+                    </div>
+                )}
+            </ContentCard>
         </div>
     );
 }
