@@ -1,0 +1,1 @@
+#all data geenrated by ai will go to redis, another repo(BE) which will read from redis and strore in postgres
