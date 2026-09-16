@@ -123,6 +123,9 @@ export default function DashboardPage() {
 
     const cameraStats = detStatus?.camera_stats || {};
     const cameraZones = pipelineStatus?.cameras?.zones || {};
+    const isRunning = pipelineStatus?.state === 'running';
+    const frameCounts = pipelineStatus?.processing?.frame_counts || {};
+    const framesProcessed = Object.values(frameCounts).reduce((a, b) => a + Number(b || 0), 0);
 
     const trendData = Array.isArray(vibeTrend) ? vibeTrend.slice(0, 36).map((v, i) => ({
         t: typeof v.hour === 'string' ? v.hour.slice(11, 16) : `T-${i}`,
@@ -233,10 +236,33 @@ export default function DashboardPage() {
     return (
         <div className="page-scroll dashboard-shell">
 
-            <div className="dashboard-hero">
+            <div className={`dashboard-hero ${isRunning ? 'is-running' : ''}`}>
                 <div className="dashboard-hero-lead">
+                    <span className={`hero-status ${isRunning ? 'hero-status-live' : ''}`}>
+                        <i className="hero-status-dot" />
+                        {isRunning ? 'Session running' : 'Session idle'}
+                    </span>
                     <h1 className="page-title dashboard-hero-title">Command Center</h1>
-                    <p className="page-subtitle">Real-time view across store videos and active feeds</p>
+                    <p className="page-subtitle">
+                        {isRunning
+                            ? `Tracking ${activeCameras.length} ${activeCameras.length === 1 ? 'feed' : 'feeds'} · ${framesProcessed.toLocaleString()} frames processed`
+                            : 'Upload a store video on Video Feeds, then start a session to see live analytics.'}
+                    </p>
+                </div>
+                <div className="dashboard-hero-actions">
+                    <div className="hero-stat">
+                        <span className="hero-stat-value">{vibeLabel}</span>
+                        <span className="hero-stat-label">Store vibe</span>
+                    </div>
+                    <button
+                        type="button"
+                        className={`btn ${isRunning ? 'btn-outline' : 'btn-primary'} hero-cta`}
+                        onClick={togglePipeline}
+                        disabled={busy}
+                    >
+                        {isRunning ? <StopCircle size={15} /> : <PlayCircle size={15} />}
+                        {busy ? 'Working…' : isRunning ? 'Stop session' : 'Start session'}
+                    </button>
                 </div>
             </div>
 
@@ -353,7 +379,7 @@ export default function DashboardPage() {
                         <HealthRow label="Re-ID gallery" value={`${pipelineStatus?.ai_modules?.reid?.gallery_size ?? 0} embeddings`} />
                         <HealthRow
                             label="Frames processed (all feeds)"
-                            value={pipelineStatus?.frame_counts ? Object.values(pipelineStatus.frame_counts).reduce((a, b) => a + b, 0) : 0}
+                            value={framesProcessed.toLocaleString()}
                         />
                         <div className="health-empty-box">
                             {activeCameras.length > 0 ? `${activeCameras.length} active feed(s) running` : <><span>No active feeds running</span><br/><span>Upload a video → Start Session</span></>}

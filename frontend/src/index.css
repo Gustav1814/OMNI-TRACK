@@ -37,10 +37,10 @@
   --status-idle: #94a3b8;
 
   /* Text — WCAG AA on --bg-card */
-  --text-primary: #f2f4f8;
-  --text-secondary: #aab1c0;
-  --text-muted: #7c8496;
-  --text-accent: #a5b4fc;
+  --text-primary: #f7f9fc;
+  --text-secondary: #c8cedb;
+  --text-muted: #99a1b3;
+  --text-accent: #b4c0ff;
 
   /* Borders — visible without shouting */
   --border: rgba(255, 255, 255, 0.09);
@@ -139,10 +139,10 @@ html.light {
   --status-danger: #e11d48;
   --status-idle: #64748b;
 
-  --text-primary: #0f172a;
-  --text-secondary: #4b5563;
-  --text-muted: #6b7280;
-  --text-accent: #4338ca;
+  --text-primary: #0b1220;
+  --text-secondary: #3d4859;
+  --text-muted: #5b6676;
+  --text-accent: #3730a3;
 
   --border: rgba(15, 23, 42, 0.1);
   --border-hover: rgba(15, 23, 42, 0.18);
@@ -4710,3 +4710,173 @@ html.light .dashboard-stats .stat-card-sky {
 html.light .dashboard-stats .stat-card .stat-value { color: var(--text-primary) !important; }
 html.light .dashboard-stats .stat-card-emerald .stat-value { color: var(--status-ok) !important; }
 html.light .dashboard-stats .stat-card-rose .stat-value { color: var(--status-danger) !important; }
+
+/* ============================================================
+   Light theme: remove the violet/lavender wash
+   Several older layers tinted the page and cards purple-blue.
+   ============================================================ */
+html.light .app-layout,
+html.light .main-content,
+html.light .page-content {
+  background: var(--bg-primary) !important;
+}
+html.light .page-content::before,
+html.light .page-content::after { display: none !important; }
+
+html.light .card,
+html.light .stat-card,
+html.light .chart-card,
+html.light .dashboard-panel {
+  background: var(--bg-card) !important;
+  border-color: var(--border) !important;
+}
+
+/* ============================================================
+   Dashboard hero — status band with the primary action
+   ============================================================ */
+.dashboard-hero {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: var(--space-5) !important;
+  flex-wrap: wrap;
+  padding: 20px 22px !important;
+  margin-bottom: var(--space-4);
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-lg) !important;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 13%, transparent), transparent 58%),
+    var(--bg-card) !important;
+  position: relative;
+  overflow: hidden;
+}
+/* Accent rail — the only decorative flourish, and it reflects state */
+.dashboard-hero::after {
+  content: '' !important;
+  display: block !important;
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--accent-primary);
+}
+.dashboard-hero.is-running::after { background: var(--status-ok); }
+.dashboard-hero.is-running {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--status-ok) 13%, transparent), transparent 58%),
+    var(--bg-card) !important;
+}
+
+html.light .dashboard-hero {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 9%, transparent), transparent 58%),
+    var(--bg-card) !important;
+  border-color: var(--border) !important;
+  box-shadow: var(--shadow-sm) !important;
+}
+html.light .dashboard-hero.is-running {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--status-ok) 11%, transparent), transparent 58%),
+    var(--bg-card) !important;
+}
+
+.dashboard-hero-lead { flex: 1 1 320px !important; min-width: 0; padding: 0 !important; }
+
+/* Status chip */
+.hero-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 9px;
+}
+.hero-status-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--status-idle);
+  flex-shrink: 0;
+}
+.hero-status-live { color: var(--status-ok); }
+.hero-status-live .hero-status-dot {
+  background: var(--status-ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-ok) 22%, transparent);
+  animation: hero-pulse 2s ease-in-out infinite;
+}
+@keyframes hero-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-ok) 22%, transparent); }
+  50%      { box-shadow: 0 0 0 6px color-mix(in srgb, var(--status-ok) 6%, transparent); }
+}
+
+.dashboard-hero .dashboard-hero-title.page-title,
+.dashboard-hero-title {
+  font-size: 27px !important;
+  margin: 0 0 5px !important;
+}
+
+/* Right side: vibe readout + primary action */
+.dashboard-hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-shrink: 0;
+}
+.hero-stat { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.2; }
+.hero-stat-value {
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  text-transform: capitalize;
+}
+.hero-stat-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  margin-top: 2px;
+}
+.hero-cta { padding: 10px 18px; font-size: 13.5px; }
+
+@media (max-width: 720px) {
+  .dashboard-hero { flex-direction: column; align-items: flex-start !important; }
+  .dashboard-hero-actions { width: 100%; justify-content: space-between; }
+}
+
+/* --- Sidebar: flat surface, no violet blooms --- */
+.sidebar::before,
+.sidebar::after { display: none !important; }
+
+.sidebar,
+html.light .sidebar {
+  background: var(--bg-secondary) !important;
+  border-right: 1px solid var(--border) !important;
+  box-shadow: none !important;
+}
+html.light .sidebar-header,
+.sidebar-header { border-bottom: 1px solid var(--border) !important; }
+html.light .sidebar-footer,
+.sidebar-footer { border-top: 1px solid var(--border) !important; }
+
+.sidebar-title { color: var(--text-primary) !important; }
+.sidebar-subtitle { color: var(--text-muted) !important; }
+
+.sidebar-logo {
+  background: var(--accent-primary) !important;
+  box-shadow: none !important;
+  color: #fff !important;
+}
+
+/* Ambient layer off in both themes — it re-tinted the page behind cards */
+.ambient-bg, .ambient-blob, .ambient-grid { display: none !important; }
+
+/* Light hero: a neutral slate wash — indigo mixed into white reads lavender */
+html.light .dashboard-hero {
+  background: linear-gradient(135deg, #f1f5f9 0%, var(--bg-card) 62%) !important;
+}
+html.light .dashboard-hero.is-running {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--status-ok) 10%, #fff) 0%, var(--bg-card) 62%) !important;
+}
