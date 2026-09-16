@@ -296,7 +296,7 @@ export default function DashboardPage() {
                     value={overview?.current_occupancy ?? 0}
                     accent="violet"
                     progress={Math.min(100, Number(overview?.current_occupancy ?? 0))}
-                    tag="Live"
+                    tag={isRunning ? 'Live' : 'Idle'}
                 />
                 <KPI
                     icon={Zap}
@@ -313,7 +313,7 @@ export default function DashboardPage() {
                     suffix=""
                     accent="emerald"
                     progress={Number(vibeScore) || 0}
-                    tag="Steady"
+                    tag={vibeLabel}
                 />
                 <KPI
                     icon={Flame}
@@ -321,7 +321,7 @@ export default function DashboardPage() {
                     value={overview?.fire_alerts_today ?? (fireAlerts?.length || 0)}
                     accent="rose"
                     progress={Math.min(100, Number((overview?.fire_alerts_today ?? (fireAlerts?.length || 0)) * 22))}
-                    tag="Alerts"
+                    tag={(overview?.fire_alerts_today ?? (fireAlerts?.length || 0)) > 0 ? 'Action needed' : 'All clear'}
                 />
                 <KPI
                     icon={Clock3}
@@ -330,7 +330,7 @@ export default function DashboardPage() {
                     suffix="s"
                     accent="violet"
                     progress={Math.min(100, Number(overview?.avg_checkout_wait ?? 0) * 4)}
-                    tag="Avg"
+                    tag="Average"
                 />
             </div>
 
@@ -345,19 +345,25 @@ export default function DashboardPage() {
                                 <span className="legend-engagement">■ Engagement</span>
                             </div>
                         </div>
-                        <div className="card-subtitle">Rolling<br/>24h</div>
+                        <div className="card-subtitle">Rolling 24h</div>
                     </div>
-                    <div className="chart-sublabel">24h Trend</div>
-                    <div style={{ height: 310 }}>
+                    <div className="chart-area">
                         {trendData.length > 0 ? (
                             <Line data={chartData} options={chartOptions} />
                         ) : (
-                            <div style={{
-                                height: '100%', display: 'grid', placeItems: 'center',
-                                color: 'var(--text-muted)', fontSize: 13,
-                            }}
-                            >
-                                No trend yet. Start session and let it run for a few minutes.
+                            <div className="chart-empty-state">
+                                <div className="chart-empty-icon"><Activity size={22} /></div>
+                                <p className="chart-empty-title">No trend data yet</p>
+                                <p className="chart-empty-copy">
+                                    Energy and engagement plot here once a session has been
+                                    running for a few minutes.
+                                </p>
+                                {!isRunning && (
+                                    <button type="button" className="btn btn-primary" onClick={togglePipeline} disabled={busy}>
+                                        <PlayCircle size={15} />
+                                        {busy ? 'Working…' : 'Start session'}
+                                    </button>
+                                )}
                             </div>
                         )}
                     </div>

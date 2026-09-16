@@ -4986,3 +4986,161 @@ h1, h2, h3, h4 {
   line-height: 1.2 !important;
   margin-top: 1px;
 }
+
+/* ============================================================
+   LIVE OVERVIEW — depth and rhythm instead of six equal boxes
+   ============================================================ */
+
+.dashboard-shell { padding-bottom: 28px; }
+
+/* KPI row: airier cards, generous radius, a soft top sheen */
+.dashboard-stats {
+  gap: 14px !important;
+  margin-bottom: 20px !important;
+}
+
+.dashboard-stats .stat-card {
+  position: relative;
+  padding: 20px !important;
+  border-radius: 18px !important;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.045) 0%, transparent 42%),
+    var(--bg-card) !important;
+  transition: transform var(--transition-base), border-color var(--transition-base),
+              box-shadow var(--transition-base), background var(--transition-base);
+}
+html.light .dashboard-stats .stat-card {
+  background:
+    linear-gradient(180deg, rgba(15,23,42,0.025) 0%, transparent 42%),
+    var(--bg-card) !important;
+}
+
+/* A hairline of accent across the top — reads as crafted, not boxy */
+.dashboard-stats .stat-card::before {
+  content: '' !important;
+  display: block !important;
+  position: absolute;
+  top: 0; left: 18px; right: 18px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent-primary), transparent);
+  opacity: 0.5;
+}
+.dashboard-stats .stat-card-emerald::before { background: linear-gradient(90deg, transparent, var(--status-ok), transparent); }
+.dashboard-stats .stat-card-rose::before { background: linear-gradient(90deg, transparent, var(--status-danger), transparent); }
+
+.dashboard-stats .stat-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--border-hover) !important;
+  box-shadow: var(--shadow-md) !important;
+}
+.dashboard-stats .stat-card:hover::before { opacity: 1; }
+
+/* Icon: softer, tinted, less like a hard chip */
+.dashboard-stats .stat-icon {
+  width: 36px !important;
+  height: 36px !important;
+  border-radius: 11px !important;
+  background: color-mix(in srgb, var(--accent-primary) 16%, transparent) !important;
+  border: none !important;
+}
+.dashboard-stats .stat-card-emerald .stat-icon { background: color-mix(in srgb, var(--status-ok) 16%, transparent) !important; }
+.dashboard-stats .stat-card-rose .stat-icon { background: color-mix(in srgb, var(--status-danger) 16%, transparent) !important; }
+
+.dashboard-stats .stat-chip {
+  background: transparent !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text-muted) !important;
+  font-size: 10px !important;
+  padding: 3px 9px !important;
+}
+
+.dashboard-stats .stat-label {
+  font-size: 12px !important;
+  letter-spacing: 0.02em;
+  margin-bottom: 4px;
+}
+.dashboard-stats .stat-value {
+  font-size: 34px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.035em !important;
+}
+.dashboard-stats .stat-suffix {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-left: 2px;
+}
+
+.dashboard-stats .stat-card-foot { margin-top: 14px; }
+.dashboard-stats .stat-progress { height: 4px !important; }
+
+/* Panels: match the KPI radius so the page reads as one system */
+.dashboard-main-grid { gap: 16px !important; }
+.dashboard-panel, .dashboard-shell .card {
+  border-radius: 18px !important;
+  overflow: hidden;
+}
+.dashboard-panel .card-header {
+  padding: 18px 20px !important;
+  background: linear-gradient(180deg, rgba(255,255,255,0.03), transparent);
+}
+html.light .dashboard-panel .card-header {
+  background: linear-gradient(180deg, rgba(15,23,42,0.02), transparent);
+}
+
+/* Health rows: lighter separators, roomier */
+.health-row, .dashboard-panel-health > div:last-child > div {
+  padding-top: 11px !important;
+  padding-bottom: 11px !important;
+}
+
+/* Hero picks up the same radius */
+.dashboard-hero { border-radius: 18px !important; }
+
+@media (max-width: 1400px) {
+  .dashboard-shell .stats-grid { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+}
+@media (max-width: 860px) {
+  .dashboard-shell .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+}
+
+/* --- Chart area + a real empty state --- */
+.chart-area { height: 300px; padding: 4px 18px 18px; }
+
+.chart-empty-state {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 4px;
+  padding: 20px;
+}
+.chart-empty-icon {
+  width: 46px; height: 46px;
+  border-radius: 14px;
+  display: grid; place-items: center;
+  background: color-mix(in srgb, var(--accent-primary) 14%, transparent);
+  color: var(--accent-secondary);
+  margin-bottom: 10px;
+}
+.chart-empty-title {
+  font-size: 14.5px;
+  font-weight: 650;
+  color: var(--text-primary);
+  margin: 0;
+}
+.chart-empty-copy {
+  font-size: 13px;
+  color: var(--text-muted);
+  max-width: 280px;
+  line-height: 1.55;
+  margin: 0 0 16px;
+}
+
+/* Legend swatches follow the chart series */
+.legend-energy { color: var(--accent-secondary) !important; }
+.legend-engagement { color: var(--accent-cyan) !important; }
+.chart-legend-inline > span:first-child { display: none; }
