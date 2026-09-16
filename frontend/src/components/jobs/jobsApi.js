@@ -229,6 +229,7 @@ export function useRegisterJob() {
                 // every 6th -> 1.
                 skip_frames: 0,
                 enable_reid: true,
+                loop: Boolean(request.loop),
             });
 
             // `tag` is the comma-joined list of classes with Detection enabled.

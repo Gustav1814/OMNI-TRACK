@@ -5,6 +5,7 @@ const emptyDraft = {
   location_id: "",
   url: "",
   url_type: "rtsp",
+  loop: false,
   kpi_name: "",
   model_infos: [],
   regions: [],
@@ -53,6 +54,7 @@ function buildRegisterRequest(draft, kpi) {
     kpi_name: draft.kpi_name,
     url: draft.url.trim(),
     url_type: draft.url_type,
+    loop: Boolean(draft.loop),
     tag,
     regions: draft.regions,
     // Frame the regions were drawn against, so the backend can rescale them

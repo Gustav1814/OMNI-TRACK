@@ -51,6 +51,7 @@ class StreamConfig:
     skip_frames: int = 0           # Process every Nth frame (0 = process all)
     roi: Optional[Dict] = None     # Region of interest {"x": 0, "y": 0, "w": 640, "h": 480}
     decode_imgsz: int = 0          # Optional decode-time downscale (0 = disabled)
+    loop: bool = False             # Replay a finite source from frame 0 on EOF
 
 
 @dataclass
@@ -66,6 +67,7 @@ class StreamStats:
     resolution: tuple = (0, 0)
     uptime_seconds: float = 0.0
     error_message: Optional[str] = None
+    loops_completed: int = 0
 
 
 class CameraStream:
@@ -198,6 +200,19 @@ class CameraStream:
                 # frame 0 and replayed it forever — which silently re-counted the
                 # same people on every lap.
                 if self._is_finite_source():
+                    # Opt-in replay, for demos and for testing a short clip. Every
+                    # lap re-presents the same people to the tracker, so counts and
+                    # Re-ID identities accumulate across laps — off by default so
+                    # analytics stay truthful unless the operator asks for this.
+                    if self.config.loop and self._cap is not None:
+                        self._cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        self._stats.loops_completed += 1
+                        logger.info(
+                            f"[Cam {self.config.camera_id}] End of file — "
+                            f"restarting (lap {self._stats.loops_completed})"
+                        )
+                        continue
+
                     self._stats.is_connected = False
                     self._stats.error_message = "End of file"
                     self._running = False

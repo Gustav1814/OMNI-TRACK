@@ -676,6 +676,7 @@ class ProcessingPipeline:
         model_path: Optional[str] = None,
         tracker_config: Optional[str] = None,
         enable_reid: bool = True,
+        loop: bool = False,
     ):
         """
         Register a camera for processing.
@@ -689,6 +690,9 @@ class ProcessingPipeline:
             skip_frames: Process every Nth frame (higher = faster but less accurate)
             roi: Optional region of interest crop
             enable_reid: Run 512-d Torchreid embeddings + global gallery for this feed (GPU/CPU heavy).
+            loop: Replay a file source from the start instead of stopping at EOF.
+                Counts and Re-ID identities accumulate across laps, so this is for
+                demos and testing rather than real analytics.
         
         Example:
             # IP camera
@@ -716,6 +720,7 @@ class ProcessingPipeline:
             skip_frames=skip_n,
             decode_imgsz=int(getattr(settings, "DECODE_IMGSZ", 0) or 0),
             roi=roi,
+            loop=bool(loop),
         )
         self.stream_manager.add_camera(config)
         # If the pipeline is already running, kick off the capture thread for this new
@@ -749,6 +754,7 @@ class ProcessingPipeline:
         logger.info(
             f"Camera {camera_id} added → zone: {zone} | capture_fps_cap={fps_target} "
             f"skip_frames={skip_n} reid={'on' if enable_reid else 'off'}"
+            f"{' loop=on' if loop else ''}"
         )
         # Fire-and-forget: audit log this camera addition on the running loop
         try:

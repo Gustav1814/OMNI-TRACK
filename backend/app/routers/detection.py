@@ -87,6 +87,7 @@ async def start_detection(
     fps: int = 30,
     skip_frames: int = 1,
     enable_reid: bool = True,
+    loop: bool = False,
     current_user: User = Depends(get_current_user),
     pipeline=Depends(get_pipeline),
 ):
@@ -97,6 +98,8 @@ async def start_detection(
     - fps: Max capture rate for this feed (applied in the stream reader; clamped 1–240).
     - skip_frames: Process every (skip_frames+1)th captured frame (0 = all captured frames).
     - enable_reid: Enable 512-d Torchreid + global gallery for this feed (CPU/GPU heavy). Disable for lighter multi-cam runs.
+    - loop: Replay a file source instead of stopping at its end. Counts and Re-ID
+      identities accumulate across laps, so use it for demos, not for real analytics.
     - Use footage: for prototype: run full CV on downloaded store clips as live cameras.
     """
     source, stream_type = _resolve_source(source, stream_type)
@@ -142,6 +145,7 @@ async def start_detection(
             model_path=model_path,
             tracker_config=tracker,
             enable_reid=enable_reid,
+            loop=loop,
         )
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))

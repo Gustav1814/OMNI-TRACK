@@ -282,6 +282,22 @@ function SourceSection({
             <span className="ajm-hint">MP4, AVI, MKV, WEBM or MOV.</span>
           </div>
 
+          <label className="ajm-loop">
+            <input
+      type="checkbox"
+      checked={Boolean(draft.loop)}
+      onChange={(e) => patch({ loop: e.target.checked })}
+    />
+            <span>
+              <strong>Replay on finish</strong>
+              <em>
+                Restarts the clip instead of stopping at the end. Counts and
+                identities keep adding up across laps, so use it to demo or to
+                test a short video — not to measure real numbers.
+              </em>
+            </span>
+          </label>
+
           {footage.error && <span className="field__error">{footage.error}</span>}
           {urlError && <span className="field__error">{urlError}</span>}
         </div>

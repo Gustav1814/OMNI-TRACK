@@ -1491,3 +1491,44 @@
   opacity: 0.55;
   cursor: progress;
 }
+
+/* ── Source: replay-on-finish toggle ────────────────────────────────── */
+.ajm-loop {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 11px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--pane);
+  cursor: pointer;
+}
+
+.ajm-loop input {
+  margin-top: 2px;
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.ajm-loop span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ajm-loop strong {
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--text-0);
+}
+
+.ajm-loop em {
+  font-style: normal;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
