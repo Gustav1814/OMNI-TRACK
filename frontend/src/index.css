@@ -4938,3 +4938,51 @@ h1, h2, h3, h4 {
 /* Store-vibe readout in the hero tracks the session state */
 .hero-stat-value { color: var(--text-primary) !important; }
 .dashboard-hero.is-running .hero-stat-value { color: var(--status-ok) !important; }
+
+/* ============================================================
+   Align the sidebar header with the topbar
+   Both were sized independently, so the logo/title block and the
+   page title sat at different heights either side of the divider.
+   ============================================================ */
+:root { --topbar-height: 60px; }
+
+.topbar {
+  height: var(--topbar-height) !important;
+  min-height: var(--topbar-height) !important;
+  padding: 0 22px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+}
+
+.sidebar-header {
+  height: var(--topbar-height) !important;
+  min-height: var(--topbar-height) !important;
+  padding: 0 16px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  box-sizing: border-box;
+}
+
+.sidebar-logo {
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px;
+  font-size: 12px !important;
+  border-radius: 9px !important;
+  margin: 0 !important;
+  flex-shrink: 0;
+}
+
+.sidebar-title {
+  font-size: 14.5px !important;
+  font-weight: 700 !important;
+  line-height: 1.2 !important;
+  letter-spacing: -0.015em;
+}
+.sidebar-subtitle {
+  font-size: 11px !important;
+  line-height: 1.2 !important;
+  margin-top: 1px;
+}
