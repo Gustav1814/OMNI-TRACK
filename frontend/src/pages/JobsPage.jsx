@@ -185,6 +185,10 @@ export default function JobsPage() {
     const jobs = useMemo(() => data?.jobs ?? [], [data]);
     const [createOpen, setCreateOpen] = useState(false);
     const atCapacity = jobs.length >= MAX_JOBS;
+    const storagePct = artifacts?.quota_mb
+        ? Math.min(100, (artifacts.usage_mb / artifacts.quota_mb) * 100)
+        : 0;
+    const storageNearFull = storagePct >= 85;
 
     // Refresh straight after the modal closes so a new job appears without
     // waiting for the next poll tick.
@@ -201,50 +205,65 @@ export default function JobsPage() {
     return (
         <div className="jobs-page">
             <header className="jobs-page__head">
-                <div>
+                <div className="jobs-page__lead">
                     <h2 className="jobs-page__title">Registered Jobs</h2>
                     <p className="jobs-page__sub">
                         Each job runs one camera through its own model, tracker and regions.
-                        Open the live stream to watch detections and counts update.
                     </p>
                 </div>
-                <div className="jobs-page__meta">
-                    <span className={`jobs-page__count${atCapacity ? ' is-full' : ''}`}>
-                        <b>{jobs.length}</b>
-                        <em>of {MAX_JOBS} job{MAX_JOBS === 1 ? '' : 's'}</em>
-                    </span>
-                    {artifacts && (
-                        <div className="jobs-page__artifacts" title={artifacts.root}>
-                            <span className="jobs-stat">
-                                <ImageIcon size={13} aria-hidden />
-                                <b>{artifacts.snapshots}</b>
-                                <em>snapshot{artifacts.snapshots === 1 ? '' : 's'}</em>
-                            </span>
-                            <span className="jobs-stat">
-                                <Film size={13} aria-hidden />
-                                <b>{artifacts.clips}</b>
-                                <em>clip{artifacts.clips === 1 ? '' : 's'}</em>
-                            </span>
-                            <span className="jobs-stat">
-                                <HardDrive size={13} aria-hidden />
-                                <b>{artifacts.usage_mb}</b>
-                                <em>of {artifacts.quota_mb} MB</em>
-                            </span>
-                        </div>
-                    )}
-                    <button
-                        type="button"
-                        className="jobs-page__create"
-                        onClick={() => setCreateOpen(true)}
-                        disabled={atCapacity}
-                        title={atCapacity
-                            ? `Job limit reached (${MAX_JOBS}) — delete one first`
-                            : 'Register a new job'}
-                    >
-                        <Plus size={14} /> Create Job
-                    </button>
-                </div>
+                <button
+                    type="button"
+                    className="jobs-page__create"
+                    onClick={() => setCreateOpen(true)}
+                    disabled={atCapacity}
+                    title={atCapacity
+                        ? `Job limit reached (${MAX_JOBS}) — delete one first`
+                        : 'Register a new job'}
+                >
+                    <Plus size={15} /> Create Job
+                </button>
             </header>
+
+            {/* Same stat-card language as the Live Overview KPI row. */}
+            <div className="jobs-stats">
+                <div className={`jobs-statcard${atCapacity ? ' is-warn' : ''}`}>
+                    <span className="jobs-statcard__icon"><Layers size={16} aria-hidden /></span>
+                    <span className="jobs-statcard__label">Job slots</span>
+                    <span className="jobs-statcard__value">
+                        {jobs.length}<i>/{MAX_JOBS}</i>
+                    </span>
+                    <span className="jobs-statcard__track" aria-hidden>
+                        <span style={{ width: `${Math.min(100, (jobs.length / Math.max(1, MAX_JOBS)) * 100)}%` }} />
+                    </span>
+                </div>
+
+                <div className="jobs-statcard">
+                    <span className="jobs-statcard__icon"><ImageIcon size={16} aria-hidden /></span>
+                    <span className="jobs-statcard__label">Snapshots</span>
+                    <span className="jobs-statcard__value">
+                        {(artifacts?.snapshots ?? 0).toLocaleString()}
+                    </span>
+                </div>
+
+                <div className="jobs-statcard">
+                    <span className="jobs-statcard__icon"><Film size={16} aria-hidden /></span>
+                    <span className="jobs-statcard__label">Clips</span>
+                    <span className="jobs-statcard__value">
+                        {(artifacts?.clips ?? 0).toLocaleString()}
+                    </span>
+                </div>
+
+                <div className={`jobs-statcard${storageNearFull ? ' is-warn' : ''}`} title={artifacts?.root}>
+                    <span className="jobs-statcard__icon"><HardDrive size={16} aria-hidden /></span>
+                    <span className="jobs-statcard__label">Storage</span>
+                    <span className="jobs-statcard__value">
+                        {artifacts?.usage_mb ?? 0}<i>/{artifacts?.quota_mb ?? 0} MB</i>
+                    </span>
+                    <span className="jobs-statcard__track" aria-hidden>
+                        <span style={{ width: `${storagePct}%` }} />
+                    </span>
+                </div>
+            </div>
 
             {loading && jobs.length === 0 && <p className="jobs-page__empty">Loading jobs…</p>}
 

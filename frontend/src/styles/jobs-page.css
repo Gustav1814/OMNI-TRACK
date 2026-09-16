@@ -763,3 +763,350 @@
   .jobs-page__meta { width: 100%; }
   .jobs-page__create { margin-left: auto; }
 }
+
+/* ============================================================
+   Jobs header v2 — one lead metric, quiet supporting stats
+   Everything previously sat in identical pills, so capacity (which
+   gates Create Job) looked no more important than disk usage.
+   ============================================================ */
+.jobs-page__head {
+  align-items: center;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+
+.jobs-page__meta { gap: 14px; }
+
+/* Lead metric: capacity, with a bar so it reads at a glance */
+.jobs-capacity {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 112px;
+  padding: 9px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-sm);
+}
+
+.jobs-capacity__text {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.jobs-capacity__value {
+  font-size: 17px;
+  font-weight: 750;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.jobs-capacity__value i {
+  font-style: normal;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.jobs-capacity__label {
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.jobs-capacity__track {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  overflow: hidden;
+}
+.jobs-capacity__track > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent-primary);
+  transition: width var(--transition-base);
+}
+.jobs-capacity.is-full .jobs-capacity__track > span { background: var(--status-warn); }
+.jobs-capacity.is-full .jobs-capacity__label { color: var(--status-warn); }
+
+/* Supporting stats: one grouped surface, not three competing pills */
+.jobs-page__artifacts {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  height: 42px;
+  padding: 0 4px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-sm);
+}
+
+.jobs-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: auto;
+  padding: 0 12px;
+  border: none;
+  background: none;
+  border-radius: 0;
+}
+.jobs-stat svg { color: var(--text-muted); }
+.jobs-stat b {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.jobs-stat em {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 550;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.jobs-stat__sep {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+/* Primary action carries the most weight */
+.jobs-page__create {
+  height: 42px;
+  padding: 0 20px;
+  border-radius: 12px;
+  font-size: 13.5px;
+  box-shadow: var(--shadow-sm);
+}
+
+@media (max-width: 900px) {
+  .jobs-page__artifacts { order: 3; width: 100%; justify-content: space-between; height: auto; padding: 8px 4px; }
+  .jobs-stat__sep { display: none; }
+}
+
+/* ============================================================
+   Jobs header v3 — the header sits on a surface of its own
+   Title and description were painted straight onto the page
+   background while every control beside them had a card, so the
+   block read as unstyled next to its own toolbar.
+   ============================================================ */
+.jobs-page__head {
+  position: relative;
+  overflow: hidden;
+  padding: 20px 22px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 10%, transparent), transparent 58%),
+    var(--bg-card);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 18px;
+}
+html.light .jobs-page__head {
+  background: linear-gradient(135deg, #f1f5f9 0%, var(--bg-card) 62%);
+}
+
+/* Accent rail, matching the dashboard hero */
+.jobs-page__head::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--accent-primary);
+}
+
+.jobs-page__title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 21px;
+  margin-bottom: 5px;
+}
+
+.jobs-page__sub { max-width: 58ch; }
+
+/* Inner controls drop their own cards — the header is the surface now */
+.jobs-capacity,
+.jobs-page__artifacts {
+  background: var(--bg-tertiary);
+  box-shadow: none;
+}
+html.light .jobs-capacity,
+html.light .jobs-page__artifacts {
+  background: rgba(15, 23, 42, 0.04);
+  border-color: rgba(15, 23, 42, 0.09);
+}
+.jobs-capacity__track { background: var(--bg-card); }
+html.light .jobs-capacity__track { background: rgba(15, 23, 42, 0.1); }
+
+/* ============================================================
+   Jobs header v4 — plain title, stat cards below
+   Reuses the Live Overview KPI card language so the two pages
+   read as one system rather than each inventing a header.
+   ============================================================ */
+.jobs-page__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding: 0 0 4px !important;
+  border: none !important;
+  border-radius: 0 !important;
+  background: none !important;
+  box-shadow: none !important;
+  margin-bottom: 16px;
+  overflow: visible;
+}
+.jobs-page__head::before { display: none !important; }
+html.light .jobs-page__head { background: none !important; }
+
+.jobs-page__lead { min-width: 0; }
+
+.jobs-page__title {
+  display: block;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.022em;
+  color: var(--text-primary);
+  margin: 0 0 4px;
+}
+
+.jobs-page__sub {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  margin: 0;
+  max-width: 62ch;
+}
+
+/* ── Stat cards ─────────────────────────────────────────────── */
+.jobs-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.jobs-statcard {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas:
+    "icon  label"
+    "value value"
+    "track track";
+  align-items: center;
+  gap: 6px 10px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, transparent 42%),
+    var(--bg-card);
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--transition-base), background var(--transition-base);
+  overflow: hidden;
+}
+html.light .jobs-statcard {
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.022) 0%, transparent 42%), var(--bg-card);
+}
+.jobs-statcard:hover { border-color: var(--border-hover); }
+
+/* Hairline of accent, matching the dashboard KPI cards */
+.jobs-statcard::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 18px; right: 18px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent-primary), transparent);
+  opacity: 0.45;
+}
+.jobs-statcard.is-warn::before {
+  background: linear-gradient(90deg, transparent, var(--status-warn), transparent);
+}
+
+.jobs-statcard__icon {
+  grid-area: icon;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
+  color: var(--accent-secondary);
+}
+.jobs-statcard.is-warn .jobs-statcard__icon {
+  background: color-mix(in srgb, var(--status-warn) 16%, transparent);
+  color: var(--status-warn);
+}
+
+.jobs-statcard__label {
+  grid-area: label;
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.jobs-statcard__value {
+  grid-area: value;
+  font-size: 30px;
+  font-weight: 750;
+  line-height: 1.05;
+  letter-spacing: -0.035em;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  margin-top: 2px;
+}
+.jobs-statcard__value i {
+  font-style: normal;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: -0.01em;
+}
+.jobs-statcard.is-warn .jobs-statcard__value { color: var(--status-warn); }
+
+.jobs-statcard__track {
+  grid-area: track;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  overflow: hidden;
+  margin-top: 8px;
+}
+html.light .jobs-statcard__track { background: rgba(15, 23, 42, 0.08); }
+.jobs-statcard__track > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent-primary);
+  transition: width var(--transition-base);
+}
+.jobs-statcard.is-warn .jobs-statcard__track > span { background: var(--status-warn); }
+
+@media (max-width: 1100px) {
+  .jobs-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .jobs-stats { grid-template-columns: 1fr; }
+}
+
+/* Cards without a meter keep the same height as those with one */
+.jobs-statcard { align-content: start; }
+.jobs-statcard:not(:has(.jobs-statcard__track)) .jobs-statcard__value { margin-bottom: 11px; }
