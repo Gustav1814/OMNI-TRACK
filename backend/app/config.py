@@ -121,10 +121,12 @@ class Settings(BaseSettings):
     # camera would dominate the pipeline budget. Analyse every Nth tick instead
     # and reuse the last summary between runs (faces do not change that fast).
     EMOTION_EVERY_N_TICKS: int = 15
-    # Face detector DeepFace uses before classifying. Measured on fire_room.mp4,
-    # all four found identical faces but at wildly different cost:
-    #   ssd 0.12s/frame | opencv 0.32 | mtcnn 1.99 | retinaface 16.22
-    EMOTION_DETECTOR_BACKEND: str = "ssd"
+    # Face detector DeepFace uses before classifying. ssd is the fastest
+    # (~0.04s/frame vs mtcnn ~0.35s) but never populates region.left_eye, and
+    # analyze_frame drops any face without eye landmarks — so ssd yields zero
+    # samples on every frame and sentiment silently stays 0. mtcnn returns
+    # landmarks reliably and runs only every EMOTION_EVERY_N_TICKS ticks.
+    EMOTION_DETECTOR_BACKEND: str = "mtcnn"
     # DeepFace runs with enforce_detection=False so a faceless frame does not raise.
     # The cost is that it then "analyses" the whole frame and returns a confident
     # emotion for it — a paintbrush measured as angry(0.92). Every such result

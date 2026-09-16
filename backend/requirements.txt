@@ -30,7 +30,11 @@ ultralytics>=8.3.0
 torch>=2.1.0
 torchvision>=0.16.0
 torchreid>=0.2.5
-opencv-python-headless>=4.10.0
+# torchreid imports tensorboard unconditionally; without it Re-ID falls back to mock.
+tensorboard>=2.16
+# <5: OpenCV 5 dropped the bundled haarcascade data and the dnn module wheels
+# DeepFace's opencv/ssd detectors load, so face detection fails at import.
+opencv-python-headless>=4.10.0,<5
 numpy>=1.24.0
 scipy>=1.11.0
 Pillow>=10.0.0
