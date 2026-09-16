@@ -4694,3 +4694,19 @@ html.light .dashboard-hero { background: none !important; }
 }
 .page-header { margin-bottom: var(--space-4); }
 .page-description, .page-subtitle { font-size: 13.5px; color: var(--text-secondary); }
+
+/* Light: flatten the per-KPI tints (earlier rules scope via .dashboard-stats) */
+html.light .dashboard-stats .stat-card,
+html.light .dashboard-stats .stat-card-violet,
+html.light .dashboard-stats .stat-card-cyan,
+html.light .dashboard-stats .stat-card-amber,
+html.light .dashboard-stats .stat-card-rose,
+html.light .dashboard-stats .stat-card-emerald,
+html.light .dashboard-stats .stat-card-sky {
+  background: var(--bg-card) !important;
+  border-color: var(--border) !important;
+  box-shadow: var(--shadow-sm) !important;
+}
+html.light .dashboard-stats .stat-card .stat-value { color: var(--text-primary) !important; }
+html.light .dashboard-stats .stat-card-emerald .stat-value { color: var(--status-ok) !important; }
+html.light .dashboard-stats .stat-card-rose .stat-value { color: var(--status-danger) !important; }
