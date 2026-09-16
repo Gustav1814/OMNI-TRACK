@@ -230,32 +230,13 @@ export default function DashboardPage() {
         }
     };
 
-    const liveViewers = health?.components?.websocket?.active_connections ?? 0;
-
     return (
         <div className="page-scroll dashboard-shell">
 
             <div className="dashboard-hero">
                 <div className="dashboard-hero-lead">
-                    <p className="dashboard-kicker"><span className="kicker-dash">—</span> Live Retail Intelligence</p>
-                    <h1 className="page-title dashboard-hero-title">
-                        Command <span className="hero-center-gradient">Center</span>
-                    </h1>
+                    <h1 className="page-title dashboard-hero-title">Command Center</h1>
                     <p className="page-subtitle">Real-time view across store videos and active feeds</p>
-                </div>
-                <div className="hero-kpis">
-                    <div className="hero-kpi-box">
-                        <div className="hero-kpi-value hero-kpi-cyan">{liveViewers}</div>
-                        <div className="hero-kpi-label">Live<br/>Viewers</div>
-                    </div>
-                    <div className="hero-kpi-box">
-                        <div className="hero-kpi-value hero-kpi-emerald">{Number(vibeScore || 0).toFixed(0)}</div>
-                        <div className="hero-kpi-label">Store<br/>Vibe</div>
-                    </div>
-                    <div className="hero-kpi-box">
-                        <div className="hero-kpi-value hero-kpi-amber">{Number(overview?.avg_checkout_wait ?? 0).toFixed(1)}s</div>
-                        <div className="hero-kpi-label">Avg<br/>Wait</div>
-                    </div>
                 </div>
             </div>
 
@@ -287,7 +268,7 @@ export default function DashboardPage() {
                     icon={Users}
                     label="Current Occupancy"
                     value={overview?.current_occupancy ?? 0}
-                    accent="cyan"
+                    accent="violet"
                     progress={Math.min(100, Number(overview?.current_occupancy ?? 0))}
                     tag="Live"
                 />
@@ -295,7 +276,7 @@ export default function DashboardPage() {
                     icon={Zap}
                     label="Detections Today"
                     value={(overview?.total_detections_today ?? 0).toLocaleString?.() ?? 0}
-                    accent="amber"
+                    accent="violet"
                     progress={Math.min(100, Number((overview?.total_detections_today ?? 0) / 20))}
                     tag="Today"
                 />
@@ -321,7 +302,7 @@ export default function DashboardPage() {
                     label="Queue Wait"
                     value={Number(overview?.avg_checkout_wait ?? 0).toFixed(1)}
                     suffix="s"
-                    accent="sky"
+                    accent="violet"
                     progress={Math.min(100, Number(overview?.avg_checkout_wait ?? 0) * 4)}
                     tag="Avg"
                 />
@@ -331,7 +312,7 @@ export default function DashboardPage() {
                 <div className="card dashboard-panel dashboard-panel-chart">
                     <div className="card-header">
                         <div>
-                            <h3 className="card-title">Store<br/>Pulse</h3>
+                            <h3 className="card-title">Store Pulse</h3>
                             <div className="card-subtitle chart-legend-inline">
                                 <span>—</span>
                                 <span className="legend-energy">■ Energy</span>

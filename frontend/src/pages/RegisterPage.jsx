@@ -67,6 +67,14 @@ export default function RegisterPage({ onRegister }) {
 
     const canSubmit = username.trim().length >= 3 && email.includes('@') && password.length >= 6 && password === confirm;
 
+    const blockingReason = (() => {
+        if (username.trim().length < 3) return 'Username needs at least 3 characters.';
+        if (!email.includes('@')) return 'Enter a valid email address.';
+        if (password.length < 6) return 'Password needs at least 6 characters.';
+        if (password !== confirm) return 'Passwords do not match yet.';
+        return '';
+    })();
+
     return (
         <div className="login-page">
             <div className="login-bg-orb login-bg-orb-1" />
@@ -182,11 +190,14 @@ export default function RegisterPage({ onRegister }) {
                                 type="submit"
                                 disabled={loading || !canSubmit}
                                 style={{ width: '100%', justifyContent: 'center', padding: '12px', marginTop: 8 }}
-                                whileHover={{ scale: loading ? 1 : 1.02 }}
-                                whileTap={{ scale: loading ? 1 : 0.98 }}
+                                whileHover={{ scale: loading || !canSubmit ? 1 : 1.02 }}
+                                whileTap={{ scale: loading || !canSubmit ? 1 : 0.98 }}
                             >
                                 {loading ? 'Creating account…' : 'Create account'}
                             </motion.button>
+                            {!canSubmit && (
+                                <p className="form-hint">{blockingReason}</p>
+                            )}
                         </form>
 
                         <p className="login-register-note">

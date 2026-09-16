@@ -439,7 +439,7 @@
     padding: 10px 14px;
     border-radius: 10px;
     border: 1px solid transparent;
-    background: linear-gradient(135deg, #4f7dfb, #22b8cf);
+    background: var(--accent-primary);
     color: #fff;
     font-size: 0.82rem;
     font-weight: 600;
@@ -570,7 +570,7 @@
     padding: 7px 14px;
     border-radius: 999px;
     border: 1px solid transparent;
-    background: linear-gradient(135deg, #4f7dfb, #22b8cf);
+    background: var(--accent-primary);
     color: #fff;
     font-size: 0.78rem;
     font-weight: 600;

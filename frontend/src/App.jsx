@@ -4,10 +4,11 @@
  * Light/dark theme via ThemeProvider (main.jsx) and toggle in Sidebar.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { RefreshCw, PlayCircle, Check, Radio } from 'lucide-react';
+import { RefreshCw, Check, Radio, AlertTriangle } from 'lucide-react';
+import { systemAPI } from './services/api';
 import './styles/jobs-modal.css';
 import './styles/jobs-page.css';
 import './styles/jobs-live.css';
@@ -55,40 +56,53 @@ const pageTitles = {
 function TopBar() {
     const location = useLocation();
     const title = pageTitles[location.pathname] || 'OmniTrack AI';
+    const [health, setHealth] = useState(null);
+
+    const loadHealth = useCallback(async () => {
+        try {
+            const { data } = await systemAPI.health();
+            setHealth(data);
+        } catch {
+            setHealth({ status: 'unreachable' });
+        }
+    }, []);
+
+    useEffect(() => {
+        loadHealth();
+        const id = setInterval(loadHealth, 15000);
+        return () => clearInterval(id);
+    }, [loadHealth]);
+
+    const cameras = health?.components?.pipeline?.cameras_active ?? 0;
+    const pipelineState = health?.components?.pipeline?.state;
+    const healthy = health?.status === 'healthy';
 
     return (
-        <motion.header
-            className="topbar"
-            initial={{ opacity: 0, y: -8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3 }}
-        >
+        <header className="topbar">
             <div className="topbar-left">
                 <h1 className="topbar-title">{title}</h1>
-                <span className="topbar-live-chip">
-                    <i className="live-dot" />
-                    LIVE
-                </span>
+                {pipelineState === 'running' && (
+                    <span className="topbar-live-chip">
+                        <i className="live-dot" />
+                        LIVE
+                    </span>
+                )}
             </div>
             <div className="topbar-actions">
-                <motion.span className="topbar-pill" whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }}>
+                <span className="topbar-pill" title="Cameras currently processing">
                     <Radio size={12} />
-                    Channel open
-                </motion.span>
-                <motion.span className="topbar-pill topbar-pill-good" whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }}>
-                    <Check size={12} />
-                    Healthy
-                </motion.span>
-                <motion.button type="button" className="topbar-pill topbar-pill-button" whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }}>
+                    {cameras} {cameras === 1 ? 'feed' : 'feeds'} active
+                </span>
+                <span className={`topbar-pill ${healthy ? 'topbar-pill-good' : 'topbar-pill-bad'}`}>
+                    {healthy ? <Check size={12} /> : <AlertTriangle size={12} />}
+                    {healthy ? 'Healthy' : health ? 'Degraded' : 'Checking…'}
+                </span>
+                <button type="button" className="topbar-pill topbar-pill-button" onClick={loadHealth} title="Refresh system status">
                     <RefreshCw size={12} />
                     Refresh
-                </motion.button>
-                <motion.button type="button" className="topbar-pill topbar-pill-primary" whileHover={{ y: -2 }} whileTap={{ scale: 0.97 }}>
-                    <PlayCircle size={12} />
-                    Start Session
-                </motion.button>
+                </button>
             </div>
-        </motion.header>
+        </header>
     );
 }
 

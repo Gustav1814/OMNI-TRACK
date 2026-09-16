@@ -121,11 +121,14 @@ export default function LoginPage({ onLogin }) {
                                 type="submit"
                                 disabled={loading || !username || !password}
                                 style={{ width: '100%', justifyContent: 'center', padding: '12px', marginTop: 8 }}
-                                whileHover={{ scale: loading ? 1 : 1.02 }}
-                                whileTap={{ scale: loading ? 1 : 0.98 }}
+                                whileHover={{ scale: loading || !username || !password ? 1 : 1.02 }}
+                                whileTap={{ scale: loading || !username || !password ? 1 : 0.98 }}
                             >
                                 {loading ? 'Signing in…' : 'Sign In'}
                             </motion.button>
+                            {(!username || !password) && (
+                                <p className="form-hint">Enter your username and password to continue.</p>
+                            )}
                         </form>
 
                         <p className="login-register-note">
