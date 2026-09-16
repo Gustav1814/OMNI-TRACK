@@ -209,15 +209,28 @@ export default function JobsPage() {
                     </p>
                 </div>
                 <div className="jobs-page__meta">
-                    <span className="jobs-page__count">
-                        {jobs.length} / {MAX_JOBS} job{jobs.length === 1 ? '' : 's'}
+                    <span className={`jobs-page__count${atCapacity ? ' is-full' : ''}`}>
+                        <b>{jobs.length}</b>
+                        <em>of {MAX_JOBS} job{MAX_JOBS === 1 ? '' : 's'}</em>
                     </span>
                     {artifacts && (
-                        <span className="jobs-page__artifacts" title={artifacts.root}>
-                            <ImageIcon size={12} /> {artifacts.snapshots}
-                            <Film size={12} /> {artifacts.clips}
-                            <HardDrive size={12} /> {artifacts.usage_mb} / {artifacts.quota_mb} MB
-                        </span>
+                        <div className="jobs-page__artifacts" title={artifacts.root}>
+                            <span className="jobs-stat">
+                                <ImageIcon size={13} aria-hidden />
+                                <b>{artifacts.snapshots}</b>
+                                <em>snapshot{artifacts.snapshots === 1 ? '' : 's'}</em>
+                            </span>
+                            <span className="jobs-stat">
+                                <Film size={13} aria-hidden />
+                                <b>{artifacts.clips}</b>
+                                <em>clip{artifacts.clips === 1 ? '' : 's'}</em>
+                            </span>
+                            <span className="jobs-stat">
+                                <HardDrive size={13} aria-hidden />
+                                <b>{artifacts.usage_mb}</b>
+                                <em>of {artifacts.quota_mb} MB</em>
+                            </span>
+                        </div>
                     )}
                     <button
                         type="button"

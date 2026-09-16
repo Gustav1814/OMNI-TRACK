@@ -600,3 +600,166 @@
     font-size: 0.86rem;
     border-radius: 11px;
 }
+
+/* ============================================================
+   Jobs page — card footer and grid rhythm
+   The footer had no rule of its own, so the id, timestamp and the
+   Live stream button shared one row and collided in a narrow card.
+   ============================================================ */
+.jobs-page .jcard__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 13px;
+  border-top: 1px solid var(--border, rgba(127, 127, 160, 0.18));
+}
+
+/* id + time share the first row; the button takes the full width below */
+.jobs-page .jcard__id { flex: 1 1 auto; }
+.jobs-page .jcard__time { margin-left: auto; }
+
+.jobs-page .jcard__live {
+  flex: 1 0 100%;
+  justify-content: center;
+  height: 34px;
+  margin-top: 4px;
+}
+
+/* Cards: a touch more room and a clearer resting state */
+.jobs-page .jcard {
+  padding: 18px;
+  border-radius: 16px;
+  gap: 12px;
+}
+
+.jobs-grid {
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+/* Idle note reads as guidance, not an error */
+.jobs-page .jcard__idle-note {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--bg-tertiary, rgba(127, 127, 160, 0.08));
+  border: 1px solid var(--border, rgba(127, 127, 160, 0.16));
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+/* Page header spacing */
+.jobs-page__head { margin-bottom: 18px; }
+
+/* ============================================================
+   Jobs page header — labelled stats
+   The artifact pill showed three bare numbers with only icons to
+   tell them apart; each now carries its own label.
+   ============================================================ */
+.jobs-page__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.jobs-page__title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.022em;
+  color: var(--text-primary);
+  margin: 0 0 4px;
+}
+
+.jobs-page__sub {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  margin: 0;
+  max-width: 62ch;
+}
+
+.jobs-page__meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.jobs-page__count,
+.jobs-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  height: 34px;
+  padding: 0 13px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  white-space: nowrap;
+}
+
+.jobs-page__count b,
+.jobs-stat b {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.jobs-page__count em,
+.jobs-stat em {
+  font-style: normal;
+  font-size: 11.5px;
+  font-weight: 550;
+  color: var(--text-muted);
+}
+
+.jobs-page__count.is-full b { color: var(--status-warn); }
+
+.jobs-stat { align-items: center; gap: 6px; }
+.jobs-stat svg { color: var(--text-muted); flex-shrink: 0; }
+
+.jobs-page__artifacts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.jobs-page__create {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid var(--accent-primary);
+  background: var(--accent-primary);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+.jobs-page__create:hover:not(:disabled) {
+  background: var(--accent-primary-strong, #4d7899);
+  border-color: var(--accent-primary-strong, #4d7899);
+}
+.jobs-page__create:disabled {
+  background: var(--bg-tertiary);
+  border-color: var(--border);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+@media (max-width: 720px) {
+  .jobs-page__meta { width: 100%; }
+  .jobs-page__create { margin-left: auto; }
+}
