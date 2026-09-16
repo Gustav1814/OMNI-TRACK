@@ -14,13 +14,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements-core.txt requirements-docker.txt .
+COPY requirements.txt .
 # CPU-only PyTorch first (avoids ~900MB+ CUDA/cuDNN wheels in typical Linux containers).
 RUN pip install --no-cache-dir --user \
     torch torchvision \
     --index-url https://download.pytorch.org/whl/cpu
-# requirements-docker.txt omits DeepFace/TensorFlow (large); emotion falls back to mock.
-RUN pip install --no-cache-dir --user -r requirements-docker.txt
+RUN pip install --no-cache-dir --user -r requirements.txt
 
 # ---------------------------------------------------------------------------
 FROM python:3.11-slim AS runtime

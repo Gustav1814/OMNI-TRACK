@@ -1,2 +1,0 @@
-# Docker image: core stack only (no DeepFace → no TensorFlow). Emotion uses mock mode.
--r requirements-core.txt

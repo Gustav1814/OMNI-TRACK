@@ -22,7 +22,13 @@ class User(Base):
     email = Column(String(100), unique=True, nullable=False, index=True)
     hashed_password = Column(String(255), nullable=False)
     full_name = Column(String(100), nullable=True)
-    role = Column(SQLEnum(UserRole), default=UserRole.VIEWER, nullable=False)
+    # values_callable: persist the enum's values (lowercase), not its member
+    # names — the Postgres userrole type holds 'admin'/'operator'/'viewer'.
+    role = Column(
+        SQLEnum(UserRole, name="userrole", values_callable=lambda e: [m.value for m in e]),
+        default=UserRole.VIEWER,
+        nullable=False,
+    )
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

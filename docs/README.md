@@ -96,7 +96,7 @@ The proposal requires **DeepFace/FER** for emotion recognition. DeepFace depends
   `pip install adversarial-robustness-toolbox[torch]`  
   Then run: `python -m app.security.adversarial_eval`
 
-- **If you must use Python 3.14:** Install from `requirements-py314.txt` instead. DeepFace will not be installed; emotion will run in fallback mode and **does not meet the full proposal standard** for that module.
+- **If you must use Python 3.14:** `deepface`/`tf-keras` have no 3.14 wheels. Comment out those two lines in `requirements.txt` before installing; emotion will run in fallback mode and **does not meet the full proposal standard** for that module.
 
 **What you need to install (full standard):**
 
