@@ -5144,3 +5144,184 @@ html.light .dashboard-panel .card-header {
 .legend-energy { color: var(--accent-secondary) !important; }
 .legend-engagement { color: var(--accent-cyan) !important; }
 .chart-legend-inline > span:first-child { display: none; }
+
+/* ============================================================
+   LIVE OVERVIEW v2 — depth in light mode, richer panels
+   The light theme read as pale grey on white with no separation;
+   surfaces now sit on a tinted page with real shadows.
+   ============================================================ */
+
+/* Page surface: cards must sit ON something, not blend into it */
+html.light {
+  --bg-primary: #eef1f6;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f3f5f9;
+  --bg-card: #ffffff;
+  --bg-card-hover: #ffffff;
+  --border: rgba(15, 23, 42, 0.09);
+  --border-hover: rgba(15, 23, 42, 0.16);
+  --shadow-sm: 0 1px 2px rgba(15,23,42,0.05), 0 1px 3px rgba(15,23,42,0.04);
+  --shadow-md: 0 4px 6px -1px rgba(15,23,42,0.07), 0 10px 20px -6px rgba(15,23,42,0.1);
+  --shadow-lg: 0 20px 40px -12px rgba(15,23,42,0.16);
+}
+
+html.light .app-layout,
+html.light .main-content,
+html.light .page-content { background: var(--bg-primary) !important; }
+
+/* Cards get genuine elevation in light mode */
+html.light .dashboard-stats .stat-card,
+html.light .dashboard-panel,
+html.light .dashboard-hero,
+html.light .card {
+  box-shadow: var(--shadow-sm) !important;
+  border-color: var(--border) !important;
+}
+html.light .dashboard-stats .stat-card:hover,
+html.light .card:hover {
+  box-shadow: var(--shadow-md) !important;
+}
+
+/* --- KPI cards: stronger value, quieter chrome --- */
+.dashboard-stats .stat-card { padding: 18px 18px 16px !important; }
+.dashboard-stats .stat-card-top { margin-bottom: 16px !important; }
+.dashboard-stats .stat-label {
+  font-size: 11.5px !important;
+  font-weight: 650 !important;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted) !important;
+}
+.dashboard-stats .stat-value { font-size: 36px !important; line-height: 1 !important; }
+.dashboard-stats .stat-card-mid { margin-bottom: 4px; }
+
+/* Progress rail reads as a measure, not a decoration */
+.dashboard-stats .stat-progress {
+  height: 3px !important;
+  background: var(--bg-tertiary) !important;
+  border-radius: 999px;
+}
+html.light .dashboard-stats .stat-progress { background: rgba(15,23,42,0.07) !important; }
+
+/* --- Panels --- */
+.dashboard-panel { box-shadow: var(--shadow-sm); }
+.dashboard-panel .card-header {
+  border-bottom: 1px solid var(--border) !important;
+  align-items: flex-start !important;
+}
+.dashboard-panel .card-title { font-size: 15.5px !important; }
+.chart-legend-inline { gap: 12px !important; margin-top: 5px !important; font-weight: 600; }
+
+/* --- Operational Health: grouped rows, clear status --- */
+.dashboard-panel-health > div:last-child { padding: 6px 20px 18px !important; }
+
+.health-row {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 12px 0 !important;
+  border-bottom: 1px solid var(--border);
+  gap: 12px;
+}
+.health-row:last-of-type { border-bottom: none; }
+
+.health-row-label {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 9px;
+  font-size: 13.5px !important;
+  color: var(--text-secondary) !important;
+  font-weight: 550 !important;
+}
+.health-row-value {
+  font-size: 13.5px !important;
+  font-weight: 700 !important;
+  color: var(--text-primary) !important;
+  text-align: right;
+}
+.health-row-value.ok { color: var(--status-ok) !important; }
+.health-row-value.warn { color: var(--status-warn) !important; }
+
+.health-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--status-idle);
+}
+.health-dot.ok { background: var(--status-ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-ok) 18%, transparent); }
+.health-dot.warn { background: var(--status-warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-warn) 18%, transparent); }
+
+.health-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 650;
+  padding: 4px 10px;
+  border-radius: 999px;
+  color: var(--status-ok);
+  background: color-mix(in srgb, var(--status-ok) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--status-ok) 28%, transparent);
+  white-space: nowrap;
+}
+.health-status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+/* Footer hint inside the health panel */
+.health-empty-box {
+  margin-top: 14px !important;
+  padding: 14px !important;
+  border: 1px dashed var(--border) !important;
+  border-radius: var(--radius-md) !important;
+  background: var(--bg-tertiary) !important;
+  text-align: center;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-muted) !important;
+}
+
+/* --- Chart empty state: a touch more presence --- */
+.chart-empty-icon { width: 52px !important; height: 52px !important; border-radius: 16px !important; }
+.chart-empty-title { font-size: 15.5px !important; }
+
+/* Card headers: no grey band — separate with a rule, not a fill */
+.dashboard-panel .card-header,
+html.light .dashboard-panel .card-header {
+  background: transparent !important;
+}
+
+/* Empty chart area: faint baseline grid so it reads as a plot, not a void */
+.chart-area { position: relative; }
+.chart-empty-state::before {
+  content: '';
+  position: absolute;
+  inset: 12px 18px 18px;
+  pointer-events: none;
+  border-bottom: 1px solid var(--border);
+  background-image: repeating-linear-gradient(
+    to top,
+    var(--border) 0 1px,
+    transparent 1px 25%
+  );
+  opacity: 0.5;
+  mask-image: linear-gradient(to bottom, transparent, #000 55%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 55%);
+}
+.chart-empty-state > * { position: relative; z-index: 1; }
+
+/* The two panels should feel equally weighted */
+.dashboard-panel-chart .chart-area { height: 312px; }
+
+/* Panel bodies stay on the card surface — no grey wash */
+.dashboard-panel,
+.dashboard-panel .chart-area,
+.dashboard-panel-chart,
+html.light .dashboard-panel,
+html.light .dashboard-panel .chart-area,
+html.light .dashboard-panel-chart {
+  background: var(--bg-card) !important;
+}
+.dashboard-panel-chart { min-height: 0 !important; }
+
+/* Grid lines: subtle structure, not a fill */
+.chart-empty-state::before { opacity: 0.35; }
+html.light .chart-empty-state::before { opacity: 0.55; }
