@@ -132,6 +132,52 @@ export function useTrackers() {
     return useApi(fetcher, []);
 }
 
+/**
+ * Clips already on the backend, plus an uploader.
+ *
+ * The upload endpoint renames the file to camera_{id}_{epoch}_{name}.ext, so the
+ * stored name is not something the user can type from memory — listing is what
+ * makes `footage:<name>` usable as a job source.
+ */
+export function useFootage() {
+    const [items, setItems] = useState([]);
+    const [isLoading, setLoading] = useState(false);
+    const [uploading, setUploading] = useState(false);
+    const [error, setError] = useState(null);
+
+    const refresh = useCallback(async () => {
+        setLoading(true);
+        try {
+            const res = await footageAPI.list();
+            setItems(Array.isArray(res?.data) ? res.data : []);
+            setError(null);
+        } catch (e) {
+            setError(e?.response?.data?.detail || e.message);
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    useEffect(() => { refresh(); }, [refresh]);
+
+    const upload = useCallback(async (file, cameraId = 1) => {
+        setUploading(true);
+        setError(null);
+        try {
+            const res = await footageAPI.upload(file, Number(cameraId) || 1);
+            await refresh();
+            return res?.data?.filename ?? null;
+        } catch (e) {
+            setError(e?.response?.data?.detail || e.message);
+            return null;
+        } finally {
+            setUploading(false);
+        }
+    }, [refresh]);
+
+    return { items, isLoading, uploading, error, refresh, upload };
+}
+
 /** Classes the chosen model can detect, shaped as { object_names: {id: name} }. */
 export function useModelClasses(modelId) {
     const fetcher = useCallback(async () => {

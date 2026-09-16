@@ -4,7 +4,7 @@ import {
   X
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { inferStreamType, useKpiCatalog, useRegisterJob, useTrackers } from "./jobsApi";
+import { inferStreamType, useFootage, useKpiCatalog, useRegisterJob, useTrackers } from "./jobsApi";
 import { buildRegisterRequest, emptyDraft } from "./draft";
 import { validateSourceUrl } from "./validation";
 import { CameraMarkingModal } from "./CameraMarkingModal";
@@ -166,11 +166,29 @@ function ModelSection({
         </div>)}
     </SectionPanel>;
 }
+const SOURCE_PLACEHOLDER = {
+  rtsp: "rtsp://user:pass@192.168.1.10:554/stream",
+  http: "https://example.com/clip.mp4",
+  webcam: "0",
+};
+
+const SOURCE_HINT = {
+  rtsp: "RTSP address of a live camera.",
+  http: "Direct link to a video file.",
+  webcam: "Index of a camera attached to the server — usually 0.",
+};
+
 function SourceSection({
   draft,
   patch,
-  onOpenMarking
+  onOpenMarking,
+  footage
 }) {
+  // Uploaded clips are the common case, so default there unless the draft
+  // already carries another kind of source (e.g. reopened from a config).
+  const [sourceMode, setSourceMode] = useState(
+    draft.url && draft.url_type && draft.url_type !== "file" ? draft.url_type : "upload"
+  );
   const urlError = draft.url ? validateSourceUrl(draft.url, draft.url_type) : null;
   // Preview is gated on the source alone — any feed can be inspected, whether or
   // not the chosen activity needs regions drawn on it.
@@ -199,15 +217,90 @@ function SourceSection({
         </label>
       </div>
       <label className="field" style={{ marginTop: "var(--sp-3)" }}>
-        <span className="field__label">Source URL</span>
-        <input
-    className={`input input--mono${urlError ? " input--invalid" : ""}`}
-    value={draft.url}
-    onChange={(e) => patch({ url: e.target.value, url_type: inferUrlType(e.target.value) })}
-    placeholder="rtsp://… , https://….mp4 , footage:clip.mp4 or 0"
-  />
-        {urlError ? <span className="field__error">{urlError}</span> : <span className="field__hint">RTSP address, direct video link, <code className="mono">footage:clip.mp4</code> for a stored clip, or a webcam index like <code className="mono">0</code>.</span>}
+        <span className="field__label">Source type</span>
+        <select
+    className="input"
+    value={sourceMode}
+    onChange={(e) => {
+      const mode = e.target.value;
+      setSourceMode(mode);
+      // Switching mode clears the URL: a footage: reference and an RTSP
+      // address are never interchangeable, and a stale value would fail
+      // validation in a way that points at the wrong field.
+      patch({ url: "", url_type: mode === "upload" ? "file" : mode });
+    }}
+  >
+          <option value="upload">Uploaded video (recommended)</option>
+          <option value="rtsp">RTSP stream</option>
+          <option value="http">Direct video link</option>
+          <option value="webcam">Webcam index</option>
+        </select>
       </label>
+
+      {sourceMode === "upload" ? (
+        <div className="field" style={{ marginTop: "var(--sp-3)" }}>
+          <span className="field__label">Stored clip</span>
+          <select
+      className={`input input--mono${urlError ? " input--invalid" : ""}`}
+      value={draft.url}
+      onChange={(e) => patch({ url: e.target.value, url_type: "file" })}
+      disabled={footage.isLoading && footage.items.length === 0}
+    >
+            <option value="">
+              {footage.isLoading && footage.items.length === 0
+                ? "Loading clips…"
+                : footage.items.length === 0
+                  ? "No clips uploaded yet — upload one below"
+                  : "Select an uploaded video…"}
+            </option>
+            {footage.items.map((f) => (
+              <option key={f.filename} value={`footage:${f.filename}`}>
+                {f.filename} — feed {f.camera_id}
+              </option>
+            ))}
+          </select>
+
+          <div className="ajm-upload-row">
+            <label className={`ajm-upload-btn${footage.uploading ? " is-busy" : ""}`}>
+              <input
+        type="file"
+        accept="video/mp4,video/x-msvideo,video/x-matroska,video/webm,video/quicktime"
+        hidden
+        disabled={footage.uploading}
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (!file) return;
+          const stored = await footage.upload(file, draft.camera_id);
+          // Select the clip we just uploaded so the user does not have to
+          // find it in the list themselves.
+          if (stored) patch({ url: `footage:${stored}`, url_type: "file" });
+        }}
+      />
+              {footage.uploading ? "Uploading…" : "Upload video"}
+            </label>
+            <span className="ajm-hint">MP4, AVI, MKV, WEBM or MOV.</span>
+          </div>
+
+          {footage.error && <span className="field__error">{footage.error}</span>}
+          {urlError && <span className="field__error">{urlError}</span>}
+        </div>
+      ) : (
+        <label className="field" style={{ marginTop: "var(--sp-3)" }}>
+          <span className="field__label">
+            {sourceMode === "webcam" ? "Webcam index" : "Source URL"}
+          </span>
+          <input
+      className={`input input--mono${urlError ? " input--invalid" : ""}`}
+      value={draft.url}
+      onChange={(e) => patch({ url: e.target.value, url_type: inferUrlType(e.target.value) })}
+      placeholder={SOURCE_PLACEHOLDER[sourceMode]}
+    />
+          {urlError
+            ? <span className="field__error">{urlError}</span>
+            : <span className="field__hint">{SOURCE_HINT[sourceMode]}</span>}
+        </label>
+      )}
       <div className="ajm-source-actions">
         <button
     type="button"
@@ -228,6 +321,7 @@ function AddJobModal({ open, onClose }) {
   const [markingOpen, setMarkingOpen] = useState(false);
   const catalog = useKpiCatalog();
   const trackers = useTrackers();
+  const footage = useFootage();
   const register = useRegisterJob();
   const kpi = useMemo(
     () => catalog.data?.data.find((k) => k.kpi_name === draft.kpi_name),
@@ -284,7 +378,7 @@ function AddJobModal({ open, onClose }) {
         <div className="ajm__body">
           <UseCaseSection {...sourceProps} entries={catalog.data?.data ?? []} loading={catalog.isLoading} />
           <ModelSection {...sourceProps} trackerNames={(trackers.data?.data ?? []).map((t) => t.name)} />
-          <SourceSection {...sourceProps} onOpenMarking={() => setMarkingOpen(true)} />
+          <SourceSection {...sourceProps} footage={footage} onOpenMarking={() => setMarkingOpen(true)} />
         </div>
 
         <footer className="ajm__footer">
