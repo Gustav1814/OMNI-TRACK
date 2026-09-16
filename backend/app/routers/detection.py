@@ -12,6 +12,7 @@ import asyncio
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional, Tuple
 from app.models.user import User
 from app.security.dependencies import get_current_user
@@ -19,6 +20,7 @@ from app.schemas.schemas import DetectionResult, DetectionFrame
 from app.config import settings
 from app.ai.segmenter import SAM2Segmenter
 from app.ai.pose_mediapipe import MediaPipePose
+from app.services.job_persistence import JobPersistence
 
 router = APIRouter(prefix="/api/detection", tags=["Detection"])
 
@@ -154,6 +156,218 @@ async def start_detection(
     }
 
 
+class JobRegionPoint(BaseModel):
+    x: float
+    y: float
+
+
+class JobRegion(BaseModel):
+    """One drawn region. Shape depends on `type`; extra keys are ignored."""
+    type: str
+    name: str
+    points: Optional[List[JobRegionPoint]] = None
+    coordinates: Optional[Dict[str, float]] = None
+    line_points: Optional[List[JobRegionPoint]] = None
+    object_moving_direction: Optional[str] = None
+    tag: Optional[str] = None
+
+
+class JobConfigRequest(BaseModel):
+    """
+    Everything the Add Job modal collected that the start call cannot carry as
+    query parameters: the drawn regions, the frame they were drawn against, and
+    the selected object classes.
+    """
+    regions: List[JobRegion] = Field(default_factory=list)
+    frame_width: int = 0
+    frame_height: int = 0
+    classes: List[str] = Field(default_factory=list)
+    activity_type: Optional[str] = None
+    model: Optional[str] = None
+    tracker: Optional[str] = None
+    source: Optional[str] = None
+    zone: Optional[str] = None
+    job_id: Optional[str] = None
+
+
+@router.post("/jobs/{camera_id}")
+async def set_job_config(
+    camera_id: int,
+    body: JobConfigRequest,
+    current_user: User = Depends(get_current_user),
+    pipeline=Depends(get_pipeline),
+):
+    """
+    Attach a job's regions and class selection to a running camera.
+
+    Regions are stored in the frame coordinates the browser drew them in; the
+    pipeline rescales them onto whatever resolution it actually decodes.
+    """
+    # Cap the number of registered jobs. Each one owns a camera, a detector and
+    # a tracker, so this is a real resource limit rather than a UI nicety.
+    max_jobs = int(getattr(settings, "MAX_JOBS", 2))
+    existing = set(pipeline.get_all_jobs().keys())
+    if camera_id not in existing and len(existing) >= max_jobs:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Job limit reached ({max_jobs}). Delete an existing job before "
+                f"creating another."
+            ),
+        )
+
+    # detections.camera_id is a FK to cameras.id. Without this row every
+    # detection insert fails with ForeignKeyViolationError, swallowed at debug
+    # level — which is why nothing reached the database before.
+    await JobPersistence.ensure_camera(
+        camera_id,
+        name=f"Camera {camera_id}",
+        zone=body.zone or "default",
+        source=body.source or "",
+    )
+
+    regions = [r.model_dump(exclude_none=False) for r in body.regions]
+    pipeline.set_camera_job(
+        camera_id=camera_id,
+        regions=regions,
+        frame_width=body.frame_width,
+        frame_height=body.frame_height,
+        classes=body.classes,
+        meta={
+            "activity_type": body.activity_type,
+            "model": body.model,
+            "tracker": body.tracker,
+            "source": body.source,
+            "zone": body.zone,
+            "job_id": body.job_id or f"JOB-CAM{camera_id:02d}",
+        },
+    )
+    saved = pipeline.get_camera_job(camera_id) or {}
+    await JobPersistence.save_job(camera_id, saved)
+    return {"status": "ok", "camera_id": camera_id, "regions": len(regions)}
+
+
+@router.get("/jobs")
+async def list_jobs(
+    current_user: User = Depends(get_current_user),
+    pipeline=Depends(get_pipeline),
+):
+    """Every configured job, with its live line-crossing counts."""
+    jobs = pipeline.get_all_jobs()
+    status = pipeline.get_status()
+    cam_stats = (status.get("cameras", {}) or {}).get("stats", {}) or {}
+    out = []
+    for camera_id, job in jobs.items():
+        if not job:
+            continue
+        meta = job.get("meta", {}) or {}
+        stats = cam_stats.get(str(camera_id)) or cam_stats.get(camera_id) or {}
+        out.append({
+            "camera_id": camera_id,
+            "job_id": meta.get("job_id") or f"JOB-CAM{camera_id:02d}",
+            "activity_type": meta.get("activity_type"),
+            "model": meta.get("model"),
+            "tracker": meta.get("tracker"),
+            "source": meta.get("source"),
+            "zone": meta.get("zone"),
+            "classes": job.get("classes", []),
+            "regions": job.get("regions", []),
+            # Back-compat view for the job cards: region -> {in, out, left, right}
+            "line_counts": job.get("line_counts", {}),
+            # Full KPI snapshot. Shape depends on the activity:
+            #   line_passing  -> {by_region, by_class, tracked}
+            #   roi_region    -> {by_region, occupancy, tracked}
+            #   general_object_detection -> {current, totals, peak, frames_seen}
+            "kpi": job.get("kpi", {}),
+            "connected": bool(stats.get("connected")),
+            "fps": stats.get("fps", 0.0),
+            "resolution": stats.get("resolution"),
+        })
+    out.sort(key=lambda j: j["camera_id"])
+    return {"jobs": out, "pipeline_state": status.get("state")}
+
+
+@router.get("/jobs/{camera_id}/tracks")
+async def job_tracks(
+    camera_id: int,
+    current_user: User = Depends(get_current_user),
+    pipeline=Depends(get_pipeline),
+):
+    """
+    Per-track detail behind a job's totals — which track crossed which line, or
+    which regions it visited and for how long. Empty for stateless activities
+    such as general_object_detection, which returns its recent frames instead.
+    """
+    kpi = pipeline._camera_kpis.get(camera_id)
+    if kpi is None:
+        raise HTTPException(status_code=404, detail=f"No job configured for camera {camera_id}")
+    if hasattr(kpi, "tracks_as_list"):
+        return {"camera_id": camera_id, "tracks": kpi.tracks_as_list()}
+    if hasattr(kpi, "recent_as_list"):
+        return {"camera_id": camera_id, "frames": kpi.recent_as_list()}
+    return {"camera_id": camera_id, "tracks": []}
+
+
+@router.get("/jobs/history/lines")
+async def line_history(
+    camera_id: Optional[int] = None,
+    job_id: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+):
+    """Per-line totals from stored history, surviving restarts."""
+    return {"regions": await JobPersistence.line_summary(job_id=job_id, camera_id=camera_id)}
+
+
+@router.get("/jobs/history/roi")
+async def roi_history(
+    camera_id: Optional[int] = None,
+    job_id: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+):
+    """Per-zone dwell totals from stored history."""
+    return {"regions": await JobPersistence.roi_summary(job_id=job_id, camera_id=camera_id)}
+
+
+@router.get("/jobs/alerts")
+async def job_alerts(
+    camera_id: Optional[int] = None,
+    limit: int = 50,
+    current_user: User = Depends(get_current_user),
+):
+    """Recent threshold breaches (currently ROI dwell overruns)."""
+    return {"alerts": await JobPersistence.recent_alerts(camera_id=camera_id, limit=limit)}
+
+
+@router.get("/jobs/artifacts")
+async def job_artifacts(
+    current_user: User = Depends(get_current_user),
+    pipeline=Depends(get_pipeline),
+):
+    """Snapshot/clip counts and disk usage for the artifacts folder."""
+    return pipeline.artifacts.stats()
+
+
+@router.delete("/jobs/{camera_id}")
+async def delete_job(
+    camera_id: int,
+    purge_history: bool = False,
+    current_user: User = Depends(get_current_user),
+    pipeline=Depends(get_pipeline),
+):
+    """
+    Stop the feed and forget its job config.
+
+    History is KEPT by default so past counts remain queryable; pass
+    `purge_history=true` to delete the rows as well.
+    """
+    pipeline.remove_camera(camera_id)
+    pipeline.clear_camera_job(camera_id)
+    await JobPersistence.end_job(camera_id)
+    if purge_history:
+        await JobPersistence.purge_job_history(camera_id)
+    return {"status": "deleted", "camera_id": camera_id, "history_purged": purge_history}
+
+
 @router.post("/stop/{camera_id}")
 async def stop_detection(
     camera_id: int,
@@ -162,6 +376,7 @@ async def stop_detection(
 ):
     """Stop detection on a camera feed (removes from pipeline)."""
     pipeline.remove_camera(camera_id)
+    pipeline.clear_camera_job(camera_id)
     return {"message": f"Detection stopped on camera {camera_id}", "status": "stopped"}
 
 
@@ -238,7 +453,15 @@ async def get_detection_results(
     raw = pipeline.get_latest_results(camera_id)
     if not raw:
         return []
-    detections = getattr(raw, "detections", raw.get("detections", [])) if raw else []
+    # getattr's default is evaluated EAGERLY, so the old one-liner called
+    # raw.get() even when raw was a CameraResult dataclass — making this
+    # endpoint a guaranteed 500 whenever the pipeline had results.
+    if not raw:
+        detections = []
+    elif isinstance(raw, dict):
+        detections = raw.get("detections", [])
+    else:
+        detections = getattr(raw, "detections", []) or []
     out: List[DetectionResult] = []
     for d in (detections or [])[:50]:
         if isinstance(d, dict):

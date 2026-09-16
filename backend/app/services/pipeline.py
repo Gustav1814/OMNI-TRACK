@@ -41,6 +41,7 @@ WHAT YOU NEED:
 
 import asyncio
 import base64
+import inspect
 import time
 import json
 import numpy as np
@@ -63,10 +64,20 @@ from app.ai.crowd_density import CrowdDensityEstimator
 from app.ai.shelf_analytics import ShelfEngagementTracker  # alias for ShelfAnalytics
 from app.ai.checkout_analytics import CheckoutAnalyzer  # alias for CheckoutAnalytics
 from app.ai.store_vibe import StoreVibeEngine
+from app.ai.regions import assign_regions
+from app.ai.kpi_line_passing import LinePassingKPI
+from app.ai.kpi_roi_region import ROIRegionKPI
+from app.ai.kpi_general_detection import GeneralDetectionKPI
 
 # Stream Manager
 from app.services.stream_manager import StreamManager, StreamConfig, StreamType
-from app.config import settings, resolved_footage_dir, resolved_logs_dir
+from app.config import (
+    settings,
+    resolved_artifacts_dir,
+    resolved_footage_dir,
+    resolved_logs_dir,
+)
+from app.services.artifacts import ArtifactStore
 from pathlib import Path
 from app.services.event_bus import EventBus, NullBus
 
@@ -194,11 +205,16 @@ class ProcessingPipeline:
         self._detector_model = detector_model
         self._detector_confidence = confidence
         self._detector_device = device
+        # Class filter shared by every detector AND tracker this pipeline builds.
+        # [] => detect everything the model knows; [0] => person-only.
+        self._detector_classes: List[int] = settings.detection_class_ids()
         # Cache of detectors by model path (allows per-camera model selection)
-        self._detectors: Dict[str, PersonDetector] = {}
+        self._detectors: Dict[Tuple[str, Tuple[int, ...]], PersonDetector] = {}
+        # camera_id -> class ids this job watches ([] = every class)
+        self._camera_class_ids: Dict[int, List[int]] = {}
         self._camera_models: Dict[int, str] = {}  # camera_id -> model_path
         # Initialize default detector
-        self.detector = self._get_or_create_detector(detector_model)
+        self.detector = self._get_or_create_detector(detector_model, self._detector_classes)
         # Per-camera trackers: each feed has its own ByteTrack state (local track IDs per camera).
         # Global identity across cameras is resolved by Re-ID, not by the tracker.
         self._trackers: Dict[int, MultiObjectTracker] = {}
@@ -217,8 +233,21 @@ class ProcessingPipeline:
         self._enable_shelf = enable_shelf
         self._enable_checkout = enable_checkout
 
-        self.emotion = EmotionRecognizer() if enable_emotions else None
-        self.fire_detector = FireSmokeDetector(model_path=fire_model) if enable_fire else None
+        emotions_on = enable_emotions and getattr(settings, "ENABLE_EMOTION", True)
+        self._enable_emotions = emotions_on
+        self.emotion = EmotionRecognizer() if emotions_on else None
+        # Throttle state: tick counter and last summary, per camera.
+        self._emotion_tick: Dict[int, int] = {}
+        self._last_emotion: Dict[int, Dict[str, Any]] = {}
+        fire_on = enable_fire and getattr(settings, "ENABLE_FIRE_DETECTION", True)
+        self._enable_fire = fire_on
+        self.fire_detector = (
+            FireSmokeDetector(
+                model_path=fire_model,
+                confidence=getattr(settings, "FIRE_CONFIDENCE", 0.4),
+            )
+            if fire_on else None
+        )
         self.shelf_tracker = ShelfEngagementTracker() if enable_shelf else None
         self.checkout = CheckoutAnalyzer() if enable_checkout else None
         self.crowd = CrowdDensityEstimator()
@@ -248,6 +277,27 @@ class ProcessingPipeline:
         # Ensure logs directory exists (backend-relative, not process cwd)
         self._logs_dir = resolved_logs_dir()
         self._logs_dir.mkdir(parents=True, exist_ok=True)
+        # Job config per camera (regions drawn in the Add Job modal, selected
+        # classes, and the frame size those regions were drawn against so they
+        # can be scaled onto the pipeline's possibly-downscaled frames).
+        self._camera_jobs: Dict[int, Dict[str, Any]] = {}
+        # On-disk artifacts: cropped detections and annotated clips, written
+        # to shared/ais1 the way VisRax does.
+        self.artifacts = ArtifactStore(
+            root=str(resolved_artifacts_dir()),
+            segment_frames=getattr(settings, "ARTIFACT_SEGMENT_FRAMES", 150),
+            snapshot_dedup_seconds=getattr(settings, "ARTIFACT_SNAPSHOT_DEDUP_S", 1.0),
+            max_total_mb=getattr(settings, "ARTIFACT_QUOTA_MB", 2048),
+        )
+        # Alerts already raised, so one long dwell does not re-alert every tick.
+        self._roi_alerted: set = set()
+        # Alerts produced this tick, drained by the pipeline loop.
+        self._pending_alerts: List[Dict[str, Any]] = []
+        # Filled in by main.py once the DB layer exists.
+        self.job_persistence = None
+        # camera_id -> the KPI instance for that job's activity type.
+        # Each holds its own cross-frame state (per-track records).
+        self._camera_kpis: Dict[int, Any] = {}
         # camera_id -> zone_name (set at add_camera, used by analytics snapshot)
         self._camera_zones: Dict[int, str] = {}
         # Detections counter — powers dashboard "total_detections_today"
@@ -280,16 +330,339 @@ class ProcessingPipeline:
     # CAMERA MANAGEMENT
     # ─────────────────────────────────────────────────────────────
 
-    def _get_or_create_detector(self, model_path: str) -> PersonDetector:
-        """Get cached detector or create new one for the given model path."""
-        if model_path not in self._detectors:
-            logger.info(f"Creating detector for model: {model_path}")
-            self._detectors[model_path] = PersonDetector(
+    # -------------------------------------------------------------
+    # JOB CONFIG - regions & line crossing
+    # -------------------------------------------------------------
+
+    def set_camera_job(
+        self,
+        camera_id: int,
+        regions: List[Dict[str, Any]],
+        frame_width: int = 0,
+        frame_height: int = 0,
+        classes: Optional[List[str]] = None,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """
+        Attach the Add Job modal's configuration to a live camera.
+
+        `frame_width`/`frame_height` are the dimensions the regions were drawn
+        against in the browser. The pipeline may decode smaller frames
+        (DECODE_IMGSZ), so regions are scaled at draw/count time rather than
+        stored in pixel coordinates that only match one resolution.
+        """
+        self._camera_jobs[camera_id] = {
+            "regions": regions or [],
+            "frame_width": int(frame_width or 0),
+            "frame_height": int(frame_height or 0),
+            "classes": list(classes or []),
+            "meta": dict(meta or {}),
+        }
+        activity = str((meta or {}).get("activity_type") or "")
+        self._camera_kpis[camera_id] = self._build_kpi(activity)
+
+        # Per-job class filter. Resolved once here rather than per frame, and
+        # applied to the tracker too — a class the tracker ignores never gets a
+        # track_id, which would silently break every track-based KPI.
+        model_path = self._camera_models.get(camera_id, self._detector_model)
+        class_ids = self._class_ids_for(model_path, list(classes or []))
+        self._camera_class_ids[camera_id] = class_ids
+        self._get_or_create_detector(model_path, class_ids)
+        self._trackers[camera_id] = MultiObjectTracker(
+            model_path=model_path,
+            tracker_config=getattr(settings, "TRACKER_DEFAULT", "botsort.yaml"),
+            classes=class_ids,
+        )
+        logger.info(
+            f"Camera {camera_id} class filter: "
+            f"{'all classes' if not class_ids else f'{len(class_ids)} classes {class_ids}'}"
+        )
+        logger.info(
+            f"Camera {camera_id} job config set | regions={len(regions or [])} "
+            f"classes={len(classes or [])}"
+        )
+
+    def get_camera_job(self, camera_id: int) -> Optional[Dict[str, Any]]:
+        job = self._camera_jobs.get(camera_id)
+        if job is None:
+            return None
+        kpi = self._camera_kpis.get(camera_id)
+        snapshot = kpi.snapshot() if kpi is not None else {}
+        # `line_counts` is kept for the existing UI: region -> {in, out}.
+        line_counts: Dict[str, Dict[str, int]] = {}
+        for region, totals in (snapshot.get("by_region") or {}).items():
+            if "in" in totals or "out" in totals:
+                line_counts[region] = {
+                    "in": totals.get("in", 0),
+                    "out": totals.get("out", 0),
+                    "left": totals.get("left", 0),
+                    "right": totals.get("right", 0),
+                }
+        return {
+            **job,
+            "activity_type": (job.get("meta") or {}).get("activity_type"),
+            "kpi": snapshot,
+            "line_counts": line_counts,
+        }
+
+    def get_all_jobs(self) -> Dict[int, Dict[str, Any]]:
+        return {cid: self.get_camera_job(cid) for cid in self._camera_jobs}
+
+    def clear_camera_job(self, camera_id: int) -> None:
+        self._camera_jobs.pop(camera_id, None)
+        self._camera_kpis.pop(camera_id, None)
+        self._camera_class_ids.pop(camera_id, None)
+        self.artifacts.close_segment(camera_id)
+        self._roi_alerted = {k for k in self._roi_alerted if k[0] != camera_id}
+
+    def _region_scale(self, camera_id: int, w: int, h: int) -> Tuple[float, float]:
+        """Factor from the browser's drawing frame to this frame's pixels."""
+        job = self._camera_jobs.get(camera_id) or {}
+        ref_w = job.get("frame_width") or 0
+        ref_h = job.get("frame_height") or 0
+        if ref_w > 0 and ref_h > 0:
+            return w / float(ref_w), h / float(ref_h)
+        return 1.0, 1.0
+
+    # Activity type -> KPI class. Ported from VisRax's KPI registry
+    # (core/container.py kpi_manager.register calls).
+    _KPI_BY_ACTIVITY = {
+        "line_passing": LinePassingKPI,
+        "line_passing_count": LinePassingKPI,
+        "roi_region": ROIRegionKPI,
+        "roi_region_dependency_object_detection": ROIRegionKPI,
+        "general_object_detection": GeneralDetectionKPI,
+    }
+
+    @classmethod
+    def _build_kpi(cls, activity: str) -> Any:
+        """
+        Pick the KPI for an activity. Unknown or missing activities fall back to
+        plain object detection, which needs no regions and so always works.
+        """
+        kpi_cls = cls._KPI_BY_ACTIVITY.get(activity, GeneralDetectionKPI)
+        return kpi_cls()
+
+    def _run_kpi(
+        self, camera_id: int, detections: List[Dict[str, Any]], w: int, h: int, now: float
+    ) -> None:
+        """
+        Region assignment followed by the job's KPI, once per camera per tick.
+
+        Region assignment always runs first so every detection carries its
+        region and crossing flag; the KPI then only reads those keys. That is
+        VisRax's split, and it is what lets one state machine serve lines,
+        boxes and polygons.
+        """
+        job = self._camera_jobs.get(camera_id)
+        if not job:
+            return
+        kpi = self._camera_kpis.get(camera_id)
+        if kpi is None:
+            kpi = self._build_kpi(str((job.get("meta") or {}).get("activity_type") or ""))
+            self._camera_kpis[camera_id] = kpi
+
+        assign_regions(detections, job.get("regions"), self._region_scale(camera_id, w, h))
+        kpi.update(detections, now=now)
+
+        for alert in self._check_roi_alerts(camera_id, kpi):
+            self._pending_alerts.append(alert)
+
+    def _draw_job_regions(self, frame: np.ndarray, camera_id: int) -> None:
+        """Overlay the job's regions (lines, boxes, polygons) onto the frame."""
+        job = self._camera_jobs.get(camera_id)
+        if not job or not job.get("regions"):
+            return
+        h, w = frame.shape[:2]
+        sx, sy = self._region_scale(camera_id, w, h)
+        # Labels come from the KPI's per-region totals.
+        kpi = self._camera_kpis.get(camera_id)
+        counts = (kpi.snapshot().get("by_region") or {}) if kpi is not None else {}
+        font = cv2.FONT_HERSHEY_SIMPLEX
+
+        for region in job["regions"]:
+            rtype = str(region.get("type"))
+            name = str(region.get("name", ""))
+            try:
+                if rtype == "Line":
+                    pts = region.get("line_points") or []
+                    if len(pts) < 2:
+                        continue
+                    p1 = (int(float(pts[0].get("x", 0)) * sx), int(float(pts[0].get("y", 0)) * sy))
+                    p2 = (int(float(pts[1].get("x", 0)) * sx), int(float(pts[1].get("y", 0)) * sy))
+                    cv2.line(frame, p1, p2, (0, 215, 255), 3, cv2.LINE_AA)
+                    for pt in (p1, p2):
+                        cv2.circle(frame, pt, 5, (0, 215, 255), -1, cv2.LINE_AA)
+                    c = counts.get(name) or {}
+                    label = f"{name}  IN {c.get('in', 0)}  OUT {c.get('out', 0)}"
+                    lx = max(2, min(p1[0], p2[0]))
+                    ly = max(20, min(p1[1], p2[1]) - 10)
+                    (tw, th), _ = cv2.getTextSize(label, font, 0.55, 2)
+                    cv2.rectangle(frame, (lx - 4, ly - th - 6), (lx + tw + 6, ly + 6), (0, 0, 0), -1)
+                    cv2.putText(frame, label, (lx, ly), font, 0.55, (0, 215, 255), 2, cv2.LINE_AA)
+                elif rtype == "bounding_box":
+                    c = region.get("coordinates") or {}
+                    x1 = int(float(c.get("x_min", 0)) * sx)
+                    y1 = int(float(c.get("y_min", 0)) * sy)
+                    x2 = int(float(c.get("x_max", 0)) * sx)
+                    y2 = int(float(c.get("y_max", 0)) * sy)
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), (120, 255, 120), 2, cv2.LINE_AA)
+                    cv2.putText(frame, name, (x1, max(16, y1 - 6)), font, 0.5,
+                                (120, 255, 120), 2, cv2.LINE_AA)
+                elif rtype == "polygon":
+                    pts = region.get("points") or []
+                    if len(pts) < 3:
+                        continue
+                    poly = np.array(
+                        [[int(float(p.get("x", 0)) * sx), int(float(p.get("y", 0)) * sy)] for p in pts],
+                        dtype=np.int32,
+                    )
+                    cv2.polylines(frame, [poly], True, (120, 255, 120), 2, cv2.LINE_AA)
+                    cv2.putText(frame, name, tuple(poly[0]), font, 0.5,
+                                (120, 255, 120), 2, cv2.LINE_AA)
+            except Exception as e:
+                logger.debug(f"Region draw error cam {camera_id} ({name}): {e}")
+
+    def _check_roi_alerts(self, camera_id: int, kpi: Any) -> List[Dict[str, Any]]:
+        """
+        Raise an alert when a track has dwelt in one zone past the threshold.
+
+        Gives the ROI activity something that acts on its numbers instead of
+        only displaying them. Each (track, region) alerts once.
+        """
+        threshold = float(getattr(settings, "ROI_DWELL_ALERT_SECONDS", 0) or 0)
+        if threshold <= 0 or not hasattr(kpi, "tracks"):
+            return []
+
+        job = self._camera_jobs.get(camera_id) or {}
+        job_id = str((job.get("meta") or {}).get("job_id") or f"JOB-CAM{camera_id:02d}")
+        raised: List[Dict[str, Any]] = []
+
+        for track in kpi.tracks.values():
+            region = getattr(track, "last_seen_in_region", "")
+            if not region or region == "global":
+                continue
+            dwell_s = getattr(track, "current_region_dwell_us", 0) / 1_000_000
+            if dwell_s < threshold:
+                continue
+            key = (camera_id, track.track_id, region)
+            if key in self._roi_alerted:
+                continue
+            self._roi_alerted.add(key)
+            raised.append({
+                "type": "roi_dwell",
+                "job_id": job_id,
+                "camera_id": camera_id,
+                "region_name": region,
+                "track_id": track.track_id,
+                "class_name": getattr(track, "class_name", "unknown"),
+                "value": round(dwell_s, 1),
+                "threshold": threshold,
+                "message": (
+                    f"{getattr(track, 'class_name', 'object')} #{track.track_id} has been in "
+                    f"'{region}' for {dwell_s:.0f}s (limit {threshold:.0f}s)"
+                ),
+            })
+        return raised
+
+    def _write_artifacts(
+        self,
+        camera_id: int,
+        frame_annotated: np.ndarray,
+        frame_raw: np.ndarray,
+        detections: List[Dict[str, Any]],
+        frame_number: int,
+    ) -> None:
+        """Snapshot crops and annotated clip frames for a configured job."""
+        job = self._camera_jobs.get(camera_id)
+        if not job:
+            return
+        meta = job.get("meta") or {}
+        activity = str(meta.get("activity_type") or "detection")
+        zone = str(meta.get("zone") or self._camera_zones.get(camera_id, "default"))
+
+        if getattr(settings, "ARTIFACT_SNAPSHOTS", True):
+            # Crops come from the RAW frame so a saved car is not covered in
+            # boxes and labels.
+            for detection in detections:
+                self.artifacts.save_snapshot(
+                    frame_raw, detection,
+                    activity=activity, camera_id=camera_id, zone=zone,
+                    frame_number=frame_number,
+                    snapshot_classes=job.get("classes") or None,
+                )
+
+        if getattr(settings, "ARTIFACT_CLIPS", True):
+            # Clips use the ANNOTATED frame so regions and boxes are reviewable.
+            self.artifacts.write_segment_frame(
+                frame_annotated,
+                activity=activity, camera_id=camera_id, zone=zone,
+                frame_number=frame_number, fps=float(self.processing_fps),
+            )
+
+    def _person_subset(self, dets: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        People-only view of a frame's detections.
+
+        Re-ID, crowd density, shelf dwell and checkout queues are all defined over
+        *people*; feeding them cars or handbags would silently corrupt every retail
+        metric. When the detector is pinned to a single class we trust it outright
+        (a custom person model may not literally name its class "person").
+        """
+        if len(self._detector_classes) == 1:
+            return dets
+        return [d for d in dets if str(d.get("class_name", "")).lower() == "person"]
+
+    def _get_or_create_detector(
+        self, model_path: str, classes: Optional[List[int]] = None
+    ) -> PersonDetector:
+        """
+        Cached detector for a (model, class-filter) pair.
+
+        The filter is part of the cache key because two jobs can share a model
+        while watching different classes — keying on the path alone would hand
+        the second job the first job's filter.
+        """
+        class_filter = self._detector_classes if classes is None else list(classes)
+        key = (model_path, tuple(sorted(class_filter)))
+        if key not in self._detectors:
+            logger.info(
+                f"Creating detector for model: {model_path} "
+                f"(classes={'all' if not class_filter else class_filter})"
+            )
+            self._detectors[key] = PersonDetector(
                 model_path=model_path,
                 confidence=self._detector_confidence,
                 device=self._detector_device,
+                classes=class_filter,
             )
-        return self._detectors[model_path]
+        return self._detectors[key]
+
+    def _class_ids_for(self, model_path: str, class_names: List[str]) -> List[int]:
+        """
+        Map the class NAMES chosen in the Add Job modal onto the model's class
+        ids. An empty result means "no filter" — better to detect everything
+        than to silently detect nothing because of a naming mismatch.
+        """
+        if not class_names:
+            return []
+        try:
+            base = self._get_or_create_detector(model_path, classes=[])
+            names = base.get_class_names() or {}
+        except Exception as e:
+            logger.warning(f"Could not read class names for {model_path}: {e}")
+            return []
+        wanted = {str(c).strip().lower() for c in class_names}
+        ids = [int(cid) for cid, name in names.items() if str(name).strip().lower() in wanted]
+        if not ids:
+            logger.warning(
+                f"None of the selected classes exist in {model_path}; detecting all classes."
+            )
+        elif len(ids) == len(names):
+            # Everything selected is the same as no filter, and skipping the
+            # kwarg lets Ultralytics take its faster path.
+            return []
+        return sorted(ids)
 
     def add_camera(
         self,
@@ -360,13 +733,14 @@ class ProcessingPipeline:
         effective_model = model_path or self._detector_model
         self._camera_models[camera_id] = effective_model
         # Create detector for this model if not exists
-        self._get_or_create_detector(effective_model)
+        self._get_or_create_detector(effective_model, self._camera_class_ids.get(camera_id))
         
         # One tracker per camera so local track IDs are per-feed; Re-ID assigns global_id across cameras.
         if camera_id not in self._trackers:
             self._trackers[camera_id] = MultiObjectTracker(
                 model_path=effective_model,
                 tracker_config=tracker_config or getattr(settings, "TRACKER_DEFAULT", "botsort.yaml"),
+                classes=self._detector_classes,
             )
 
         # Register zone in crowd density (one zone per camera).
@@ -786,6 +1160,17 @@ class ProcessingPipeline:
 
     async def stop(self):
         """Stop the pipeline gracefully."""
+        # Close any open clip and write a final KPI snapshot before the
+        # in-memory state disappears.
+        try:
+            self.artifacts.close_all()
+        except Exception:
+            pass
+        if self.job_persistence is not None:
+            try:
+                await self.job_persistence.flush(force=True)
+            except Exception:
+                pass
         if self.state != PipelineState.RUNNING:
             return
 
@@ -849,10 +1234,14 @@ class ProcessingPipeline:
                 # Step 7: Fire callbacks
                 for cb in self._callbacks:
                     try:
-                        if asyncio.iscoroutinefunction(cb):
-                            await cb(cycle_results, self.global_state)
-                        else:
-                            cb(cycle_results, self.global_state)
+                        # Await whatever the callback hands back rather than trying to
+                        # classify it up front: asyncio.iscoroutinefunction() reports
+                        # False for a callable OBJECT with `async def __call__` (e.g.
+                        # PersistencePipelineCallback), so its coroutine used to be
+                        # created and silently dropped — no DB writes ever happened.
+                        outcome = cb(cycle_results, self.global_state)
+                        if inspect.isawaitable(outcome):
+                            await outcome
                     except Exception as e:
                         logger.error(f"Callback error: {e}")
 
@@ -875,6 +1264,29 @@ class ProcessingPipeline:
                             key=f"camera:{cam_id}",
                             payload={"tick_id": tick_id, "camera_id": cam_id, **alert},
                         )
+                # Job alerts -> event bus + websocket, then persist.
+                if self._pending_alerts:
+                    pending, self._pending_alerts = self._pending_alerts, []
+                    for alert in pending:
+                        logger.warning(f"[ALERT] {alert['message']}")
+                        await self.event_bus.publish(
+                            "alerts", key=f"camera:{alert['camera_id']}", payload=alert
+                        )
+                        if self.job_persistence is not None:
+                            try:
+                                await self.job_persistence.save_alert(**{
+                                    k: v for k, v in alert.items() if k != "type"
+                                }, alert_type=alert["type"])
+                            except Exception as e:
+                                logger.debug(f"Alert persist failed: {e}")
+
+                # Periodic KPI -> Postgres flush (rate-limited inside).
+                if self.job_persistence is not None:
+                    try:
+                        await self.job_persistence.flush()
+                    except Exception as e:
+                        logger.debug(f"Job flush error: {e}")
+
                 if self.memory_guard and getattr(self.memory_guard.state, "status", "") in {"soft", "hard"}:
                     await self.event_bus.publish(
                         "alerts",
@@ -912,6 +1324,7 @@ class ProcessingPipeline:
         """
         results = {}
         all_detections = {}
+        person_detections: Dict[int, List[Dict[str, Any]]] = {}
         all_tracks = {}
 
         process_start = time.time()
@@ -923,7 +1336,9 @@ class ProcessingPipeline:
 
             # Get the correct detector for this camera (supports per-camera model selection)
             camera_model = self._camera_models.get(cam_id, self._detector_model)
-            detector = self._get_or_create_detector(camera_model)
+            detector = self._get_or_create_detector(
+                camera_model, self._camera_class_ids.get(cam_id)
+            )
             
             # Detect persons
             raw_detections = await asyncio.to_thread(
@@ -933,7 +1348,10 @@ class ProcessingPipeline:
             # Track persons (per-camera ByteTrack: local IDs for this feed only)
             tracker = self._trackers.get(cam_id)
             if tracker is None:
-                tracker = MultiObjectTracker(model_path=camera_model)
+                tracker = MultiObjectTracker(
+                    model_path=camera_model,
+                    classes=self._camera_class_ids.get(cam_id, self._detector_classes),
+                )
                 self._trackers[cam_id] = tracker
             tracks = await asyncio.to_thread(tracker.update, frame)
             all_tracks[cam_id] = tracks
@@ -946,8 +1364,11 @@ class ProcessingPipeline:
                 else:
                     bbox = raw.get("bbox") or raw.get("box") or []
                 tid = self._match_det_to_track(bbox, tracks) if len(bbox) >= 4 else None
-                norm_dets.append(self._detection_to_dict(raw, track_id=tid))
+                det_dict = self._detection_to_dict(raw, track_id=tid)
+                det_dict["global_id"] = None  # set below for people only
+                norm_dets.append(det_dict)
             all_detections[cam_id] = norm_dets
+            person_detections[cam_id] = self._person_subset(norm_dets)
             self._total_detections += len(norm_dets)
 
             results[cam_id] = CameraResult(
@@ -974,7 +1395,7 @@ class ProcessingPipeline:
                         for det in all_detections.get(cam_id, []):
                             det["global_id"] = None
                         continue
-                    for det in all_detections.get(cam_id, []):
+                    for det in person_detections.get(cam_id, []):
                         try:
                             bbox = det.get("bbox") or []
                             if len(bbox) < 4:
@@ -1055,8 +1476,17 @@ class ProcessingPipeline:
 
         # ── PHASE 3: Analytics (parallel across modules) ──
         for cam_id, (frame, timestamp) in frames.items():
-            dets = all_detections.get(cam_id, [])
+            dets = person_detections.get(cam_id, [])
             zone = self._camera_zones.get(cam_id, "default")
+
+            # Job KPI: region assignment + the activity's state machine. Runs
+            # over EVERY detection, not just people - a "cars crossing the line"
+            # job is as valid as a footfall one.
+            try:
+                fh, fw = frame.shape[:2]
+                self._run_kpi(cam_id, all_detections.get(cam_id, []), fw, fh, timestamp)
+            except Exception as e:
+                logger.debug(f"KPI error cam {cam_id}: {e}")
 
             # Crowd density (always on; cheap)
             try:
@@ -1081,10 +1511,16 @@ class ProcessingPipeline:
             # Emotion recognition — returns a single summary dict per frame.
             if self._enable_emotions and self.emotion:
                 try:
-                    summary = await asyncio.to_thread(
-                        self.emotion.analyze_frame_summary, frame, cam_id, zone
-                    )
-                    results[cam_id].emotions = summary
+                    # Throttled: DeepFace is far too slow to run every tick.
+                    n = max(1, int(getattr(settings, "EMOTION_EVERY_N_TICKS", 15)))
+                    count = self._emotion_tick.get(cam_id, 0)
+                    self._emotion_tick[cam_id] = count + 1
+                    if count % n == 0:
+                        summary = await asyncio.to_thread(
+                            self.emotion.analyze_frame_summary, frame, cam_id, zone
+                        )
+                        self._last_emotion[cam_id] = summary
+                    results[cam_id].emotions = self._last_emotion.get(cam_id, {})
                 except Exception as e:
                     logger.debug(f"Emotion analyze error cam {cam_id}: {e}")
 
@@ -1106,7 +1542,7 @@ class ProcessingPipeline:
 
         # ── PHASE 4: Store Vibe Score (aggregate everything) ──
         try:
-            total_people = sum(len(d) for d in all_detections.values())
+            total_people = sum(len(d) for d in person_detections.values())
             sentiment_samples = 0
             avg_sentiment = 0.0
             engagement_accum = 0.0
@@ -1182,6 +1618,10 @@ class ProcessingPipeline:
             if r and frame is not None:
                 try:
                     vis = self._draw_annotations(frame.copy(), r)
+                    try:
+                        self._write_artifacts(cam_id, vis, frame, r.detections, r.frame_number)
+                    except Exception as e:
+                        logger.debug(f"Artifact write error cam {cam_id}: {e}")
                     _, jpeg = cv2.imencode(".jpg", vis)
                     with self._jpeg_lock:
                         self._latest_annotated_jpeg[cam_id] = jpeg.tobytes()
@@ -1365,6 +1805,10 @@ class ProcessingPipeline:
                     frame, str(gid), (x, min(h - 5, y + bh + 18)),
                     font, 0.45, (255, 200, 0), 1, cv2.LINE_AA
                 )
+
+        # Job regions last, so lines/zones sit on top of the detection boxes.
+        if result.camera_id is not None:
+            self._draw_job_regions(frame, result.camera_id)
 
         if result.fire_alerts:
             cv2.putText(

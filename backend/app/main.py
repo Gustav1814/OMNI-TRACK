@@ -91,6 +91,8 @@ from app.config import settings
 from app.security.adversarial_eval import get_robustness_status
 from app.security.dependencies import get_current_user
 from app.models.user import User
+from app.models.job import JobAlert, JobRun, LinePassingCount, RoiDwell  # noqa: F401
+from app.services.job_persistence import JobPersistence
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -124,6 +126,12 @@ storage_guard = StorageGuard(
 # + AES-256 / SHA-256 audit chain. This is what makes the backend PRODUCTION
 # instead of simulation: detections, embeddings, foot traffic, vibe scores,
 # journey legs, and fire alerts all flow into the database here.
+# Job config, KPI counts and alerts -> Postgres, plus restore on boot.
+job_persistence = JobPersistence(
+    pipeline, flush_interval_s=getattr(settings, "JOB_FLUSH_INTERVAL_S", 5.0)
+)
+pipeline.job_persistence = job_persistence
+
 persistence_callback = PersistencePipelineCallback(
     pipeline=pipeline,
     model_version=getattr(settings, "REID_MODEL", "osnet_x1_0"),
@@ -164,6 +172,22 @@ async def lifespan(app: FastAPI):
                 logger.info("✅ pgvector extension enabled")
             await conn.run_sync(Base.metadata.create_all)
         logger.info("✅ Database tables ready")
+
+        # Vector index for cross-camera Re-ID search. Without it every similarity
+        # query is a sequential scan over the whole embeddings table, which is
+        # what the proposal's sub-100ms retrieval target actually depends on.
+        # HNSW is built for cosine distance and, unlike IVFFlat, needs no
+        # pre-populated table to train on.
+        if settings.DATABASE_URL.startswith("postgresql"):
+            try:
+                async with engine.begin() as conn:
+                    await conn.execute(text(
+                        "CREATE INDEX IF NOT EXISTS ix_embeddings_vector_hnsw "
+                        "ON embeddings USING hnsw (vector vector_cosine_ops)"
+                    ))
+                logger.info("✅ pgvector HNSW index ready (cosine)")
+            except Exception as e:
+                logger.warning(f"⚠️  Could not create vector index: {e}")
     except Exception as e:
         logger.error(f"❌ Database error: {e}")
         logger.warning("   → Running without database (using mock data)")
@@ -245,6 +269,35 @@ async def lifespan(app: FastAPI):
             logger.info(f"✅ Restored {restored} Re-ID embeddings from pgvector")
     except Exception as e:
         logger.warning(f"⚠️  Re-ID gallery warm-up skipped: {e}")
+
+    # 3b-bis. Restore job configuration from the last run so the Jobs page is
+    #         not empty after a restart. Feeds are NOT auto-started: the config
+    #         and history come back, the video does not.
+    try:
+        saved = await job_persistence.load_active_jobs()
+        for job in saved:
+            pipeline.set_camera_job(
+                camera_id=job["camera_id"],
+                regions=job["regions"],
+                frame_width=job["frame_width"],
+                frame_height=job["frame_height"],
+                classes=job["classes"],
+                meta={
+                    "activity_type": job["activity_type"],
+                    "model": job["model"],
+                    "tracker": job["tracker"],
+                    "source": job["source"],
+                    "zone": job["zone"],
+                    "job_id": job["job_id"],
+                },
+            )
+        if saved:
+            logger.info(f"✅ Restored {len(saved)} job(s) from the previous run")
+    except Exception as e:
+        logger.warning(f"⚠️  Job restore skipped: {e}")
+
+    app.state.job_persistence = job_persistence
+    app.state.artifacts = pipeline.artifacts
 
     # 3c. Register persistence + lifecycle hooks so pipeline ticks
     #     (and camera/state transitions) are written to the DB.

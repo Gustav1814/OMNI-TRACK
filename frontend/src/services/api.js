@@ -122,6 +122,18 @@ export const detectionAPI = {
     recordingStart: (cameraId) => api.post(`/detection/recording/start/${cameraId}`),
     recordingStop: (cameraId) => api.post(`/detection/recording/stop/${cameraId}`),
     recordingStatus: () => api.get('/detection/recording/status'),
+    // Job config: regions + selected classes for a running feed.
+    setJobConfig: (cameraId, config) => api.post(`/detection/jobs/${cameraId}`, config),
+    jobs: () => api.get('/detection/jobs'),
+    deleteJob: (cameraId, purgeHistory = false) =>
+        api.delete(`/detection/jobs/${cameraId}`, { params: { purge_history: purgeHistory } }),
+    jobAlerts: (cameraId, limit = 20) =>
+        api.get('/detection/jobs/alerts', { params: { ...(cameraId != null ? { camera_id: cameraId } : {}), limit } }),
+    jobArtifacts: () => api.get('/detection/jobs/artifacts'),
+    lineHistory: (cameraId) =>
+        api.get('/detection/jobs/history/lines', { params: cameraId != null ? { camera_id: cameraId } : {} }),
+    roiHistory: (cameraId) =>
+        api.get('/detection/jobs/history/roi', { params: cameraId != null ? { camera_id: cameraId } : {} }),
     segmentRun: (cameraId, bbox = null) => api.post('/detection/segment/run', null, { params: { camera_id: cameraId, ...(bbox ? { bbox } : {}) } }),
 };
 

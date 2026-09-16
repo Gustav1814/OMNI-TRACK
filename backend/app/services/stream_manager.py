@@ -143,6 +143,23 @@ class CameraStream:
             logger.error(f"[Cam {self.config.camera_id}] Connection error: {e}")
             return False
 
+    def _is_finite_source(self) -> bool:
+        """
+        True when the source has an end: a local file, or anything the decoder
+        reports a positive frame count for. An mp4 fetched over HTTP is finite
+        even though its stream_type is "http", while a live MJPEG endpoint
+        reports 0 frames and must keep reconnecting.
+        """
+        if self.config.stream_type == StreamType.FILE:
+            return True
+        try:
+            if self._cap is not None:
+                total = self._cap.get(cv2.CAP_PROP_FRAME_COUNT)
+                return bool(total and total > 0)
+        except Exception:
+            pass
+        return False
+
     def _capture_loop(self):
         """
         Background thread: continuously reads frames from the camera.
@@ -176,6 +193,21 @@ class CameraStream:
             # Read frame
             ret, frame = self._cap.read()
             if not ret:
+                # A FILE that returns no frame has ended; an RTSP/HTTP stream that
+                # does has dropped. Treating them the same reopened the file at
+                # frame 0 and replayed it forever — which silently re-counted the
+                # same people on every lap.
+                if self._is_finite_source():
+                    self._stats.is_connected = False
+                    self._stats.error_message = "End of file"
+                    self._running = False
+                    if self._cap:
+                        self._cap.release()
+                    logger.info(
+                        f"[Cam {self.config.camera_id}] Reached end of file — stream stopped"
+                    )
+                    break
+
                 self._stats.is_connected = False
                 self._stats.error_message = "Frame read failed"
                 if self._cap:

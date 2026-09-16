@@ -49,7 +49,9 @@ class PersonDetector:
         self.confidence = confidence
         self.nms_threshold = nms_threshold
         self.device = device
-        self.classes = classes or [0]  # COCO class 0 = person
+        # None  => person-only (COCO class 0) — the historical default.
+        # []    => no filter: keep every class the loaded model detects.
+        self.classes = [0] if classes is None else list(classes)
         self.model = None
         self._load_model()
 
@@ -86,7 +88,9 @@ class PersonDetector:
             iou=self.nms_threshold,
             verbose=False,
         )
-        if not getattr(self, "is_pose_model", False):
+        # An empty self.classes means "detect everything" — omit the kwarg entirely,
+        # since Ultralytics treats classes=[] as "match nothing".
+        if not getattr(self, "is_pose_model", False) and self.classes:
             predict_kwargs["classes"] = self.classes
         results = self.model.predict(**predict_kwargs)
 

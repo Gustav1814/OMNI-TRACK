@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     REID_SIMILARITY_THRESHOLD: float = 0.6   # Cosine similarity threshold (higher = stricter; use 0.65–0.75 if many similar-looking people)
     REID_EMBEDDINGS_PER_ID: int = 5          # Max embeddings per global_id for multi-view (back/front/side) when face not visible
     DETECTION_CONFIDENCE: float = 0.5        # Min confidence to count a detection
+    # Which classes the detector AND tracker keep. "all" (or "") = every class the
+    # loaded model knows about; otherwise a comma-separated list of class ids,
+    # e.g. "0,2,5,7" = person, car, bus, truck. Use "0" for person-only.
+    # Person-driven analytics (Re-ID, crowd, shelf, checkout) always filter back
+    # down to people regardless of this setting.
+    DETECTION_CLASSES: str = "all"
     NMS_THRESHOLD: float = 0.45              # Non-max suppression (reduces duplicate boxes)
     DEVICE: str = "auto"                     # "auto", "cpu", "cuda", "mps" (for Apple M-series)
 
@@ -61,7 +67,14 @@ class Settings(BaseSettings):
     YOLO_MODEL_PATH: str = "yolo11n.pt"
     YOLO_CONFIDENCE: float = 0.5
     YOLO_NMS_THRESHOLD: float = 0.45
-    FIRE_MODEL_PATH: str = "fire_smoke.pt"
+    FIRE_MODEL_PATH: str = "fire-smoke.pt"
+    # The fire detector runs on EVERY camera regardless of the job's activity.
+    # It was silently disabled for a long time (the weight filename did not
+    # resolve); now that it loads, the shipped model produces false positives
+    # on ordinary footage at the default threshold. Raise FIRE_CONFIDENCE or
+    # set ENABLE_FIRE_DETECTION=false for deployments that do not need it.
+    FIRE_CONFIDENCE: float = 0.4
+    ENABLE_FIRE_DETECTION: bool = True
     REID_MODEL_NAME: str = "osnet_x0_25"
     REID_BACKEND: str = "torchreid"          # torchreid | fastreid
     REID_WEIGHTS: str = ""                   # Optional FastReID checkpoint path
@@ -81,7 +94,10 @@ class Settings(BaseSettings):
 
     # --- Pluggable backends ---
     EVENT_BUS_BACKEND: str = "redis"         # redis | kafka
-    VECTOR_STORE_BACKEND: str = "faiss"      # faiss | pgvector | qdrant
+    # pgvector is the proposal's stated store and the only backend that PERSISTS:
+    # FaissStore keeps vectors in process memory only, so embeddings vanish on
+    # restart and the embeddings table stays empty.
+    VECTOR_STORE_BACKEND: str = "pgvector"   # pgvector | faiss | qdrant
     ENABLE_MEDIAPIPE: bool = True
 
     KAFKA_BOOTSTRAP_SERVERS: str = "localhost:9092"
@@ -100,6 +116,35 @@ class Settings(BaseSettings):
     # --- Export ---
     EXPORT_DIR: str = "exports"              # Where CSV/JSON exports are saved
 
+    # --- Emotion recognition ---
+    # DeepFace costs 100-500ms per frame, so running it on every tick of every
+    # camera would dominate the pipeline budget. Analyse every Nth tick instead
+    # and reuse the last summary between runs (faces do not change that fast).
+    EMOTION_EVERY_N_TICKS: int = 15
+    # Face detector DeepFace uses before classifying. Measured on fire_room.mp4,
+    # all four found identical faces but at wildly different cost:
+    #   ssd 0.12s/frame | opencv 0.32 | mtcnn 1.99 | retinaface 16.22
+    EMOTION_DETECTOR_BACKEND: str = "ssd"
+    # DeepFace runs with enforce_detection=False so a faceless frame does not raise.
+    # The cost is that it then "analyses" the whole frame and returns a confident
+    # emotion for it — a paintbrush measured as angry(0.92). Every such result
+    # carries face_confidence == 0.0, so anything below this threshold is dropped.
+    EMOTION_MIN_FACE_CONFIDENCE: float = 0.5
+    ENABLE_EMOTION: bool = True
+
+    # --- Jobs ---
+    MAX_JOBS: int = 2                        # Concurrent registered jobs (one camera each)
+    ROI_DWELL_ALERT_SECONDS: float = 30.0    # Dwell in one zone before an alert fires (0 = off)
+    JOB_FLUSH_INTERVAL_S: float = 5.0        # How often live KPI state is written to Postgres
+
+    # --- Job artifacts on disk (VisRax's shared/ais1 equivalent) ---
+    ARTIFACTS_DIR: str = "shared/ais1"
+    ARTIFACT_SNAPSHOTS: bool = True          # Save cropped detections
+    ARTIFACT_CLIPS: bool = True              # Save annotated video segments
+    ARTIFACT_SEGMENT_FRAMES: int = 150       # Frames per clip before rolling over
+    ARTIFACT_SNAPSHOT_DEDUP_S: float = 1.0   # Min seconds between snapshots of one track
+    ARTIFACT_QUOTA_MB: int = 2048            # Oldest files deleted past this budget
+
     # --- CCTV Footage storage ---
     FOOTAGE_DIR: str = "storage/footage"      # Where uploaded/recorded clips are stored
 
@@ -110,6 +155,27 @@ class Settings(BaseSettings):
         env_file_encoding = "utf-8"
         case_sensitive = True
 
+    def detection_class_ids(self) -> List[int]:
+        """
+        DETECTION_CLASSES -> the `classes` filter Ultralytics expects.
+
+        Returns [] for "all"/"" meaning *no* filter (keep every class the model
+        detects). Unparseable entries are ignored rather than crashing startup.
+        """
+        raw = (self.DETECTION_CLASSES or "").strip().lower()
+        if raw in ("", "all", "*", "any"):
+            return []
+        ids: List[int] = []
+        for part in raw.replace(";", ",").split(","):
+            part = part.strip()
+            if not part:
+                continue
+            try:
+                ids.append(int(part))
+            except ValueError:
+                continue
+        return ids
+
     @model_validator(mode="after")
     def apply_runtime_profile_defaults(self) -> "Settings":
         profile = (self.RUNTIME_PROFILE or "laptop").strip().lower()
@@ -118,8 +184,11 @@ class Settings(BaseSettings):
         # Apply defaults only if user didn't explicitly override env values.
         # We intentionally keep model choice open so users can pick any weight.
         if profile == "laptop":
+            # 8 was too low: counting KPIs need the pipeline to tick at least as
+            # fast as the source. Below the video's own frame rate the tracker
+            # sees jumps, identities fragment, and crossings go uncounted.
             if self.PROCESSING_FPS == 15:
-                object.__setattr__(self, "PROCESSING_FPS", 8)
+                object.__setattr__(self, "PROCESSING_FPS", 15)
             if self.MAX_CAMERAS == 16:
                 object.__setattr__(self, "MAX_CAMERAS", 2)
             if self.DECODE_IMGSZ == 0:
@@ -164,11 +233,20 @@ class Settings(BaseSettings):
             if p.is_file():
                 return str(p.resolve())
             name = p.name
-            for candidate in (
-                backend / ref,
-                weights_dir / name,
-                Path(ref),
-            ):
+            # Try the name as given, then with - and _ swapped. A missing weight
+            # only produces a warning and a permanently silent detector, so a
+            # punctuation mismatch is worth being forgiving about.
+            name_variants = [name]
+            for alt in (name.replace("_", "-"), name.replace("-", "_")):
+                if alt not in name_variants:
+                    name_variants.append(alt)
+
+            candidates = [backend / ref, Path(ref)]
+            for variant in name_variants:
+                candidates.append(weights_dir / variant)
+                candidates.append(backend / variant)
+
+            for candidate in candidates:
                 try:
                     if candidate.is_file():
                         return str(candidate.resolve())
@@ -190,6 +268,12 @@ settings = Settings()
 def resolved_footage_dir() -> Path:
     """Absolute footage directory (backend-relative when FOOTAGE_DIR is relative)."""
     p = Path(settings.FOOTAGE_DIR)
+    return p.resolve() if p.is_absolute() else (_backend_dir() / p).resolve()
+
+
+def resolved_artifacts_dir() -> Path:
+    """Absolute artifacts directory (backend-relative when ARTIFACTS_DIR is relative)."""
+    p = Path(settings.ARTIFACTS_DIR)
     return p.resolve() if p.is_absolute() else (_backend_dir() / p).resolve()
 
 

@@ -55,9 +55,15 @@ desktop.ini
 *.log
 logs/
 
+# Project proposal — kept locally, not in version control
+/FYP-I-Proposal-OmniTrack-Template.docx
+
 # Exports & storage
 exports/
 backend/storage/
+# Job artifacts (snapshot crops + annotated clips) — generated at runtime.
+# VisRax commits these; 19k files is not something to copy.
+backend/shared/
 
 # Alembic migrations (keep in repo for clone-and-run)
 

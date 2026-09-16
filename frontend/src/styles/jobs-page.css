@@ -1,0 +1,602 @@
+/* --------------------------------------------------------------------
+   Jobs page — one card per registered job.
+   Written against OmniTrack's own index.css variables so it follows the
+   app's light/dark theme rather than the modal's ported token set.
+   -------------------------------------------------------------------- */
+
+.jobs-page {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    min-height: 0;
+    flex: 1;
+}
+
+.jobs-page__head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.jobs-page__title {
+    margin: 0;
+    font-size: 1.35rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+
+.jobs-page__sub {
+    margin: 4px 0 0;
+    font-size: 0.82rem;
+    opacity: 0.66;
+    max-width: 62ch;
+    line-height: 1.5;
+}
+
+.jobs-page__count {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 5px 11px;
+    border-radius: 999px;
+    border: 1px solid rgba(127, 127, 160, 0.28);
+    opacity: 0.8;
+    white-space: nowrap;
+}
+
+.jobs-page__empty {
+    opacity: 0.6;
+    font-size: 0.86rem;
+}
+
+.jobs-page__empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 56px 24px;
+    border: 1px dashed rgba(127, 127, 160, 0.3);
+    border-radius: 16px;
+    text-align: center;
+    opacity: 0.75;
+}
+
+.jobs-page__empty-state h3 {
+    margin: 4px 0 0;
+    font-size: 1rem;
+}
+
+.jobs-page__empty-state p {
+    margin: 0;
+    font-size: 0.84rem;
+    opacity: 0.8;
+}
+
+/* ── Grid ─────────────────────────────────────────────────────────── */
+
+.jobs-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 16px;
+    align-items: start;
+}
+
+/* ── Card ─────────────────────────────────────────────────────────── */
+
+.jobcard {
+    display: flex;
+    flex-direction: column;
+    gap: 13px;
+    padding: 16px;
+    border-radius: 16px;
+    border: 1px solid rgba(127, 127, 160, 0.22);
+    background: rgba(127, 127, 160, 0.05);
+    backdrop-filter: blur(8px);
+}
+
+.jobcard__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.jobcard__id {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-width: 0;
+}
+
+.jobcard__job-id {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.86rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.jobcard__status {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.64rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 999px;
+    white-space: nowrap;
+}
+
+.jobcard__status.is-live {
+    color: #34d399;
+    background: rgba(52, 211, 153, 0.13);
+}
+
+.jobcard__status.is-idle {
+    color: #94a3b8;
+    background: rgba(148, 163, 184, 0.14);
+}
+
+.jobcard__status .live-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    display: inline-block;
+}
+
+.jobcard__delete {
+    border: 1px solid rgba(248, 113, 113, 0.3);
+    background: transparent;
+    color: #f87171;
+    border-radius: 8px;
+    padding: 5px 7px;
+    cursor: pointer;
+    display: inline-flex;
+    transition: background 0.15s ease;
+}
+
+.jobcard__delete:hover:not(:disabled) {
+    background: rgba(248, 113, 113, 0.14);
+}
+
+.jobcard__delete:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* ── Meta grid ────────────────────────────────────────────────────── */
+
+.jobcard__meta {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px 12px;
+    margin: 0;
+}
+
+.jobcard__meta > div {
+    min-width: 0;
+}
+
+.jobcard__meta dt {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.62rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    opacity: 0.55;
+    margin-bottom: 3px;
+}
+
+.jobcard__meta dd {
+    margin: 0;
+    font-size: 0.82rem;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mono-sm {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.74rem;
+}
+
+.jobcard__source {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin: 0;
+    padding: 8px 10px;
+    border-radius: 9px;
+    background: rgba(127, 127, 160, 0.09);
+    min-width: 0;
+}
+
+.jobcard__source-label {
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    opacity: 0.55;
+    flex-shrink: 0;
+}
+
+.jobcard__source .mono-sm {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: 0.85;
+}
+
+/* ── Sections (regions / classes) ─────────────────────────────────── */
+
+.jobcard__section h4 {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 0 7px;
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    opacity: 0.6;
+}
+
+.jobcard__chip-count {
+    font-size: 0.62rem;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: rgba(127, 127, 160, 0.2);
+    opacity: 0.9;
+}
+
+.jobcard__none {
+    margin: 0;
+    font-size: 0.78rem;
+    opacity: 0.5;
+}
+
+.jobcard__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+.jobcard__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.7rem;
+    padding: 3px 8px;
+    border-radius: 7px;
+    border: 1px solid rgba(127, 127, 160, 0.25);
+    background: rgba(127, 127, 160, 0.08);
+}
+
+.jobcard__chip--region {
+    border-color: rgba(250, 204, 21, 0.35);
+    background: rgba(250, 204, 21, 0.1);
+    color: #eab308;
+}
+
+.jobcard__chip--region em {
+    font-style: normal;
+    opacity: 0.75;
+    font-size: 0.64rem;
+}
+
+.jobcard__chip--more {
+    opacity: 0.6;
+}
+
+/* ── Counts ───────────────────────────────────────────────────────── */
+
+.jobcard__count {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    padding: 4px 9px;
+    border-radius: 8px;
+}
+
+.jobcard__count strong {
+    font-size: 0.86rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.jobcard__count--in {
+    color: #34d399;
+    background: rgba(52, 211, 153, 0.12);
+}
+
+.jobcard__count--out {
+    color: #fb923c;
+    background: rgba(251, 146, 60, 0.12);
+}
+
+.jobcard__inline-counts {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+/* ── Live stream panel ────────────────────────────────────────────── */
+
+.jobcard__live {
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.jobcard__video {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    border-radius: 11px;
+    overflow: hidden;
+    background: #0b0b10;
+}
+
+.jobcard__video img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+}
+
+.jobcard__video-error {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    font-size: 0.8rem;
+    color: #f87171;
+    text-align: center;
+    padding: 16px;
+}
+
+.jobcard__video-badge {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: #fff;
+    background: rgba(220, 38, 38, 0.85);
+    padding: 3px 8px;
+    border-radius: 999px;
+}
+
+.jobcard__video-badge .live-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #fff;
+    display: inline-block;
+}
+
+.jobcard__counts {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.jobcard__count-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.jobcard__count-row--total {
+    border-top: 1px dashed rgba(127, 127, 160, 0.25);
+    padding-top: 7px;
+}
+
+.jobcard__count-name {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.72rem;
+    opacity: 0.75;
+    margin-right: auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.jobcard__empty-counts {
+    margin: 0;
+    font-size: 0.76rem;
+    opacity: 0.55;
+    line-height: 1.5;
+}
+
+/* ── Live stream button ───────────────────────────────────────────── */
+
+.jobcard__live-btn {
+    margin-top: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    width: 100%;
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: 1px solid transparent;
+    background: linear-gradient(135deg, #4f7dfb, #22b8cf);
+    color: #fff;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: filter 0.15s ease, transform 0.12s ease;
+}
+
+.jobcard__live-btn:hover {
+    filter: brightness(1.08);
+}
+
+.jobcard__live-btn:active {
+    transform: translateY(1px);
+}
+
+.jobcard__live-btn.is-open {
+    background: transparent;
+    border-color: rgba(127, 127, 160, 0.3);
+    color: inherit;
+    opacity: 0.85;
+}
+
+@media (max-width: 520px) {
+    .jobcard__meta {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* ── Alerts, artifacts, idle state ─────────────────────────────────── */
+
+.jobs-page__meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.jobs-page__artifacts {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.7rem;
+    font-variant-numeric: tabular-nums;
+    padding: 5px 11px;
+    border-radius: 999px;
+    border: 1px solid rgba(127, 127, 160, 0.28);
+    opacity: 0.75;
+    white-space: nowrap;
+}
+
+.jobs-page__artifacts svg {
+    opacity: 0.7;
+}
+
+.jobs-page__artifacts svg:not(:first-child) {
+    margin-left: 5px;
+}
+
+.jobs-page__cap-note {
+    font-size: 0.76rem;
+    opacity: 0.6;
+}
+
+.jobcard__alerts {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.jobcard__alert {
+    margin: 0;
+    font-size: 0.74rem;
+    line-height: 1.45;
+    padding: 6px 9px;
+    border-radius: 8px;
+    color: #fbbf24;
+    background: rgba(251, 191, 36, 0.1);
+    border-left: 2px solid rgba(251, 191, 36, 0.55);
+}
+
+.jobcard__idle-note {
+    margin: 0;
+    font-size: 0.74rem;
+    line-height: 1.45;
+    opacity: 0.65;
+    padding: 8px 10px;
+    border-radius: 9px;
+    background: rgba(127, 127, 160, 0.09);
+}
+
+/* ── Card additions not present in the VisRax original ─────────────── */
+
+.jobs-page .jcard__alert {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    margin: 0;
+    font-size: 0.72rem;
+    line-height: 1.45;
+    padding: 6px 9px;
+    border-radius: 8px;
+    color: #eab308;
+    background: rgba(234, 179, 8, 0.1);
+    border-left: 2px solid rgba(234, 179, 8, 0.5);
+}
+
+.jobs-page .jcard__alert svg {
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.jobs-page .jcard__idle-note {
+    margin: 0;
+    font-size: 0.72rem;
+    line-height: 1.45;
+    opacity: 0.6;
+    padding: 7px 9px;
+    border-radius: 8px;
+    background: rgba(127, 127, 160, 0.09);
+}
+
+/* ── Create Job button (moved off the global top bar) ──────────────── */
+
+.jobs-page__create {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    background: linear-gradient(135deg, #4f7dfb, #22b8cf);
+    color: #fff;
+    font-size: 0.78rem;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: filter 0.15s ease, transform 0.12s ease;
+}
+
+.jobs-page__create:hover:not(:disabled) {
+    filter: brightness(1.08);
+}
+
+.jobs-page__create:active:not(:disabled) {
+    transform: translateY(1px);
+}
+
+.jobs-page__create:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    filter: grayscale(0.4);
+}
+
+/* Larger variant for the empty state, where it is the primary action. */
+.jobs-page__create--lg {
+    margin-top: 6px;
+    padding: 10px 20px;
+    font-size: 0.86rem;
+    border-radius: 11px;
+}

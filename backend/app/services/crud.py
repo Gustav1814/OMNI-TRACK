@@ -379,10 +379,14 @@ class EmbeddingService:
         try:
             # pgvector cosine distance operator <=>; ordered by distance ascending
             qv = "[" + ",".join(str(float(x)) for x in query_vector) + "]"
+            # CAST(... AS vector), not :qv::vector — SQLAlchemy's text() treats ":"
+            # as the start of a bind parameter, so PostgreSQL's "::" cast syntax
+            # makes it mis-parse the statement and Postgres rejects it with
+            # 'syntax error at or near ":"'. Every search silently returned [].
             stmt = text(
                 "SELECT id, camera_id, track_id, global_id, confidence, timestamp, "
-                "(vector <=> :qv::vector) AS distance FROM embeddings "
-                "ORDER BY vector <=> :qv::vector LIMIT :k"
+                "(vector <=> CAST(:qv AS vector)) AS distance FROM embeddings "
+                "ORDER BY vector <=> CAST(:qv AS vector) LIMIT :k"
             )
             result = await db.execute(stmt, {"qv": qv, "k": top_k})
             rows = result.mappings().all()

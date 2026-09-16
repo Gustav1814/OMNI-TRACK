@@ -1,0 +1,797 @@
+/* --------------------------------------------------------------------
+   Job cards + Live Monitor modal - ported from the VisRax frontend
+   (.jcard from CameraJobsPage, .lmm/.det-* from LiveMonitorModal).
+
+   Scoped like jobs-modal.css: design tokens are declared on the page and
+   modal roots instead of :root, and every selector is prefixed, so none
+   of this can reach OmniTrack's existing UI. Dark mode rides on the
+   .dark class both apps already put on <html>.
+   -------------------------------------------------------------------- */
+
+/* Design tokens (light) */
+.jobs-page,
+.lmm-backdrop {  color-scheme: light;
+
+  /* Brand gradient — sampled from the logo mark (shared by both themes) */
+  --gradient-a: #4b5dfd; /* electric blue */
+  --gradient-b: #a259fb; /* violet        */
+  --gradient-a-rgb: 75, 93, 253;
+  --gradient-b-rgb: 162, 89, 251;
+
+  /* Surfaces — white panes over a calm neutral canvas */
+  --bg: #f5f6f9;
+  --bg-page: #f5f6f9;
+  --bg-raised: #ffffff;
+  --surface-1: #ffffff;
+  --surface-2: #fafbfc;
+  --surface-3: #f2f3f7;
+  --surface-hover: rgba(15, 23, 42, 0.035);
+  --card: #ffffff;
+  --card-gradient: #ffffff;
+  --card-gradient-hover: #ffffff;
+
+  /* Page canvas — flat. No washes; the content carries the page. */
+  --page-canvas: #f5f6f9;
+
+  /* Theme-flip primitives used by app.css */
+  --ink-rgb: 15, 23, 42;        /* tints, hairline borders, subtle fills */
+  --scrim-rgb: 15, 23, 42;      /* modal / drawer overlays               */
+  --shadow-rgb: 15, 23, 42;     /* drop shadows                          */
+  --glass-rgb: 255, 255, 255;   /* translucent glass panes               */
+  --hairline: rgba(255, 255, 255, 0.9); /* inset top highlight on cards  */
+  --pane: #ffffff;              /* solid card / control surface          */
+  --pane-2: #fafafb;            /* soft raised surface                   */
+  --pane-3: #f5f6f9;            /* recessed surface                      */
+  --pane-4: #f1f2f6;            /* subtle chip / row surface             */
+
+  /* Borders */
+  --border: rgba(15, 23, 42, 0.08);
+  --border-strong: rgba(15, 23, 42, 0.13);
+  --border-card: rgba(15, 23, 42, 0.08);
+  --border-hover: rgba(15, 23, 42, 0.2);
+  --border-accent: rgba(var(--gradient-a-rgb), 0.32);
+
+  /* Text — navy-tinted ink */
+  --text-0: #111327;
+  --text-1: #363b54;
+  --text-2: #676d89;
+  --text-3: #989db8;
+  --text-inverse: #ffffff;
+
+  /* Accent — electric blue, used as the single interactive color */
+  --accent: #4b5dfd;
+  --accent-strong: #3644d9;
+  --accent-deep: #2b37b8;
+  --accent-soft: rgba(75, 93, 253, 0.09);
+  --accent-softer: rgba(75, 93, 253, 0.05);
+  --accent-glow: rgba(75, 93, 253, 0.18);
+  --accent-cyan: #8b5cf6; /* secondary — the logo's violet */
+  --accent-gold: #b45309;
+
+  /* Solid primary-action fill — same brand blue in both themes */
+  --btn-primary-bg: #4b5dfd;
+  --btn-primary-bg-hover: #3644d9;
+
+  /* Informational */
+  --info: #7c3aed;
+  --info-soft: rgba(124, 58, 237, 0.08);
+
+  /* Violet / rose / green primitives for tinted chips & washes */
+  --violet-rgb: 124, 58, 237;
+  --violet-text: #7c3aed;
+  --rose-rgb: 225, 29, 72;
+  --green-rgb: 5, 150, 105;
+
+  /* Semantic status — mapped 1:1 to JobStatus */
+  --status-running: #059669;
+  --status-running-soft: rgba(5, 150, 105, 0.09);
+  --status-paused: #b45309;
+  --status-paused-soft: rgba(180, 83, 9, 0.09);
+  --status-stopped: #64748b;
+  --status-stopped-soft: rgba(100, 116, 139, 0.09);
+  --status-error: #dc2626;
+  --status-error-soft: rgba(220, 38, 38, 0.08);
+  --status-cancelled: #94a3b8;
+  --status-cancelled-soft: rgba(148, 163, 184, 0.1);
+
+  --danger: #dc2626;
+  --danger-strong: #b91c1c;
+  --danger-soft: rgba(220, 38, 38, 0.07);
+
+  /* Status tones for banners / badges (text · bg · border per hue) */
+  --tone-green-text: #047857;
+  --tone-green-bg: #ecfdf5;
+  --tone-green-border: #a7f3d0;
+  --tone-amber-text: #b45309;
+  --tone-amber: #d97706;
+  --tone-amber-bg: #fffbeb;
+  --tone-amber-border: #fde68a;
+  --tone-red-text: #dc2626;
+  --tone-red-bg: #fef2f2;
+  --tone-red-border: #fecaca;
+  --tone-pink-text: #be185d;
+  --tone-pink-bg: #fdf2f8;
+
+  /* Per-KPI accent RGBs (icon tiles, tags, washes) */
+  --kpi-teal: 13, 148, 136;
+  --kpi-cyan: 8, 145, 178;
+  --kpi-sky: 2, 132, 199;
+  --kpi-coral: 194, 65, 12;
+  --kpi-emerald: 5, 150, 105;
+  --kpi-rose: 190, 18, 60;
+  --kpi-gold: 161, 98, 7;
+  --kpi-indigo: 79, 70, 229;
+
+  /* Charts — one cool family shared with the KPI strip */
+  --chart-1: #4b5dfd; /* brand blue   */
+  --chart-2: #8b5cf6; /* violet       */
+  --chart-3: #0d9488; /* teal   (in)  */
+  --chart-4: #db2777; /* pink   (out) */
+  --chart-5: #6366f1; /* indigo       */
+  --chart-grid: rgba(15, 23, 42, 0.06);
+  --chart-axis: rgba(15, 23, 42, 0.15);
+
+  /* Typography — one family, compact dashboard scale (root 14px) */
+  --font-display: "Inter", system-ui, -apple-system, sans-serif;
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --fs-xs: 0.8125rem;
+  --fs-sm: 0.875rem;
+  --fs-md: 0.9375rem;
+  --fs-lg: 1rem;
+  --fs-xl: 1.25rem;
+  --fs-2xl: 1.5rem;
+  --fs-3xl: 1.75rem;
+
+  /* Semantic aliases used by panels */
+  --brand: var(--accent);
+  --sky: var(--accent-cyan);
+  --ok: var(--status-running);
+
+  /* Spacing */
+  --sp-1: 4px;
+  --sp-2: 6px;
+  --sp-3: 10px;
+  --sp-4: 14px;
+  --sp-5: 18px;
+  --sp-6: 22px;
+  --sp-8: 28px;
+
+  /* Shape */
+  --r-sm: 8px;
+  --r-md: 10px;
+  --r-lg: 12px;
+  --r-xl: 14px;
+  --r-full: 999px;
+
+  /* Depth — quiet, neutral. Borders do the defining; shadows whisper. */
+  --shadow-1: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --shadow-2: 0 1px 2px rgba(15, 23, 42, 0.04), 0 3px 10px -3px rgba(15, 23, 42, 0.05);
+  --shadow-3: 0 16px 40px -12px rgba(15, 23, 42, 0.18);
+  --shadow-lift: 0 4px 14px -6px rgba(15, 23, 42, 0.12);
+  --glow-accent: 0 0 0 3px var(--accent-glow);
+  --btn-glow: 0 1px 2px rgba(15, 23, 42, 0.1);
+  --btn-glow-hover: 0 2px 5px rgba(15, 23, 42, 0.12);
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --dur-fast: 150ms;
+  --dur-med: 250ms;
+
+  /* Layout */
+  --sidebar-w: 232px;
+  --sidebar-w-collapsed: 64px;
+  --topbar-h: 56px;
+  --focus-ring: 0 0 0 3px var(--accent-glow);
+}
+
+/* Design tokens (dark) */
+.dark .jobs-page,
+.dark .lmm-backdrop {  color-scheme: dark;
+
+  /* Surfaces */
+  --bg: #0c0d13;
+  --bg-page: #0c0d13;
+  --bg-raised: #16181f;
+  --surface-1: #101118;
+  --surface-2: #13141b;
+  --surface-3: #191b23;
+  --surface-hover: rgba(255, 255, 255, 0.045);
+  --card: #14151d;
+  --card-gradient: #14151d;
+  --card-gradient-hover: #171922;
+
+  --page-canvas: #0c0d13;
+
+  /* Theme-flip primitives */
+  --ink-rgb: 255, 255, 255;
+  --scrim-rgb: 4, 5, 10;
+  --shadow-rgb: 0, 0, 0;
+  --glass-rgb: 20, 21, 29;
+  --hairline: rgba(255, 255, 255, 0.06);
+  --pane: #14151d;
+  --pane-2: #12131a;
+  --pane-3: #101118;
+  --pane-4: #191b23;
+
+  /* Borders */
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.14);
+  --border-card: rgba(255, 255, 255, 0.08);
+  --border-hover: rgba(255, 255, 255, 0.22);
+  --border-accent: rgba(var(--gradient-a-rgb), 0.45);
+
+  /* Text */
+  --text-0: #f1f2f8;
+  --text-1: #c6cad9;
+  --text-2: #8b90a5;
+  --text-3: #5d6175;
+
+  /* Accent — brightened for dark */
+  --accent: #7c8cff;
+  --accent-strong: #a5b0ff;
+  --accent-deep: #4b5dfd;
+  --accent-soft: rgba(124, 140, 255, 0.13);
+  --accent-softer: rgba(124, 140, 255, 0.07);
+  --accent-glow: rgba(124, 140, 255, 0.28);
+  --accent-cyan: #a78bfa;
+  --accent-gold: #fbbf24;
+
+  --btn-primary-bg: #4b5dfd;
+  --btn-primary-bg-hover: #5b6bfd;
+
+  --info: #a78bfa;
+  --info-soft: rgba(167, 139, 250, 0.1);
+
+  --violet-rgb: 167, 139, 250;
+  --violet-text: #c4b5fd;
+  --rose-rgb: 248, 113, 113;
+  --green-rgb: 52, 211, 153;
+
+  /* Status — brightened */
+  --status-running: #34d399;
+  --status-running-soft: rgba(52, 211, 153, 0.11);
+  --status-paused: #fbbf24;
+  --status-paused-soft: rgba(251, 191, 36, 0.11);
+  --status-stopped: #94a3b8;
+  --status-stopped-soft: rgba(148, 163, 184, 0.11);
+  --status-error: #f87171;
+  --status-error-soft: rgba(248, 113, 113, 0.1);
+  --status-cancelled: #8b90a5;
+  --status-cancelled-soft: rgba(139, 144, 165, 0.12);
+
+  --danger: #f87171;
+  --danger-strong: #ef4444;
+  --danger-soft: rgba(248, 113, 113, 0.1);
+
+  --tone-green-text: #6ee7b7;
+  --tone-green-bg: rgba(52, 211, 153, 0.1);
+  --tone-green-border: rgba(52, 211, 153, 0.25);
+  --tone-amber-text: #fcd34d;
+  --tone-amber: #fbbf24;
+  --tone-amber-bg: rgba(251, 191, 36, 0.1);
+  --tone-amber-border: rgba(251, 191, 36, 0.25);
+  --tone-red-text: #fca5a5;
+  --tone-red-bg: rgba(248, 113, 113, 0.1);
+  --tone-red-border: rgba(248, 113, 113, 0.25);
+  --tone-pink-text: #f9a8d4;
+  --tone-pink-bg: rgba(244, 114, 182, 0.1);
+
+  /* Per-KPI accents — brightened for dark panes */
+  --kpi-teal: 45, 212, 191;
+  --kpi-cyan: 34, 211, 238;
+  --kpi-sky: 96, 165, 250;
+  --kpi-coral: 251, 146, 60;
+  --kpi-emerald: 52, 211, 153;
+  --kpi-rose: 251, 113, 133;
+  --kpi-gold: 250, 204, 21;
+  --kpi-indigo: 129, 140, 248;
+
+  /* Charts */
+  --chart-1: #7c8cff;
+  --chart-2: #a78bfa;
+  --chart-3: #2dd4bf;
+  --chart-4: #f472b6;
+  --chart-5: #818cf8;
+  --chart-grid: rgba(255, 255, 255, 0.06);
+  --chart-axis: rgba(255, 255, 255, 0.2);
+
+  /* Depth — definition comes from borders; shadows stay soft */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 14px -6px rgba(0, 0, 0, 0.4);
+  --shadow-3: 0 20px 48px -12px rgba(0, 0, 0, 0.6);
+  --shadow-lift: 0 4px 14px -6px rgba(0, 0, 0, 0.45);
+  --btn-glow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --btn-glow-hover: 0 2px 5px rgba(0, 0, 0, 0.4);
+}
+
+/* Job cards */
+.jobs-page .jcard {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 15px 16px 0;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--border-card);
+  background: var(--card);
+  box-shadow: var(--shadow-1);
+  transition: border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-med) var(--ease-out), transform var(--dur-med) var(--ease-out);
+  --jc-color: var(--status-stopped);
+}
+.jobs-page .jcard--running {
+  --jc-color: var(--status-running);
+}
+.jobs-page .jcard--paused {
+  --jc-color: var(--status-paused);
+}
+.jobs-page .jcard--error {
+  --jc-color: var(--status-error);
+}
+.jobs-page .jcard--cancelled {
+  --jc-color: var(--status-cancelled);
+}
+.jobs-page .jcard:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--jc-color) 42%, transparent);
+  box-shadow: 0 12px 26px -16px color-mix(in srgb, var(--jc-color) 55%, transparent);
+}
+.jobs-page .jcard__top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.jobs-page .jcard__name {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-0);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jobs-page .jcard__menu-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+.jobs-page .jcard__menu-btn {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.jobs-page .jcard__menu-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text-0);
+}
+.jobs-page .jcard__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 50;
+  min-width: 148px;
+  padding: 4px;
+  background: var(--pane);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-3);
+}
+.jobs-page .jcard__menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--text-1);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.jobs-page .jcard__menu-item:hover {
+  background: var(--surface-hover);
+}
+.jobs-page .jcard__menu-item--danger,
+.jobs-page .jcard__menu-item--danger:hover {
+  color: var(--danger);
+}
+.jobs-page .jcard__menu-item--danger:hover {
+  background: var(--danger-soft);
+}
+.jobs-page .jcard__kpi-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.jobs-page .jcard__kpi-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.jobs-page .jcard__kpi-label {
+  font-size: 9.5px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.jobs-page .jcard__kpi-name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-0);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jobs-page .jcard__facts {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.jobs-page .jcard__fact {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jobs-page .jcard__fact svg {
+  flex-shrink: 0;
+  color: var(--text-3);
+}
+.jobs-page .jcard__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.jobs-page .jcard__chip {
+  display: inline-flex;
+  align-items: center;
+  height: 21px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--pane-3);
+  font-size: 11px;
+  font-weight: 550;
+  color: var(--text-2);
+}
+.jobs-page .jcard__chip--region {
+  border-color: rgba(var(--gradient-a-rgb), 0.28);
+  background: var(--accent-softer);
+  color: var(--accent-strong);
+}
+.jobs-page .jcard__chip--more {
+  color: var(--text-3);
+}
+.jobs-page .jcard__id {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jobs-page .jcard__time {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.jobs-page .jcard__live {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: var(--r-sm);
+  border: 1px solid color-mix(in srgb, var(--jc-color) 32%, transparent);
+  background: color-mix(in srgb, var(--jc-color) 12%, transparent);
+  color: var(--jc-color);
+  font-family: var(--font-display);
+  font-size: 11.5px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.jobs-page .jcard__live:hover {
+  background: color-mix(in srgb, var(--jc-color) 22%, transparent);
+}
+
+/* Live Monitor modal */
+.lmm-backdrop .live-monitor__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.lmm-backdrop .live-monitor__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-display);
+  font-size: var(--fs-md);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-0);
+}
+.lmm-backdrop .live-monitor__title svg {
+  color: var(--accent);
+}
+.lmm-backdrop .live-monitor__sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.lmm-backdrop .live-monitor__toolbar {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(90px, 1fr));
+  gap: var(--sp-2);
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(var(--ink-rgb), 0.015);
+}
+.lmm-backdrop .live-monitor__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.lmm-backdrop .live-monitor__field > span {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.lmm-backdrop .live-monitor__frame {
+  position: relative;
+  flex: 1;
+  min-height: 200px;
+  max-height: 344px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #14142e;
+  border-bottom: 1px solid var(--border);
+  padding: 12px;
+}
+.lmm-backdrop .live-monitor__frame img {
+  display: block;
+  max-width: 100%;
+  max-height: 300px;
+  object-fit: contain;
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+}
+.lmm-backdrop .live-monitor__hint {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  padding: var(--sp-6);
+  text-align: center;
+}
+.lmm-backdrop .det-section + .det-section {
+  border-top: 1px solid var(--border);
+}
+.lmm-backdrop .det-section__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: 8px 14px;
+  background: rgba(var(--ink-rgb), 0.02);
+}
+.lmm-backdrop .det-section__badge {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.lmm-backdrop .det-section__meta {
+  font-size: 11px;
+  color: var(--text-3);
+}
+.lmm-backdrop .det-section__body {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 14px 10px 30px;
+  gap: 2px;
+}
+.lmm-backdrop .det-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 26px;
+}
+.lmm-backdrop .det-row__name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  color: var(--text-0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lmm-backdrop .det-row__conf {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.lmm-backdrop .det-row__count {
+  font-family: var(--font-display);
+  font-size: var(--fs-md);
+  font-weight: 700;
+  min-width: 28px;
+  text-align: right;
+}
+.lmm-backdrop .det-section__empty {
+  padding: 6px 14px 10px 30px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+.lmm-backdrop .lmm {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 94%;
+  max-width: 1060px;
+  max-height: 90vh;
+  background: var(--pane);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(var(--shadow-rgb), 0.28);
+  overflow: hidden;
+  animation: ajm-pop var(--dur-med) var(--ease-out);
+}
+.lmm-backdrop .lmm__stage {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: 14px;
+  padding: 16px;
+}
+.lmm-backdrop .lmm__stream {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+.lmm-backdrop .lmm__frame img {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  object-fit: contain;
+}
+.lmm-backdrop .lmm__side {
+  width: 300px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  background: rgba(var(--ink-rgb), 0.015);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.lmm-backdrop .lmm__close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(var(--glass-rgb), 0.9);
+  color: var(--text-2);
+  cursor: pointer;
+  box-shadow: var(--shadow-1);
+}
+.lmm-backdrop .lmm__close:hover {
+  color: var(--text-0);
+}
+.lmm-backdrop .lmm-counts__total,
+.lmm-backdrop .lmm-counts__stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 10px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: var(--bg-subtle, #fafafa);
+}
+.lmm-backdrop .lmm-counts__total {
+  background: rgba(var(--gradient-a-rgb), 0.08);
+  border-color: rgba(var(--gradient-a-rgb), 0.28);
+}
+.lmm-backdrop .lmm-counts__row {
+  display: flex;
+  gap: 12px;
+}
+.lmm-backdrop .lmm-counts__row .lmm-counts__stat {
+  flex: 1;
+}
+.lmm-backdrop .lmm-counts__value {
+  font-family: var(--font-display);
+  font-size: 34px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--text-0);
+}
+.lmm-backdrop .lmm-counts__total .lmm-counts__value {
+  color: var(--accent-strong);
+}
+.lmm-backdrop .lmm-counts__stat--in .lmm-counts__value {
+  color: #16a34a;
+}
+.lmm-backdrop .lmm-counts__stat--out .lmm-counts__value {
+  color: #dc2626;
+}
+.lmm-backdrop .lmm-counts__label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+/* --------------------------------------------------------------------
+   Backdrop overlay.
+
+   VisRax's LiveMonitorModal reuses `cmark-backdrop` for this, so the class
+   it was renamed to here carries only the token block above — without these
+   rules the modal renders in normal flow, below the page.
+   -------------------------------------------------------------------- */
+
+.lmm-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(var(--scrim-rgb), 0.5);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    animation: lmm-fade var(--dur-fast) var(--ease-out);
+}
+
+@keyframes lmm-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}

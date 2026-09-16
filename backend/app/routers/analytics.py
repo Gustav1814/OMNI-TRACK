@@ -12,7 +12,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone, timedelta
-import random
 from app.database import get_db
 from app.models.user import User
 from app.security.dependencies import get_current_user
@@ -269,17 +268,9 @@ async def get_shelf_engagement(
             )
             for i, r in enumerate(rankings)
         ]
-    zones = ["Electronics", "Groceries", "Clothing", "Home & Garden", "Sports", "Beauty", "Toys", "Books"]
-    return [
-        ShelfEngagement(
-            zone_id=f"zone-{i}", zone_name=z,
-            avg_dwell_time=round(random.uniform(15, 180), 1),
-            visit_count=random.randint(20, 300),
-            engagement_score=round(random.uniform(20, 95), 1),
-            rank=i + 1,
-        )
-        for i, z in enumerate(zones)
-    ]
+    # No engagement measured yet. Register shelf zones via POST /api/shelf/zones
+    # and run a feed with people in it; until then there is nothing to report.
+    return []
 
 
 @shelf_router.get("/top-zones")
@@ -392,10 +383,8 @@ async def crowd_history(
             {"hour": i, "count": h.get("count", 0), "classification": h.get("classification", "empty")}
             for i, h in enumerate(history)
         ]
-    return [
-        {"hour": h, "count": random.randint(5, 50), "classification": random.choice(["low", "medium", "high"])}
-        for h in range(limit)
-    ]
+    # No history recorded for this zone yet.
+    return []
 
 
 # --- Checkout Router ---
@@ -421,16 +410,8 @@ async def get_checkout_metrics(
             )
             for i, l in enumerate(lanes)
         ]
-    return [
-        CheckoutMetrics(
-            lane_id=f"lane-{i}", queue_length=random.randint(0, 8),
-            avg_service_time=round(random.uniform(60, 300), 1),
-            throughput=round(random.uniform(15, 45), 1),
-            current_wait_estimate=round(random.uniform(0, 600), 0),
-            camera_id=i + 1,
-        )
-        for i in range(1, 7)
-    ]
+    # No checkout lanes configured or no traffic through them yet.
+    return []
 
 
 @checkout_router.get("/summary")
@@ -452,11 +433,11 @@ async def checkout_summary(
             "busiest_lane": busiest.get("lane_id") if busiest else None,
         }
     return {
-        "total_lanes": 6, "active_lanes": 5,
-        "total_served_today": random.randint(200, 500),
-        "avg_service_time": round(random.uniform(120, 240), 1),
-        "avg_wait_time": round(random.uniform(60, 180), 1),
-        "busiest_lane": "lane-3",
+        "total_lanes": 0, "active_lanes": 0,
+        "total_served_today": 0,
+        "avg_service_time": 0.0,
+        "avg_wait_time": 0.0,
+        "busiest_lane": None,
     }
 
 
@@ -482,17 +463,10 @@ async def get_current_emotions(
             )
             for e in per_zone
         ]
-    zones = ["Entrance", "Main Floor", "Electronics", "Food Court", "Checkout"]
-    emotions = ["happy", "neutral", "sad", "surprise", "angry"]
-    return [
-        EmotionZoneAggregation(
-            zone=z, dominant_emotion=random.choice(emotions),
-            emotion_distribution={e: round(random.uniform(0, 0.4), 3) for e in emotions},
-            sample_count=random.randint(20, 100),
-            sentiment_score=round(random.uniform(-0.3, 0.8), 3),
-        )
-        for z in zones
-    ]
+    # No faces seen yet -> report nothing. This used to invent five zones of
+    # random emotions, which made a traffic camera with no faces in it report
+    # "234 faces analyzed" across a store that does not exist.
+    return []
 
 
 @emotion_router.get("/store-sentiment")
@@ -514,10 +488,11 @@ async def store_sentiment(
             "dominant_emotion": dominant,
             "total_faces_analyzed": emo.get("samples", 0),
         }
+    # Nothing measured yet — say so rather than inventing a sentiment.
     return {
-        "overall_sentiment": round(random.uniform(0.2, 0.7), 3),
-        "dominant_emotion": "happy",
-        "total_faces_analyzed": random.randint(100, 500),
+        "overall_sentiment": 0.0,
+        "dominant_emotion": None,
+        "total_faces_analyzed": 0,
     }
 
 
@@ -585,18 +560,16 @@ async def get_current_vibe(
             vibe_label=vibe.get("vibe_label", "Steady"),
             breakdown=breakdown,
         )
-    score = round(random.uniform(45, 85), 1)
-    labels = {(0, 20): "Quiet", (20, 40): "Calm", (40, 60): "Steady", (60, 80): "Energetic", (80, 101): "Buzzing"}
-    label = next(l for (lo, hi), l in labels.items() if lo <= score < hi)
+    # Nothing measured yet — report a zeroed vibe rather than inventing one.
     return StoreVibe(
-        overall_score=score,
-        sentiment_score=round(random.uniform(40, 80), 1),
-        energy_score=round(random.uniform(30, 90), 1),
-        engagement_score=round(random.uniform(35, 85), 1),
-        foot_traffic_score=round(random.uniform(25, 75), 1),
+        overall_score=0.0,
+        sentiment_score=0.0,
+        energy_score=0.0,
+        engagement_score=0.0,
+        foot_traffic_score=0.0,
         timestamp=datetime.now(timezone.utc),
-        vibe_label=label,
-        breakdown={"entrance": 65, "main_floor": 72, "checkout": 58},
+        vibe_label="No data",
+        breakdown={},
     )
 
 
@@ -627,10 +600,8 @@ async def vibe_trend(
             ]
     except Exception:
         pass
-    return [
-        {"hour": h, "score": round(random.uniform(40, 85), 1), "label": random.choice(["Calm", "Steady", "Energetic"])}
-        for h in range(hours)
-    ]
+    # No vibe history recorded yet.
+    return []
 
 
 # --- Demographics Router ---
@@ -709,14 +680,13 @@ async def get_peak_hours(
             )
     except Exception:
         pass
-    # Cold-start fallback
+    # No foot-traffic rows for today yet — report an empty day rather than a
+    # synthetic bell curve that looks like real trading hours.
     hourly = [
-        PeakHourData(hour=h, visitor_count=max(0, int(50 * (1 + 0.5 * random.gauss(0, 1)))),
-                     avg_dwell_time=round(random.uniform(300, 1800), 0),
-                     busiest_zone=random.choice(["Main Floor", "Electronics", "Food Court"]))
+        PeakHourData(hour=h, visitor_count=0, avg_dwell_time=0.0, busiest_zone=None)
         for h in range(9, 22)
     ]
-    peak = max(hourly, key=lambda x: x.visitor_count)
+    peak = hourly[0]
     return PeakHoursSummary(
         date=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         peak_hour=peak.hour, peak_count=peak.visitor_count,
@@ -777,8 +747,8 @@ async def get_dashboard_overview(
             top_zone=top_zone,
         )
 
-    # Cold-start fallback
-    score = round(random.uniform(55, 80), 1)
+    # Cold-start fallback — zeros, not a plausible-looking score.
+    score = 0.0
     return DashboardOverview(
         total_cameras=0,
         active_cameras=0,

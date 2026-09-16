@@ -8,8 +8,10 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { RefreshCw, PlayCircle, Check, Radio } from 'lucide-react';
+import './styles/jobs-modal.css';
+import './styles/jobs-page.css';
+import './styles/jobs-live.css';
 import Sidebar from './components/Sidebar';
-import CustomCursor from './components/CustomCursor';
 import Scene3D from './components/Scene3D';
 // Pages
 import LoginPage from './pages/LoginPage';
@@ -29,9 +31,11 @@ import PeakHoursPage from './pages/PeakHoursPage';
 import DemographicsPage from './pages/DemographicsPage';
 import SecurityPage from './pages/SecurityPage';
 import TrimPage from './pages/TrimPage';
+import JobsPage from './pages/JobsPage';
 
 const pageTitles = {
     '/': 'Live Overview',
+    '/jobs': 'Jobs',
     '/detection': 'Video Feeds',
     '/reid': 'Cross-Feed Matching',
     '/synopsis': 'Highlights Reel',
@@ -94,7 +98,6 @@ function ProtectedLayout() {
 
     return (
         <div className="app-layout">
-            <CustomCursor />
             {isDashboard && <Scene3D />}
             <div className="ambient-bg">
                 <div className="ambient-blob ambient-blob-a" />
@@ -115,6 +118,7 @@ function ProtectedLayout() {
                     >
                         <Routes>
                             <Route path="/" element={<DashboardPage />} />
+                            <Route path="/jobs" element={<JobsPage />} />
                             <Route path="/detection" element={<DetectionPage />} />
                             <Route path="/reid" element={<ReIDPage />} />
                             <Route path="/synopsis" element={<SynopsisPage />} />

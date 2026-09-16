@@ -43,12 +43,17 @@ class MultiObjectTracker:
         max_age: int = 30,
         min_hits: int = 3,
         iou_threshold: float = 0.3,
+        classes: Optional[List[int]] = None,
     ):
         self.model_path = model_path
         self.tracker_config = tracker_config or getattr(settings, "TRACKER_DEFAULT", "botsort.yaml")
         self.max_age = max_age
         self.min_hits = min_hits
         self.iou_threshold = iou_threshold
+        # None => person-only (COCO class 0); [] => track every class the model detects.
+        # Must mirror the detector's filter, otherwise detections of a class the
+        # tracker ignores never receive a track_id.
+        self.classes = [0] if classes is None else list(classes)
         self.model = None
         self.tracks: Dict[int, Track] = {}
         self.next_id = 1
@@ -77,13 +82,16 @@ class MultiObjectTracker:
 
     def _track_with_ultralytics(self, frame: np.ndarray) -> List[Track]:
         """Use Ultralytics built-in ByteTrack."""
-        results = self.model.track(
+        track_kwargs = dict(
             source=frame,
             persist=True,
             tracker=self.tracker_config,
-            classes=[0],
             verbose=False,
         )
+        # Empty self.classes => no filter (Ultralytics reads classes=[] as "match nothing").
+        if self.classes:
+            track_kwargs["classes"] = self.classes
+        results = self.model.track(**track_kwargs)
 
         active_tracks = []
         for result in results:
@@ -97,12 +105,23 @@ class MultiObjectTracker:
                     bbox=[float(xyxy[0]), float(xyxy[1]),
                           float(xyxy[2] - xyxy[0]), float(xyxy[3] - xyxy[1])],
                     confidence=float(box.conf[0]),
-                    class_name="person",
+                    class_name=self._class_name(box),
                 )
                 self.tracks[tid] = track
                 active_tracks.append(track)
 
         return active_tracks
+
+    def _class_name(self, box) -> str:
+        """Real class label for a tracked box (was hardcoded to "person")."""
+        try:
+            cid = int(box.cls[0])
+        except Exception:
+            return "object"
+        names = getattr(self.model, "names", None)
+        if isinstance(names, dict):
+            return names.get(cid, f"class_{cid}")
+        return "object"
 
     def _simple_track(self, frame: np.ndarray) -> List[Track]:
         """Fallback: simple IoU-based tracking for mock/testing."""

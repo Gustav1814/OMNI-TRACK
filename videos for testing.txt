@@ -1,0 +1,10 @@
+product detection
+https://ai-public-videos.s3.us-east-2.amazonaws.com/Raw+Videos/_DubaiSuperstore_Dataset_Shelves/Shelf+Videos/20260516_123952.mp4
+
+
+fire 
+https://ai-public-videos.s3.us-east-2.amazonaws.com/Raw+Videos/fire_room.mp4
+
+in count 
+
+https://ai-public-videos.s3.us-east-2.amazonaws.com/Raw+Videos/in+out+video+of+traffic.mp4

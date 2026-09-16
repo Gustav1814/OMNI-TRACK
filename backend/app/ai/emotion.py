@@ -4,10 +4,25 @@ DeepFace/FER-based facial emotion classification.
 7-class: happy, sad, angry, surprise, neutral, fear, disgust.
 """
 
+import sys
+
 import numpy as np
 from typing import List, Dict, Any, Optional
 from collections import defaultdict
 from loguru import logger
+
+from app.config import settings
+
+# DeepFace's logger prints an emoji (U+26A0) the moment it is imported. Windows
+# defaults stdout to cp1252, which cannot encode it, so the import dies with
+# UnicodeEncodeError and the module silently falls back to mock mode — with a
+# message that makes it look like the package is missing. Force UTF-8 first.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        if hasattr(_stream, "reconfigure"):
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 try:
     from deepface import DeepFace
@@ -31,9 +46,12 @@ class EmotionRecognizer:
 
     EMOTIONS = ["happy", "sad", "angry", "surprise", "neutral", "fear", "disgust"]
 
-    def __init__(self, backend: str = "opencv", detector_backend: str = "opencv"):
+    def __init__(self, backend: str = "opencv", detector_backend: Optional[str] = None):
+        # Default comes from config so the backend can be tuned without a code change.
         self.backend = backend
-        self.detector_backend = detector_backend
+        self.detector_backend = detector_backend or getattr(
+            settings, "EMOTION_DETECTOR_BACKEND", "ssd"
+        )
         self.zone_aggregation: Dict[str, List[Dict]] = defaultdict(list)
 
     def analyze_frame(
@@ -58,8 +76,26 @@ class EmotionRecognizer:
             if not isinstance(results, list):
                 results = [results]
 
+            min_conf = float(getattr(settings, "EMOTION_MIN_FACE_CONFIDENCE", 0.5))
+            frame_area = float(frame.shape[0] * frame.shape[1]) if frame is not None else 0.0
+
             emotions = []
             for face in results:
+                # Reject non-faces. With enforce_detection=False DeepFace returns a
+                # result for every frame: when it finds nothing it hands back the
+                # WHOLE FRAME as the "face" region, face_confidence 0.0 and no eye
+                # landmarks — then classifies that. Those reads look confident and
+                # are pure noise, so they must not reach the sentiment aggregate.
+                if float(face.get("face_confidence") or 0.0) < min_conf:
+                    continue
+                region = face.get("region") or {}
+                if region.get("left_eye") is None and region.get("right_eye") is None:
+                    continue
+                if frame_area:
+                    region_area = float(region.get("w", 0)) * float(region.get("h", 0))
+                    if region_area >= 0.9 * frame_area:
+                        continue
+
                 emotion_scores = face.get("emotion", {})
                 dominant = face.get("dominant_emotion", "neutral")
                 result = {
@@ -68,6 +104,9 @@ class EmotionRecognizer:
                     "all_emotions": {k: round(v / 100.0, 3) for k, v in emotion_scores.items()},
                     "camera_id": camera_id,
                     "zone": zone,
+                    "face_confidence": round(float(face.get("face_confidence") or 0.0), 3),
+                    "bbox": [region.get("x", 0), region.get("y", 0),
+                             region.get("w", 0), region.get("h", 0)],
                 }
                 emotions.append(result)
 

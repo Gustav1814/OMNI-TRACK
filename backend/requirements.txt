@@ -8,3 +8,6 @@
 -r requirements-core.txt
 
 deepface>=0.0.90
+# TF 2.16+ split Keras out; DeepFace/retinaface still need the legacy API.
+# Without this the import fails at load time and emotion silently mocks.
+tf-keras>=2.16
