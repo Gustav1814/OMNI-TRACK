@@ -5325,3 +5325,175 @@ html.light .dashboard-panel-chart {
 /* Grid lines: subtle structure, not a fill */
 .chart-empty-state::before { opacity: 0.35; }
 html.light .chart-empty-state::before { opacity: 0.55; }
+
+/* ============================================================
+   STORE VIBE PAGE
+   ============================================================ */
+.vibe-page .page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.vibe-live-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.vibe-live-chip.is-live { color: var(--status-ok); border-color: color-mix(in srgb, var(--status-ok) 30%, transparent); }
+.vibe-live-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.vibe-live-chip.is-live .vibe-live-dot { animation: hero-pulse 2s ease-in-out infinite; }
+
+.vibe-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 380px) 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+@media (max-width: 1000px) { .vibe-grid { grid-template-columns: 1fr; } }
+
+/* --- Gauge --- */
+.vibe-score-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 26px 22px 22px;
+}
+.vibe-gauge { position: relative; width: 100%; max-width: 250px; }
+.vibe-gauge-svg { width: 100%; height: auto; display: block; overflow: visible; }
+.vibe-gauge-track { stroke: var(--bg-tertiary); }
+html.light .vibe-gauge-track { stroke: rgba(15, 23, 42, 0.08); }
+.vibe-gauge-arc { transition: stroke-dashoffset 700ms cubic-bezier(0.4, 0, 0.2, 1), stroke 300ms ease; }
+
+.vibe-gauge-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  pointer-events: none;
+}
+.vibe-gauge-score {
+  font-size: 52px;
+  font-weight: 750;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.vibe-gauge-max { font-size: 11.5px; color: var(--text-muted); font-weight: 550; }
+.vibe-gauge-label { font-size: 16px; font-weight: 700; margin-top: 7px; letter-spacing: -0.01em; }
+
+.vibe-delta { margin-top: 4px; font-size: 12.5px; font-weight: 600; }
+.vibe-delta span { display: inline-flex; align-items: center; gap: 5px; }
+.vibe-delta-up { color: var(--status-ok); }
+.vibe-delta-down { color: var(--status-warn); }
+.vibe-delta-idle { color: var(--text-muted); }
+
+/* Scale: makes the label bands legible instead of implicit */
+.vibe-scale {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  width: 100%;
+  margin-top: 22px;
+}
+.vibe-scale-band { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.vibe-scale-bar {
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  transition: background var(--transition-base);
+}
+html.light .vibe-scale-bar { background: rgba(15, 23, 42, 0.09); }
+.vibe-scale-band.is-active .vibe-scale-bar { background: var(--band-color); }
+.vibe-scale-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+.vibe-scale-band.is-active .vibe-scale-label { color: var(--text-primary); font-weight: 700; }
+
+/* --- Components --- */
+.vibe-components { padding: 18px 20px 4px; display: grid; gap: 18px; }
+
+.vibe-component-head { display: flex; align-items: center; gap: 11px; margin-bottom: 9px; }
+.vibe-component-icon {
+  width: 30px; height: 30px;
+  border-radius: 9px;
+  display: grid; place-items: center;
+  background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
+  color: var(--accent-secondary);
+  flex-shrink: 0;
+}
+.vibe-component-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.vibe-component-label { font-size: 13.5px; font-weight: 650; color: var(--text-primary); }
+.vibe-component-hint { font-size: 11.5px; color: var(--text-muted); line-height: 1.4; }
+.vibe-component-value {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.vibe-component-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  overflow: hidden;
+}
+html.light .vibe-component-track { background: rgba(15, 23, 42, 0.07); }
+.vibe-component-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
+  transition: width 600ms cubic-bezier(0.4, 0, 0.2, 1);
+  min-width: 2px;
+}
+
+.vibe-insight {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 18px 20px 20px;
+  padding: 13px 14px;
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+.vibe-insight svg { color: var(--accent-secondary); flex-shrink: 0; margin-top: 1px; }
+.vibe-insight strong { color: var(--text-primary); font-weight: 700; }
+
+/* --- Trend --- */
+.vibe-trend-chart { height: 300px; padding: 10px 18px 18px; }
+.vibe-trend-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 48px 20px 56px;
+}
+.vibe-trend-empty .chart-empty-copy { margin-bottom: 0; }
+
+.vibe-gauge-score.is-empty { color: var(--text-muted); }
