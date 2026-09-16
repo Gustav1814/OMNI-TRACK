@@ -35,7 +35,7 @@ export default function VibePage() {
     const comps = [
         { key: 'sentiment_score', label: 'Sentiment', color: '#f472b6' },
         { key: 'energy_score', label: 'Energy', color: '#fb923c' },
-        { key: 'engagement_score', label: 'Engagement', color: '#6366f1' },
+        { key: 'engagement_score', label: 'Engagement', color: '#5d8ab0' },
         { key: 'foot_traffic_score', label: 'Traffic', color: '#22d3ee' },
     ];
 
@@ -103,15 +103,15 @@ export default function VibePage() {
                             <AreaChart data={trendData}>
                                 <defs>
                                     <linearGradient id="vibeA" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="0%" stopColor="#6366f1" stopOpacity={0.6} />
-                                        <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
+                                        <stop offset="0%" stopColor="#5d8ab0" stopOpacity={0.6} />
+                                        <stop offset="100%" stopColor="#5d8ab0" stopOpacity={0} />
                                     </linearGradient>
                                 </defs>
                                 <CartesianGrid stroke="rgba(255,255,255,0.05)" />
                                 <XAxis dataKey="t" stroke="#71717a" fontSize={10} />
                                 <YAxis stroke="#71717a" fontSize={10} domain={[0, 100]} />
                                 <Tooltip contentStyle={{ background: '#111', border: '1px solid #222' }} />
-                                <Area type="monotone" dataKey="score" stroke="#818cf8" strokeWidth={2} fill="url(#vibeA)" />
+                                <Area type="monotone" dataKey="score" stroke="#84a8c6" strokeWidth={2} fill="url(#vibeA)" />
                             </AreaChart>
                         </ResponsiveContainer>
                     </div>
@@ -125,7 +125,7 @@ function Gauge({ score, label }) {
     const circ = 2 * Math.PI * 70;
     const offset = circ * (1 - score / 100);
     const color = score >= 75 ? '#10b981'
-        : score >= 50 ? '#6366f1'
+        : score >= 50 ? '#5d8ab0'
             : score >= 25 ? '#fbbf24' : '#f43f5e';
 
     return (

@@ -36,7 +36,7 @@ export default function TiltCard({ children, className = '', style = {}, intensi
     (v) => {
       const lift = 12 + v * 2;
       const blur = 40 + v * 6;
-      const glow = v > 0 ? `, 0 0 ${30 + v * 4}px -8px rgba(99, 102, 241, 0.15)` : '';
+      const glow = v > 0 ? `, 0 0 ${30 + v * 4}px -8px rgba(93,138,176, 0.15)` : '';
       return `0 ${Math.round(lift)}px ${Math.round(blur)}px -12px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.08)${glow}`;
     }
   );

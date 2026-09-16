@@ -84,7 +84,7 @@ export default function CrowdPage() {
                                 <Tooltip contentStyle={{ background: '#111', border: '1px solid #222' }} />
                                 <Bar dataKey="count" radius={[6, 6, 0, 0]}>
                                     {chartData.map((d, i) => (
-                                        <Cell key={i} fill={LEVEL_COLOR[d.level] || '#6366f1'} />
+                                        <Cell key={i} fill={LEVEL_COLOR[d.level] || '#5d8ab0'} />
                                     ))}
                                 </Bar>
                             </BarChart>

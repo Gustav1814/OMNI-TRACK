@@ -52,7 +52,7 @@ export default function LoginPage({ onLogin }) {
                 initial={{ opacity: 0, y: 24, scale: 0.98 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
-                whileHover={{ boxShadow: '0 28px 64px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.08), 0 0 80px -16px rgba(99,102,241,0.25)' }}
+                whileHover={{ boxShadow: '0 28px 64px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.08), 0 0 80px -16px rgba(93,138,176,0.25)' }}
             >
                 <div className="login-layout">
                     <div className="login-showcase">

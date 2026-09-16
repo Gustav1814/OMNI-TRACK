@@ -65,7 +65,7 @@
   --accent-soft: rgba(75, 93, 253, 0.09);
   --accent-softer: rgba(75, 93, 253, 0.05);
   --accent-glow: rgba(75, 93, 253, 0.18);
-  --accent-cyan: #8b5cf6; /* secondary — the logo's violet */
+  --accent-cyan: #5d8ab0; /* secondary — the logo's violet */
   --accent-gold: #b45309;
 
   /* Solid primary-action fill — same brand blue in both themes */
@@ -73,12 +73,12 @@
   --btn-primary-bg-hover: #3644d9;
 
   /* Informational */
-  --info: #7c3aed;
+  --info: #3d6685;
   --info-soft: rgba(124, 58, 237, 0.08);
 
   /* Violet / rose / green primitives for tinted chips & washes */
   --violet-rgb: 124, 58, 237;
-  --violet-text: #7c3aed;
+  --violet-text: #3d6685;
   --rose-rgb: 225, 29, 72;
   --green-rgb: 5, 150, 105;
 
@@ -124,10 +124,10 @@
 
   /* Charts — one cool family shared with the KPI strip */
   --chart-1: #4b5dfd; /* brand blue   */
-  --chart-2: #8b5cf6; /* violet       */
+  --chart-2: #5d8ab0; /* violet       */
   --chart-3: #0d9488; /* teal   (in)  */
   --chart-4: #db2777; /* pink   (out) */
-  --chart-5: #6366f1; /* indigo       */
+  --chart-5: #5d8ab0; /* indigo       */
   --chart-grid: rgba(15, 23, 42, 0.06);
   --chart-axis: rgba(15, 23, 42, 0.15);
 
@@ -234,17 +234,17 @@
   --accent-soft: rgba(124, 140, 255, 0.13);
   --accent-softer: rgba(124, 140, 255, 0.07);
   --accent-glow: rgba(124, 140, 255, 0.28);
-  --accent-cyan: #a78bfa;
+  --accent-cyan: #9dbcd4;
   --accent-gold: #fbbf24;
 
   --btn-primary-bg: #4b5dfd;
   --btn-primary-bg-hover: #5b6bfd;
 
-  --info: #a78bfa;
-  --info-soft: rgba(167, 139, 250, 0.1);
+  --info: #9dbcd4;
+  --info-soft: rgba(157,188,212, 0.1);
 
   --violet-rgb: 167, 139, 250;
-  --violet-text: #c4b5fd;
+  --violet-text: #bcd2e3;
   --rose-rgb: 248, 113, 113;
   --green-rgb: 52, 211, 153;
 
@@ -289,10 +289,10 @@
 
   /* Charts */
   --chart-1: #7c8cff;
-  --chart-2: #a78bfa;
+  --chart-2: #9dbcd4;
   --chart-3: #2dd4bf;
   --chart-4: #f472b6;
-  --chart-5: #818cf8;
+  --chart-5: #84a8c6;
   --chart-grid: rgba(255, 255, 255, 0.06);
   --chart-axis: rgba(255, 255, 255, 0.2);
 

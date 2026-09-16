@@ -79,7 +79,7 @@ export default function DemographicsPage() {
                                     <XAxis dataKey="name" stroke="#71717a" fontSize={11} />
                                     <YAxis stroke="#71717a" fontSize={11} />
                                     <Tooltip contentStyle={{ background: '#111', border: '1px solid #222' }} />
-                                    <Bar dataKey="count" fill="#818cf8" radius={[6, 6, 0, 0]} />
+                                    <Bar dataKey="count" fill="#84a8c6" radius={[6, 6, 0, 0]} />
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>
@@ -100,7 +100,7 @@ export default function DemographicsPage() {
                                         cx="50%" cy="50%" outerRadius={90} innerRadius={50}
                                         paddingAngle={2}>
                                         {genderChart.map((d) => (
-                                            <Cell key={d.name} fill={GENDER_COLOR[d.name] || '#a5b4fc'} />
+                                            <Cell key={d.name} fill={GENDER_COLOR[d.name] || '#a9c4da'} />
                                         ))}
                                     </Pie>
                                     <Tooltip contentStyle={{ background: '#111', border: '1px solid #222' }} />

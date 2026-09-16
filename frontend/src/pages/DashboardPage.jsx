@@ -25,12 +25,12 @@ import CameraStream from '../components/CameraStream';
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler, Legend);
 
 const ACCENT_BY_KEY = {
-    violet: { rgb: '167,139,250' },
-    cyan: { rgb: '34,211,238' },
+    violet: { rgb: '124,156,184' },
+    cyan: { rgb: '124,156,184' },
     amber: { rgb: '251,191,36' },
     rose: { rgb: '251,113,133' },
     emerald: { rgb: '52,211,153' },
-    sky: { rgb: '56,189,248' },
+    sky: { rgb: '124,156,184' },
 };
 
 function KPI({
@@ -143,21 +143,21 @@ export default function DashboardPage() {
             {
                 label: 'Energy',
                 data: trendData.map((d) => d.score),
-                borderColor: 'rgba(124,62,237,0.9)',
+                borderColor: 'rgba(61,102,133,0.9)',
                 backgroundColor: (ctx) => {
                     const chart = ctx.chart;
                     const { ctx: canvas, chartArea } = chart;
-                    if (!chartArea) return 'rgba(124,62,237,0.25)';
+                    if (!chartArea) return 'rgba(61,102,133,0.25)';
                     const gradient = canvas.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
-                    gradient.addColorStop(0, 'rgba(124,62,237,0.35)');
-                    gradient.addColorStop(1, 'rgba(124,62,237,0.02)');
+                    gradient.addColorStop(0, 'rgba(61,102,133,0.35)');
+                    gradient.addColorStop(1, 'rgba(61,102,133,0.02)');
                     return gradient;
                 },
                 fill: true,
                 tension: 0.45,
                 pointRadius: 0,
                 pointHoverRadius: 4,
-                pointHoverBackgroundColor: 'rgba(167,139,250,1)',
+                pointHoverBackgroundColor: 'rgba(157,188,212,1)',
                 pointHoverBorderColor: '#000',
                 pointHoverBorderWidth: 2,
                 borderWidth: 2.2,

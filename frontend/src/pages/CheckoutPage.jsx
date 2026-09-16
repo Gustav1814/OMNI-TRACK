@@ -65,8 +65,8 @@ export default function CheckoutPage() {
                                 <XAxis dataKey="name" stroke="#71717a" fontSize={11} />
                                 <YAxis stroke="#71717a" fontSize={11} />
                                 <Tooltip contentStyle={{ background: '#111', border: '1px solid #222' }} />
-                                <Bar dataKey="queue" radius={[6, 6, 0, 0]} fill="#6366f1">
-                                    {chartData.map((_, i) => <Cell key={i} fill="#6366f1" />)}
+                                <Bar dataKey="queue" radius={[6, 6, 0, 0]} fill="#5d8ab0">
+                                    {chartData.map((_, i) => <Cell key={i} fill="#5d8ab0" />)}
                                 </Bar>
                             </BarChart>
                         </ResponsiveContainer>
