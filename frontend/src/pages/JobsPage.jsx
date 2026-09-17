@@ -224,60 +224,60 @@ export default function JobsPage() {
                 </button>
             </header>
 
-            {/* Same stat-card language as the Live Overview KPI row. */}
-            <div className="jobs-stats">
-                <div className={`jobs-statcard${atCapacity ? ' is-warn' : ''}`}>
-                    <span className="jobs-statcard__icon"><Layers size={16} aria-hidden /></span>
-                    <span className="jobs-statcard__label">Job slots</span>
-                    <span className="jobs-statcard__value">
-                        {jobs.length}<i>/{MAX_JOBS}</i>
-                    </span>
-                    <span className="jobs-statcard__track" aria-hidden>
-                        <span style={{ width: `${Math.min(100, (jobs.length / Math.max(1, MAX_JOBS)) * 100)}%` }} />
-                    </span>
-                </div>
-
-                <div className="jobs-statcard">
-                    <span className="jobs-statcard__icon"><ImageIcon size={16} aria-hidden /></span>
-                    <span className="jobs-statcard__label">Snapshots</span>
-                    <span className="jobs-statcard__value">
-                        {(artifacts?.snapshots ?? 0).toLocaleString()}
-                    </span>
-                </div>
-
-                <div className="jobs-statcard">
-                    <span className="jobs-statcard__icon"><Film size={16} aria-hidden /></span>
-                    <span className="jobs-statcard__label">Clips</span>
-                    <span className="jobs-statcard__value">
-                        {(artifacts?.clips ?? 0).toLocaleString()}
-                    </span>
-                </div>
-
-                <div className={`jobs-statcard${storageNearFull ? ' is-warn' : ''}`} title={artifacts?.root}>
-                    <span className="jobs-statcard__icon"><HardDrive size={16} aria-hidden /></span>
-                    <span className="jobs-statcard__label">Storage</span>
-                    <span className="jobs-statcard__value">
-                        {artifacts?.usage_mb ?? 0}<i>/{artifacts?.quota_mb ?? 0} MB</i>
-                    </span>
-                    <span className="jobs-statcard__track" aria-hidden>
-                        <span style={{ width: `${storagePct}%` }} />
-                    </span>
-                </div>
+            {/* One quiet line: no boxes, just the numbers and what they mean. */}
+            <div className="jobs-summary">
+                <span className={`jobs-summary__item${atCapacity ? ' is-warn' : ''}`}>
+                    <Layers size={13} aria-hidden />
+                    <b>{jobs.length} of {MAX_JOBS}</b>
+                    <em>slots used</em>
+                </span>
+                <span className="jobs-summary__dot" aria-hidden />
+                <span className="jobs-summary__item">
+                    <ImageIcon size={13} aria-hidden />
+                    <b>{(artifacts?.snapshots ?? 0).toLocaleString()}</b>
+                    <em>snapshot{artifacts?.snapshots === 1 ? '' : 's'}</em>
+                </span>
+                <span className="jobs-summary__dot" aria-hidden />
+                <span className="jobs-summary__item">
+                    <Film size={13} aria-hidden />
+                    <b>{(artifacts?.clips ?? 0).toLocaleString()}</b>
+                    <em>clip{artifacts?.clips === 1 ? '' : 's'}</em>
+                </span>
+                <span className="jobs-summary__dot" aria-hidden />
+                <span
+                    className={`jobs-summary__item${storageNearFull ? ' is-warn' : ''}`}
+                    title={artifacts?.root}
+                >
+                    <HardDrive size={13} aria-hidden />
+                    <b>{artifacts?.usage_mb ?? 0} MB</b>
+                    <em>of {artifacts?.quota_mb ?? 0} used</em>
+                </span>
             </div>
 
             {loading && jobs.length === 0 && <p className="jobs-page__empty">Loading jobs…</p>}
 
             {!loading && jobs.length === 0 && (
                 <div className="jobs-page__empty-state">
-                    <Layers size={28} />
+                    <span className="jobs-empty__glyph"><Layers size={26} aria-hidden /></span>
                     <h3>No jobs yet</h3>
-                    <p>Register one to start watching a camera.</p>
+                    <p>
+                        A job points one camera at one model and watches for a single
+                        thing — products on a shelf, people crossing a line, or a region
+                        filling up.
+                    </p>
+
+                    <ol className="jobs-empty__steps">
+                        <li><b>Pick what to watch</b><span>Line crossing, ROI region, or general detection.</span></li>
+                        <li><b>Choose a model</b><span>Any weights installed on the backend.</span></li>
+                        <li><b>Connect a source</b><span>Upload a clip, or point it at an RTSP camera.</span></li>
+                    </ol>
+
                     <button
                         type="button"
                         className="jobs-page__create jobs-page__create--lg"
                         onClick={() => setCreateOpen(true)}
                     >
-                        <Plus size={15} /> Create Job
+                        <Plus size={16} /> Create your first job
                     </button>
                     <p className="jobs-page__cap-note">Up to {MAX_JOBS} jobs can run at once.</p>
                 </div>
