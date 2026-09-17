@@ -99,6 +99,10 @@ class DetectionResult(BaseModel):
     class_name: str = "person"
     zone: Optional[str] = None
     timestamp: Optional[datetime] = None
+    # Which weights produced this box, and whether it came from the camera's
+    # primary (tracked) model or one of its extra detectors.
+    model: Optional[str] = None
+    is_primary: bool = True
 
 
 class DetectionFrame(BaseModel):

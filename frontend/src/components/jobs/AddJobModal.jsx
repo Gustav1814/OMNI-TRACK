@@ -90,10 +90,18 @@ function ModelSection({
           lead_by: stage > 0 ? stage0Picked?.model_id ?? null : null,
           track_name: stage === 0 ? trackerNames[0] ?? null : null
         }
-      ]
+      ],
+      // A model promoted to a stage must not also run as an extra.
+      extra_models: (draft.extra_models ?? []).filter((m) => m !== modelId)
     });
   };
   const setInfo = (modelId, p) => patch({ model_infos: draft.model_infos.map((m) => m.model_id === modelId ? { ...m, ...p } : m) });
+  // Every installed model except the ones already chosen as a pipeline stage —
+  // running the same weights twice on a frame would only cost time.
+  const chosenIds = new Set(draft.model_infos.map((m) => m.model_id));
+  const availableExtras = [...new Set(kpi.models.map((m) => m.model_id))]
+    .filter((id) => !chosenIds.has(id))
+    .sort();
   const renderStagePanel = (label, icon, models, stage) => {
     const Icon = icon;
     const picked = pickedForStage(models);
@@ -149,6 +157,36 @@ function ModelSection({
       <div className="ajm-stages">
         {renderStagePanel("Stage 0", Layers, stage0Models, 0)}
         {stageNModels.length > 0 && renderStagePanel("Stage 1", Layers, stageNModels, 1)}
+      </div>
+
+      <div className="ajm-extras">
+        <span className="field__label">Also run on the same frame</span>
+        <p className="ajm-extras__hint">
+          These detect alongside the model above — a fire model and a product
+          model can watch the same feed. Extra models are not tracked and do not
+          feed the people analytics, so counting stays on the model above.
+        </p>
+        <div className="ajm-extras__list">
+          {availableExtras.length === 0 ? (
+            <span className="ajm-empty">No other models installed.</span>
+          ) : availableExtras.map((m) => {
+            const on = (draft.extra_models ?? []).includes(m);
+            return (
+              <label key={m} className={`ajm-extra${on ? " is-on" : ""}`}>
+                <input
+                  type="checkbox"
+                  checked={on}
+                  onChange={(e) => patch({
+                    extra_models: e.target.checked
+                      ? [...(draft.extra_models ?? []), m]
+                      : (draft.extra_models ?? []).filter((x) => x !== m),
+                  })}
+                />
+                <span className="mono">{m}</span>
+              </label>
+            );
+          })}
+        </div>
       </div>
 
       {draft.model_infos.map((mi) => <div key={mi.model_id} className="ajm-model-oc">

@@ -212,7 +212,13 @@ class ProcessingPipeline:
         self._detectors: Dict[Tuple[str, Tuple[int, ...]], PersonDetector] = {}
         # camera_id -> class ids this job watches ([] = every class)
         self._camera_class_ids: Dict[int, List[int]] = {}
-        self._camera_models: Dict[int, str] = {}  # camera_id -> model_path
+        self._camera_models: Dict[int, str] = {}  # camera_id -> primary model_path
+        # Extra detectors run on the same frame after the primary one. The primary
+        # stays separate because it alone drives tracking: ByteTrack over three
+        # merged class sets fragments identities and corrupts the person metrics.
+        self._camera_extra_models: Dict[int, List[str]] = {}
+        # (camera_id, model_path) -> class ids, so each model carries its own filter
+        self._camera_model_class_ids: Dict[Tuple[int, str], List[int]] = {}
         # Initialize default detector
         self.detector = self._get_or_create_detector(detector_model, self._detector_classes)
         # Per-camera trackers: each feed has its own ByteTrack state (local track IDs per camera).
@@ -600,7 +606,9 @@ class ProcessingPipeline:
                 frame_number=frame_number, fps=float(self.processing_fps),
             )
 
-    def _person_subset(self, dets: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _person_subset(
+        self, dets: List[Dict[str, Any]], camera_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
         """
         People-only view of a frame's detections.
 
@@ -609,6 +617,11 @@ class ProcessingPipeline:
         metric. When the detector is pinned to a single class we trust it outright
         (a custom person model may not literally name its class "person").
         """
+        # Extra models are there to find products or fire, never people, so they
+        # never contribute here — including under the single-class shortcut below,
+        # which would otherwise hand every product to Re-ID as a person.
+        if camera_id is not None and self._camera_extra_models.get(camera_id):
+            dets = [d for d in dets if d.get("is_primary", True)]
         if len(self._detector_classes) == 1:
             return dets
         return [d for d in dets if str(d.get("class_name", "")).lower() == "person"]
@@ -677,6 +690,7 @@ class ProcessingPipeline:
         tracker_config: Optional[str] = None,
         enable_reid: bool = True,
         loop: bool = False,
+        extra_models: Optional[List[str]] = None,
     ):
         """
         Register a camera for processing.
@@ -690,6 +704,9 @@ class ProcessingPipeline:
             skip_frames: Process every Nth frame (higher = faster but less accurate)
             roi: Optional region of interest crop
             enable_reid: Run 512-d Torchreid embeddings + global gallery for this feed (GPU/CPU heavy).
+            extra_models: Additional detector weights to run on the same frame after
+                the primary model (e.g. fire and product alongside a person model).
+                They are detected but not tracked, and never feed person analytics.
             loop: Replay a file source from the start instead of stopping at EOF.
                 Counts and Re-ID identities accumulate across laps, so this is for
                 demos and testing rather than real analytics.
@@ -739,7 +756,21 @@ class ProcessingPipeline:
         self._camera_models[camera_id] = effective_model
         # Create detector for this model if not exists
         self._get_or_create_detector(effective_model, self._camera_class_ids.get(camera_id))
-        
+
+        # Extra models: warm each one now so the first tick does not pay to load
+        # them, and drop any that duplicate the primary.
+        extras = [m for m in (extra_models or []) if m and m != effective_model]
+        deduped: List[str] = []
+        for m in extras:
+            if m not in deduped:
+                deduped.append(m)
+        self._camera_extra_models[camera_id] = deduped
+        for m in deduped:
+            try:
+                self._get_or_create_detector(m, self._camera_model_class_ids.get((camera_id, m)))
+            except Exception as e:
+                logger.error(f"Extra model {m} could not be loaded for camera {camera_id}: {e}")
+
         # One tracker per camera so local track IDs are per-feed; Re-ID assigns global_id across cameras.
         if camera_id not in self._trackers:
             self._trackers[camera_id] = MultiObjectTracker(
@@ -755,6 +786,7 @@ class ProcessingPipeline:
             f"Camera {camera_id} added → zone: {zone} | capture_fps_cap={fps_target} "
             f"skip_frames={skip_n} reid={'on' if enable_reid else 'off'}"
             f"{' loop=on' if loop else ''}"
+            f"{' extra=' + ','.join(deduped) if deduped else ''}"
         )
         # Fire-and-forget: audit log this camera addition on the running loop
         try:
@@ -775,6 +807,10 @@ class ProcessingPipeline:
         self._results_buffer.pop(camera_id, None)
         self._trackers.pop(camera_id, None)
         self._camera_models.pop(camera_id, None)  # Clean up model assignment
+        self._camera_extra_models.pop(camera_id, None)
+        self._camera_model_class_ids = {
+            k: v for k, v in self._camera_model_class_ids.items() if k[0] != camera_id
+        }
         self._camera_reid_enabled.pop(int(camera_id), None)
         zone = self._camera_zones.pop(camera_id, None)
         self._last_global_by_track = {k: v for k, v in self._last_global_by_track.items() if k[0] != camera_id}
@@ -1372,9 +1408,33 @@ class ProcessingPipeline:
                 tid = self._match_det_to_track(bbox, tracks) if len(bbox) >= 4 else None
                 det_dict = self._detection_to_dict(raw, track_id=tid)
                 det_dict["global_id"] = None  # set below for people only
+                det_dict["model"] = camera_model
+                det_dict["is_primary"] = True
                 norm_dets.append(det_dict)
+
+            # Extra models see the same frame. They are not tracked: their output
+            # is "what is present", not "who is who", and the IoU match above only
+            # makes sense against the primary model's tracks.
+            for extra_model in self._camera_extra_models.get(cam_id, []):
+                try:
+                    extra_detector = self._get_or_create_detector(
+                        extra_model,
+                        self._camera_model_class_ids.get((cam_id, extra_model)),
+                    )
+                    extra_raw = await asyncio.to_thread(extra_detector.detect, frame)
+                except Exception as e:
+                    logger.warning(f"Extra model {extra_model} failed on cam {cam_id}: {e}")
+                    continue
+                for raw in extra_raw:
+                    det_dict = self._detection_to_dict(raw, track_id=None)
+                    det_dict["global_id"] = None
+                    det_dict["track_id"] = None
+                    det_dict["model"] = extra_model
+                    det_dict["is_primary"] = False
+                    norm_dets.append(det_dict)
+
             all_detections[cam_id] = norm_dets
-            person_detections[cam_id] = self._person_subset(norm_dets)
+            person_detections[cam_id] = self._person_subset(norm_dets, camera_id=cam_id)
             self._total_detections += len(norm_dets)
 
             results[cam_id] = CameraResult(

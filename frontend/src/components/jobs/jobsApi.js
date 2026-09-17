@@ -230,6 +230,7 @@ export function useRegisterJob() {
                 skip_frames: 0,
                 enable_reid: request.enable_reid !== false,
                 loop: Boolean(request.loop),
+                extra_models: (request.extra_models || []).join(','),
             });
 
             // `tag` is the comma-joined list of classes with Detection enabled.

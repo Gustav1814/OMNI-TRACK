@@ -75,6 +75,43 @@ def get_pipeline(request: Request):
     return request.app.state.pipeline
 
 
+def _resolve_model(model: str) -> str:
+    """
+    Turn a model reference into an absolute path on disk.
+
+    Accepts a filename inside MODEL_WEIGHTS_DIR, an absolute path, or a URL to
+    download once. The weights are loaded here so a bad reference fails the
+    request instead of crashing the pipeline on its first tick.
+    """
+    if model.startswith(("http://", "https://")):
+        from ultralytics.utils.downloads import attempt_download_asset
+
+        out = Path(settings.MODEL_WEIGHTS_DIR) / Path(model).name
+        if not out.exists():
+            attempt_download_asset(model, file=str(out))
+        model_path = str(out.resolve())
+    else:
+        candidate = Path(model)
+        if candidate.is_file():
+            model_path = str(candidate.resolve())
+        else:
+            model_file = Path(settings.MODEL_WEIGHTS_DIR) / model
+            if not model_file.exists():
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Model {model} not found in {settings.MODEL_WEIGHTS_DIR}",
+                )
+            model_path = str(model_file.resolve())
+
+    try:
+        from ultralytics import YOLO
+
+        YOLO(model_path)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Failed to load model {model}: {e}")
+    return model_path
+
+
 @router.post("/start/{camera_id}")
 async def start_detection(
     camera_id: int,
@@ -88,6 +125,7 @@ async def start_detection(
     skip_frames: int = 1,
     enable_reid: bool = True,
     loop: bool = False,
+    extra_models: str = "",
     current_user: User = Depends(get_current_user),
     pipeline=Depends(get_pipeline),
 ):
@@ -98,6 +136,9 @@ async def start_detection(
     - fps: Max capture rate for this feed (applied in the stream reader; clamped 1–240).
     - skip_frames: Process every (skip_frames+1)th captured frame (0 = all captured frames).
     - enable_reid: Enable 512-d Torchreid + global gallery for this feed (CPU/GPU heavy). Disable for lighter multi-cam runs.
+    - extra_models: Comma-separated extra weights to run on the same frame as
+      `model` (e.g. "fire-smoke.pt,general_product_detection.pt"). They are
+      detected but not tracked, and never feed the person analytics.
     - loop: Replay a file source instead of stopping at its end. Counts and Re-ID
       identities accumulate across laps, so use it for demos, not for real analytics.
     - Use footage: for prototype: run full CV on downloaded store clips as live cameras.
@@ -105,34 +146,14 @@ async def start_detection(
     source, stream_type = _resolve_source(source, stream_type)
     
     # Resolve model path (filename from model_weight, absolute path, or URL)
-    model_path = None
-    if model:
-        if model.startswith(("http://", "https://")):
-            # Cache URL downloads under model_weight
-            from ultralytics.utils.downloads import attempt_download_asset
+    model_path = _resolve_model(model) if model else None
 
-            model_name = Path(model).name
-            out = Path(settings.MODEL_WEIGHTS_DIR) / model_name
-            if not out.exists():
-                attempt_download_asset(model, file=str(out))
-            model_path = str(out.resolve())
-        else:
-            candidate = Path(model)
-            if candidate.is_file():
-                model_path = str(candidate.resolve())
-            else:
-                model_file = Path(settings.MODEL_WEIGHTS_DIR) / model
-                if not model_file.exists():
-                    raise HTTPException(status_code=404, detail=f"Model {model} not found in {settings.MODEL_WEIGHTS_DIR}")
-                model_path = str(model_file.resolve())
-
-        # Validate model load up-front so pipeline doesn't crash later.
-        try:
-            from ultralytics import YOLO
-
-            YOLO(model_path)
-        except Exception as e:
-            raise HTTPException(status_code=422, detail=f"Failed to load model {model}: {e}")
+    # Extra detectors that run on the same frame as the primary model.
+    extra_model_paths = []
+    for name in [m.strip() for m in (extra_models or "").split(",") if m.strip()]:
+        resolved = _resolve_model(name)
+        if resolved and resolved != model_path:
+            extra_model_paths.append(resolved)
     
     try:
         pipeline.add_camera(
@@ -146,6 +167,7 @@ async def start_detection(
             tracker_config=tracker,
             enable_reid=enable_reid,
             loop=loop,
+            extra_models=extra_model_paths,
         )
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
@@ -480,6 +502,8 @@ async def get_detection_results(
                     confidence=float(d.get("confidence", 0)),
                     class_name=str(d.get("class_name", "person")),
                     zone=d.get("zone"),
+                    model=(Path(d["model"]).name if d.get("model") else None),
+                    is_primary=bool(d.get("is_primary", True)),
                 )
             )
     return out

@@ -111,10 +111,10 @@ export const camerasAPI = {
 
 export const detectionAPI = {
     start: (cameraId, {
-        source = '0', stream_type = 'webcam', zone = 'default', model = null, tracker = 'botsort.yaml', fps = 30, skip_frames = 1, enable_reid = true, loop = false,
+        source = '0', stream_type = 'webcam', zone = 'default', model = null, tracker = 'botsort.yaml', fps = 30, skip_frames = 1, enable_reid = true, loop = false, extra_models = '',
     } = {}) =>
         api.post(`/detection/start/${cameraId}`, null, {
-            params: { source, stream_type, zone, model, tracker, fps, skip_frames, enable_reid, loop },
+            params: { source, stream_type, zone, model, tracker, fps, skip_frames, enable_reid, loop, extra_models },
         }),
     stop: (cameraId) => api.post(`/detection/stop/${cameraId}`),
     status: () => api.get('/detection/status'),
