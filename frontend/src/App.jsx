@@ -36,7 +36,7 @@ import JobsPage from './pages/JobsPage';
 const pageTitles = {
     '/': 'Live Overview',
     '/jobs': 'Jobs',
-    '/detection': 'Video Feeds',
+    '/detection': 'Recordings',
     '/reid': 'Cross-Feed Matching',
     '/trim': 'Video Trimmer',
     '/shelf': 'Shelf Activity',

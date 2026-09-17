@@ -1,546 +1,219 @@
 /**
- * OmniTrack AI — Detection & Live Surveillance
- * ────────────────────────────────────────────
- * • Start/stop the multi-camera pipeline.
- * • Add any source: RTSP URL, local file, uploaded clip, webcam index.
- * • Live MJPEG grid with per-camera detection + track counts.
- * • Per-camera recording (start/stop).
+ * OmniTrack AI — Recordings
+ *
+ * The clip library behind job registration. Everything listed here is what the
+ * Add Job modal offers as a source, so this page is where clips are uploaded,
+ * previewed and checked before a job points at one.
  */
 
-import React, { useMemo, useState } from 'react';
-import { motion } from 'framer-motion';
+import React, { useMemo, useRef, useState } from 'react';
 import {
-    PlayCircle, StopCircle, Plus, Upload, Video, Circle, Square, RefreshCw,
+    Film, HardDrive, Play, Search, Upload, Video, X,
 } from 'lucide-react';
-import {
-    detectionAPI, pipelineAPI, footageAPI, liveStreamUrl, modelAPI, systemAPI,
-} from '../services/api';
+import { footageAPI } from '../services/api';
 import useLivePoll from '../hooks/useLivePoll';
-import useWebSocket from '../hooks/useWebSocket';
-import CameraStream from '../components/CameraStream';
+
+const MB = 1024 * 1024;
+
+function formatSize(bytes) {
+    const mb = (bytes || 0) / MB;
+    return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb.toFixed(1)} MB`;
+}
+
+function formatWhen(ts) {
+    if (!ts) return '—';
+    const d = new Date(ts * 1000);
+    const mins = Math.floor((Date.now() - d.getTime()) / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins} min ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs} hour${hrs === 1 ? '' : 's'} ago`;
+    const days = Math.floor(hrs / 24);
+    if (days < 7) return `${days} day${days === 1 ? '' : 's'} ago`;
+    return d.toLocaleDateString();
+}
+
+/** The upload endpoint prefixes camera_{id}_{epoch}_; show the original name. */
+function displayName(filename) {
+    const m = filename.match(/^camera_\d+_\d+_(.+)$/);
+    return (m ? m[1] : filename).replace(/\.[^.]+$/, '');
+}
 
 export default function DetectionPage() {
-    const [form, setForm] = useState({
-        cameraId: 1,
-        streamType: 'file',
-        source: '',
-        zone: 'entrance',
-        fps: 30,
-        model: '',
-        tracker: 'botsort.yaml',
-        enableReid: true,
-    });
-    const [feedTileScale, setFeedTileScale] = useState('md');
-    const [models, setModels] = useState([]);
-    const [selectedModelInfo, setSelectedModelInfo] = useState(null);
+    const { data: footage, refresh } = useLivePoll(
+        () => footageAPI.list(), { intervalMs: 10000 },
+    );
+
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState(null);
     const [notice, setNotice] = useState(null);
-    const [modelFetchUrl, setModelFetchUrl] = useState('');
+    const [query, setQuery] = useState('');
+    const [playing, setPlaying] = useState(null);
+    const fileRef = useRef(null);
 
-    const { data: pipeState, refresh: refreshPipeline } = useLivePoll(
-        () => pipelineAPI.status(), { intervalMs: 3000 }
-    );
-    const { data: detStatus, refresh: refreshDet } = useLivePoll(
-        () => detectionAPI.status(), { intervalMs: 2000 }
-    );
-    const { data: recStatus, refresh: refreshRec } = useLivePoll(
-        () => detectionAPI.recordingStatus(), { intervalMs: 5000 }
-    );
-    const { data: footage, refresh: refreshFootage } = useLivePoll(
-        () => footageAPI.list(), { intervalMs: 10000 }
-    );
-    const { data: modelsData, refresh: refreshModels } = useLivePoll(
-        () => modelAPI.list(), { intervalMs: 30000 }
-    );
-    const { data: profileInfo } = useLivePoll(
-        () => systemAPI.profile(), { intervalMs: 10000 }
+    const items = useMemo(() => {
+        const rows = Array.isArray(footage) ? footage : [];
+        const q = query.trim().toLowerCase();
+        const filtered = q
+            ? rows.filter((f) => f.filename.toLowerCase().includes(q))
+            : rows;
+        return [...filtered].sort((a, b) => (b.created_ts || 0) - (a.created_ts || 0));
+    }, [footage, query]);
+
+    const totalBytes = useMemo(
+        () => (Array.isArray(footage) ? footage : []).reduce((a, f) => a + (f.size_bytes || 0), 0),
+        [footage],
     );
 
-    // Update models list when data changes
-    React.useEffect(() => {
-        if (modelsData?.models) {
-            setModels(modelsData.models);
-            // Set default model if none selected
-            if (!form.model && modelsData.default_model) {
-                setForm(prev => ({ ...prev, model: modelsData.default_model }));
-            }
-        }
-    }, [modelsData]);
-
-    // Update selected model info when model changes
-    React.useEffect(() => {
-        if (form.model && models.length > 0) {
-            const model = models.find(m => m.filename === form.model);
-            setSelectedModelInfo(model || null);
-        } else {
-            setSelectedModelInfo(null);
-        }
-    }, [form.model, models]);
-
-    // Per-camera detection counters via WebSocket
-    const [cameraLive, setCameraLive] = useState({});
-    useWebSocket('/ws/live', {
-        onType: {
-            detection_update: (d) => setCameraLive((prev) => ({
-                ...prev,
-                [d.camera_id]: {
-                    person_count: d.person_count,
-                    active_tracks: d.active_tracks,
-                    ts: Date.now(),
-                },
-            })),
-            system_pressure: (d) => setNotice(`System pressure: ${d.status} (rss ${Number(d.memory?.rss_mb || 0).toFixed(0)}MB)`),
-        },
-    });
-
-    const activeCameras = useMemo(() => {
-        const ids = detStatus?.active_cameras;
-        if (Array.isArray(ids)) return ids.map(Number);
-        if (pipeState?.cameras?.zones) return Object.keys(pipeState.cameras.zones).map(Number);
-        return [];
-    }, [detStatus, pipeState]);
-
-    const cameraStats = detStatus?.camera_stats || {};
-    const cameraZones = pipeState?.cameras?.zones || {};
-    const recordingIds = new Set(
-        (recStatus?.recording_cameras || recStatus?.recording || []).map(Number)
-    );
-
-    const togglePipeline = async () => {
-        setBusy(true); setError(null);
-        try {
-            if (pipeState?.state === 'running') await pipelineAPI.stop();
-            else await pipelineAPI.start();
-            await refreshPipeline();
-        } catch (e) {
-            setError(e?.response?.data?.detail || e.message);
-        } finally { setBusy(false); }
-    };
-
-    const addCamera = async (e) => {
-        e.preventDefault();
-        setBusy(true); setError(null); setNotice(null);
-        try {
-            const { cameraId, streamType, source, zone, fps, model, tracker, enableReid } = form;
-            if (!source?.toString().trim()) throw new Error('Pick a video source before adding the feed.');
-            // Single registration path: detection/start already calls pipeline.add_camera and
-            // starts the session when idle. Calling pipeline add + detection start doubled
-            // add_camera (stop/replace stream) and broke second feeds.
-            await detectionAPI.start(Number(cameraId), {
-                source,
-                stream_type: streamType,
-                zone: zone || 'default',
-                model: model || undefined,
-                tracker: tracker || 'botsort.yaml',
-                fps: Number(fps) || 30,
-                skip_frames: 1,
-                enable_reid: enableReid,
-            });
-            setNotice(`Camera ${cameraId} added with model ${model || 'default'}.`);
-            await Promise.all([refreshPipeline(), refreshDet()]);
-        } catch (e) {
-            setError(e?.response?.data?.detail || e.message);
-        } finally { setBusy(false); }
-    };
-
-    const stopCamera = async (id) => {
-        setBusy(true); setError(null);
-        try {
-            await detectionAPI.stop(id);
-            await Promise.all([refreshPipeline(), refreshDet()]);
-        } catch (e) {
-            setError(e?.response?.data?.detail || e.message);
-        } finally { setBusy(false); }
-    };
-
-    const toggleRecord = async (id) => {
-        try {
-            if (recordingIds.has(id)) await detectionAPI.recordingStop(id);
-            else await detectionAPI.recordingStart(id);
-            await refreshRec();
-        } catch (e) {
-            setError(e?.response?.data?.detail || e.message);
-        }
-    };
-
-    const runSegment = async (id) => {
-        try {
-            const res = await detectionAPI.segmentRun(id);
-            const masks = res?.data?.masks || [];
-            setNotice(`SAM2 camera ${id}: ${masks.length} mask(s)`);
-        } catch (e) {
-            setError(e?.response?.data?.detail || e.message);
-        }
-    };
-
-    const uploadClip = async (fileList) => {
-        if (!fileList || fileList.length === 0) return;
-        setBusy(true); setError(null);
-        try {
-            await footageAPI.upload(fileList[0], Number(form.cameraId) || 1);
-            setNotice('Clip uploaded. Pick it from the dropdown below.');
-            await refreshFootage();
-        } catch (e) {
-            setError(e?.response?.data?.detail || e.message);
-        } finally { setBusy(false); }
-    };
-
-    const uploadModel = async (fileList) => {
+    const upload = async (fileList) => {
         if (!fileList || fileList.length === 0) return;
         setBusy(true); setError(null); setNotice(null);
         try {
-            await modelAPI.upload(fileList[0]);
-            setNotice(`Model uploaded: ${fileList[0].name}`);
-            await refreshModels();
+            await footageAPI.upload(fileList[0], 1);
+            setNotice(`${fileList[0].name} uploaded — it is now selectable when you register a job.`);
+            await refresh();
         } catch (e) {
             setError(e?.response?.data?.detail || e.message);
-        } finally { setBusy(false); }
-    };
-
-    const fetchModel = async () => {
-        if (!modelFetchUrl.trim()) return;
-        setBusy(true); setError(null); setNotice(null);
-        try {
-            await modelAPI.fetch(modelFetchUrl.trim());
-            setNotice(`Model fetched: ${modelFetchUrl.trim()}`);
-            setModelFetchUrl('');
-            await refreshModels();
-        } catch (e) {
-            setError(e?.response?.data?.detail || e.message);
-        } finally { setBusy(false); }
+        } finally {
+            setBusy(false);
+        }
     };
 
     return (
-        <div className="page-scroll">
-            <div className="page-header">
+        <div className="page-scroll rec-page">
+            <header className="rec-head">
                 <div>
-                    <h1 className="page-title">Video Feeds</h1>
-                    <p className="page-subtitle">Use uploaded videos as virtual cameras and monitor them live</p>
-                </div>
-                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                    <span className={`pill ${pipeState?.state === 'running' ? 'pill-success' : 'pill-warn'}`}>
-                        session · {pipeState?.state || 'idle'}
+                    <span className="rec-eyebrow">
+                        <Film size={12} aria-hidden />
+                        Video workspace
                     </span>
-                    <button className="btn btn-secondary btn-xs" onClick={() => { refreshPipeline(); refreshDet(); }}>
-                        <RefreshCw size={12} /> Refresh
-                    </button>
-                    <button
-                        className={`btn ${pipeState?.state === 'running' ? 'btn-danger' : 'btn-primary'} btn-xs`}
-                        onClick={togglePipeline}
-                        disabled={busy}
-                    >
-                        {pipeState?.state === 'running'
-                            ? (<><StopCircle size={14} /> Stop Session</>)
-                            : (<><PlayCircle size={14} /> Start Session</>)}
-                    </button>
+                    <h2 className="rec-title">Recordings</h2>
+                    <p className="rec-sub">
+                        Clips stored on the backend. These are what a job can point at as
+                        its source, so upload footage here before registering one.
+                    </p>
                 </div>
+                <label className={`rec-upload${busy ? ' is-busy' : ''}`}>
+                    <input
+                        ref={fileRef}
+                        type="file"
+                        accept="video/mp4,video/x-msvideo,video/x-matroska,video/webm,video/quicktime"
+                        hidden
+                        disabled={busy}
+                        onChange={(e) => { upload(e.target.files); e.target.value = ''; }}
+                    />
+                    <Upload size={15} aria-hidden />
+                    {busy ? 'Uploading…' : 'Upload clip'}
+                </label>
+            </header>
+
+            <div className="rec-summary">
+                <span className="rec-summary__item">
+                    <Film size={13} aria-hidden />
+                    <b>{(Array.isArray(footage) ? footage : []).length}</b>
+                    <em>clip{(Array.isArray(footage) ? footage : []).length === 1 ? '' : 's'}</em>
+                </span>
+                <span className="rec-summary__dot" aria-hidden />
+                <span className="rec-summary__item">
+                    <HardDrive size={13} aria-hidden />
+                    <b>{formatSize(totalBytes)}</b>
+                    <em>stored</em>
+                </span>
             </div>
 
             {error && <div className="alert-banner danger">{error}</div>}
-            {notice && <div className="alert-banner info">{notice}</div>}
+            {notice && <div className="alert-banner success">{notice}</div>}
 
-            <div className="two-col">
-                <div className="card">
-                    <div className="card-header">
-                        <h3 className="card-title">Add Video Feed</h3>
-                        <div className="card-subtitle">Primary flow: upload a video and run it as a virtual camera</div>
-                    </div>
-                    <form onSubmit={addCamera} style={{ display: 'grid', gap: 10 }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                            <div>
-                                <label className="form-label">
-                                    Feed Slot ID
-                                    {profileInfo?.max_cameras != null && (
-                                        <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: 6 }}>
-                                            (max {profileInfo.max_cameras})
-                                        </span>
-                                    )}
-                                </label>
-                                <input
-                                    className="form-input"
-                                    type="number"
-                                    min={1}
-                                    max={profileInfo?.max_cameras ?? 64}
-                                    value={form.cameraId}
-                                    onChange={(e) => setForm({ ...form, cameraId: e.target.value })}
-                                    required
-                                />
-                            </div>
-                            <div>
-                                <label className="form-label">Area Label</label>
-                                <input
-                                    className="form-input"
-                                    value={form.zone}
-                                    onChange={(e) => setForm({ ...form, zone: e.target.value })}
-                                    placeholder="entrance, aisle, checkout"
-                                />
-                            </div>
-                        </div>
+            {(Array.isArray(footage) ? footage : []).length > 0 && (
+                <div className="rec-search">
+                    <Search size={14} aria-hidden />
+                    <input
+                        className="rec-search__input"
+                        placeholder="Filter by filename…"
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                    />
+                    {query && (
+                        <button type="button" className="rec-search__clear" onClick={() => setQuery('')}>
+                            <X size={13} aria-hidden />
+                        </button>
+                    )}
+                </div>
+            )}
 
-                        <div>
-                            <label className="form-label">Detection Model</label>
-                            <select
-                                className="form-select"
-                                value={form.model}
-                                onChange={(e) => setForm({ ...form, model: e.target.value })}
-                            >
-                                <option value="">Default (yolov8n.pt)</option>
-                                {models.map((m) => (
-                                    <option key={m.filename} value={m.filename}>
-                                        {m.filename} ({m.num_classes} classes)
-                                    </option>
-                                ))}
-                            </select>
-                            {selectedModelInfo && (
-                                <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
-                                    <strong>Detects:</strong> {selectedModelInfo.classes?.slice(0, 5).map(c => c.name).join(', ')}
-                                    {selectedModelInfo.classes?.length > 5 && ` +${selectedModelInfo.classes.length - 5} more`}
-                                    <br />
-                                    <strong>Task:</strong> {selectedModelInfo.task || 'detect'} · <strong>Family:</strong> {selectedModelInfo.family || 'custom'} · <strong>Size:</strong> {selectedModelInfo.size_mb || ((selectedModelInfo.size_bytes || 0) / (1024 * 1024)).toFixed(1)} MB
-                                    {selectedModelInfo.recommended_profile && profileInfo?.runtime_profile
-                                        && selectedModelInfo.recommended_profile !== profileInfo.runtime_profile && (
-                                            <>
-                                                <br />
-                                                <span style={{ color: 'var(--accent-amber)' }}>
-                                                    Warning: recommended for {selectedModelInfo.recommended_profile}, current profile is {profileInfo.runtime_profile}.
-                                                </span>
-                                            </>
-                                        )}
-                                </div>
-                            )}
-                            <div style={{ marginTop: 8, display: 'grid', gridTemplateColumns: '1fr auto', gap: 8 }}>
-                                <input
-                                    className="form-input"
-                                    value={modelFetchUrl}
-                                    onChange={(e) => setModelFetchUrl(e.target.value)}
-                                    placeholder="Fetch model by URL or asset name (e.g. yolo26l.pt)"
-                                />
-                                <button type="button" className="btn btn-secondary btn-xs" onClick={fetchModel} disabled={busy}>
-                                    Fetch
-                                </button>
-                            </div>
-                            <label
-                                className="btn btn-secondary btn-xs"
-                                style={{ marginTop: 8, display: 'inline-flex', cursor: 'pointer', justifyContent: 'center' }}
-                            >
-                                <Upload size={12} />
-                                <span style={{ marginLeft: 6 }}>Upload weights</span>
-                                <input type="file" accept=".pt,.onnx,.engine,.tflite,.pth" hidden onChange={(e) => uploadModel(e.target.files)} />
-                            </label>
-                        </div>
-
-                        <div>
-                            <label className="form-label">Tracker</label>
-                            <select
-                                className="form-select"
-                                value={form.tracker}
-                                onChange={(e) => setForm({ ...form, tracker: e.target.value })}
-                            >
-                                <option value="botsort.yaml">BoT-SORT</option>
-                                <option value="bytetrack.yaml">ByteTrack</option>
-                            </select>
-                        </div>
-
-                        <label
-                            style={{
-                                display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer',
-                                padding: '10px 12px', borderRadius: 10, border: '1px solid var(--border)',
-                                background: 'var(--bg-glass)',
-                            }}
+            {items.length === 0 ? (
+                <div className="rec-empty">
+                    <span className="rec-empty__glyph"><Video size={26} aria-hidden /></span>
+                    <h3>{query ? 'No clips match that filter' : 'No recordings yet'}</h3>
+                    <p>
+                        {query
+                            ? 'Try a different search term.'
+                            : 'Upload a video and it becomes available as a job source. MP4, AVI, MKV, WEBM or MOV.'}
+                    </p>
+                    {!query && (
+                        <button
+                            type="button"
+                            className="rec-upload rec-upload--lg"
+                            onClick={() => fileRef.current?.click()}
+                            disabled={busy}
                         >
-                            <input
-                                type="checkbox"
-                                checked={form.enableReid}
-                                onChange={(e) => setForm({ ...form, enableReid: e.target.checked })}
-                                style={{ marginTop: 3 }}
-                            />
-                            <span style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.45 }}>
-                                <strong style={{ color: 'var(--text-primary)' }}>Cross-camera Re-ID</strong>
-                                {' '}(512-d OSNet embeddings + shared gallery). Disable on weaker hardware or when you only need per-feed tracking.
-                            </span>
-                        </label>
-
-                        <div>
-                            <label className="form-label">Input Type</label>
-                            <select
-                                className="form-select"
-                                value={form.streamType}
-                                onChange={(e) => setForm({ ...form, streamType: e.target.value })}
+                            <Upload size={16} aria-hidden />
+                            {busy ? 'Uploading…' : 'Upload your first clip'}
+                        </button>
+                    )}
+                </div>
+            ) : (
+                <div className="rec-grid">
+                    {items.map((f) => (
+                        <article className="rec-card" key={f.filename}>
+                            <button
+                                type="button"
+                                className="rec-card__thumb"
+                                onClick={() => setPlaying(f)}
+                                title="Preview this clip"
                             >
-                                <option value="file">Uploaded video (recommended)</option>
-                                <option value="rtsp">RTSP camera (advanced)</option>
-                                <option value="webcam">USB webcam (advanced)</option>
-                                <option value="http">HTTP(S) / MJPEG URL (advanced)</option>
-                            </select>
-                        </div>
-
-                        <div>
-                            <label className="form-label">Source</label>
-                            {form.streamType === 'file' ? (
-                                <select
-                                    className="form-select"
-                                    value={form.source}
-                                    onChange={(e) => setForm({ ...form, source: e.target.value })}
-                                >
-                                    <option value="">Select uploaded video...</option>
-                                    {(footage || []).map((f) => (
-                                        <option key={f.filename} value={`footage:${f.filename}`}>
-                                            {f.filename} - feed {f.camera_id ?? '-'}
-                                        </option>
-                                    ))}
-                                </select>
-                            ) : (
-                                <input
-                                    className="form-input"
-                                    value={form.source}
-                                    onChange={(e) => setForm({ ...form, source: e.target.value })}
-                                    placeholder={
-                                        form.streamType === 'rtsp' ? 'rtsp://admin:pass@192.168.1.10:554/stream' :
-                                            form.streamType === 'http' ? 'https://cam.example.com/mjpeg' :
-                                                '0'
-                                    }
-                                />
-                            )}
-                        </div>
-
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, alignItems: 'end' }}>
-                            <div>
-                                <label className="form-label">FPS cap</label>
-                                <input
-                                    className="form-input" type="number" min={1} max={60}
-                                    value={form.fps}
-                                    onChange={(e) => setForm({ ...form, fps: e.target.value })}
-                                />
-                            </div>
-                            <button type="submit" className="btn btn-primary" disabled={busy}>
-                                <Plus size={14} /> Add Feed
+                                <span className="rec-card__play"><Play size={18} aria-hidden /></span>
                             </button>
-                        </div>
-
-                        <label
-                            className="btn btn-secondary"
-                            style={{ display: 'inline-flex', cursor: 'pointer', justifyContent: 'center' }}
-                        >
-                            <Upload size={14} />
-                            <span style={{ marginLeft: 8 }}>Upload video</span>
-                            <input
-                                type="file" accept="video/*" hidden
-                                onChange={(e) => uploadClip(e.target.files)}
-                            />
-                        </label>
-                    </form>
+                            <div className="rec-card__body">
+                                <span className="rec-card__name" title={f.filename}>
+                                    {displayName(f.filename)}
+                                </span>
+                                <span className="rec-card__meta">
+                                    {formatSize(f.size_bytes)} · {formatWhen(f.created_ts)}
+                                </span>
+                            </div>
+                        </article>
+                    ))}
                 </div>
+            )}
 
-                <div className="card">
-                    <div className="card-header">
-                        <h3 className="card-title">Session Status</h3>
-                        <div className="card-subtitle">Live counters for your active video feeds</div>
-                    </div>
-                    <div style={{ display: 'grid', gap: 10 }}>
-                        <Row label="State" value={pipeState?.state || 'idle'} />
-                        <Row label="Total feeds" value={pipeState?.cameras?.total ?? activeCameras.length} />
-                        <Row label="Frames processed"
-                            value={pipeState?.frame_counts
-                                ? Object.values(pipeState.frame_counts).reduce((a, b) => a + b, 0)
-                                : 0} />
-                        <Row label="People detections"
-                            value={pipeState?.total_detections_processed ?? 0} />
-                        <Row label="Cross-feed memory size"
-                            value={pipeState?.ai_modules?.reid?.gallery_size ?? 0} />
-                        <Row label="Recording"
-                            value={recordingIds.size ? `${recordingIds.size} feed(s)` : 'idle'} />
-                    </div>
-                </div>
-            </div>
-
-            <div className="card" style={{ marginTop: 18 }}>
-                <div className="card-header">
-                    <h3 className="card-title">
-                        <Video size={16} style={{ verticalAlign: -3, marginRight: 6 }} />
-                        Active Video Feeds ({activeCameras.length})
-                    </h3>
-                    <div className="card-subtitle" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
-                        <span>People counts update in real time; FPS refreshes every 2 seconds</span>
-                        {activeCameras.length > 0 && (
-                            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
-                                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Tile size</span>
-                                <select
-                                    className="form-select"
-                                    style={{ width: 'auto', minWidth: 120, padding: '6px 10px', fontSize: 12 }}
-                                    value={feedTileScale}
-                                    onChange={(e) => setFeedTileScale(e.target.value)}
-                                >
-                                    <option value="md">Standard</option>
-                                    <option value="lg">Large</option>
-                                    <option value="xl">Extra large</option>
-                                </select>
-                            </label>
-                        )}
+            {playing && (
+                <div
+                    className="rec-player"
+                    role="dialog"
+                    aria-modal="true"
+                    onClick={() => setPlaying(null)}
+                >
+                    <div className="rec-player__box" onClick={(e) => e.stopPropagation()}>
+                        <header className="rec-player__head">
+                            <span title={playing.filename}>{displayName(playing.filename)}</span>
+                            <button type="button" onClick={() => setPlaying(null)} aria-label="Close preview">
+                                <X size={16} />
+                            </button>
+                        </header>
+                        <video
+                            className="rec-player__video"
+                            src={footageAPI.serveUrl(playing.filename)}
+                            controls
+                            autoPlay
+                        />
+                        <footer className="rec-player__foot">
+                            <code>{playing.filename}</code>
+                            <span>{formatSize(playing.size_bytes)}</span>
+                        </footer>
                     </div>
                 </div>
-
-                {activeCameras.length === 0 ? (
-                    <div className="page-empty-hint">
-                        No active feeds. Upload a video and add it as a feed above.
-                    </div>
-                ) : (
-                    <div className={`camera-grid${feedTileScale === 'xl' ? ' camera-grid-feed-xl' : feedTileScale === 'lg' ? ' camera-grid-feed-lg' : ''}`}>
-                        {activeCameras.map((id) => {
-                            const s = cameraStats[id] || cameraStats[String(id)] || {};
-                            const live = cameraLive[id] || cameraLive[String(id)] || {};
-                            const isRecording = recordingIds.has(id);
-                            return (
-                                <div key={id} style={{ position: 'relative' }}>
-                                    <CameraStream
-                                        cameraId={id}
-                                        label={`Camera ${id}`}
-                                        zone={cameraZones[id] || cameraZones[String(id)]}
-                                        fps={s.fps ?? s.fps_actual}
-                                        connected={s.connected !== false}
-                                        detectionCount={live.person_count}
-                                        trackCount={live.active_tracks}
-                                        onClose={() => stopCamera(id)}
-                                    />
-                                    <div style={{
-                                        display: 'flex', gap: 6, justifyContent: 'flex-end',
-                                        padding: '8px 2px',
-                                    }}>
-                                        <button
-                                            className={`btn ${isRecording ? 'btn-danger' : 'btn-secondary'} btn-xs`}
-                                            onClick={() => toggleRecord(id)}
-                                        >
-                                            {isRecording ? <Square size={12} /> : <Circle size={12} />}
-                                            {isRecording ? 'Stop Recording' : 'Record Feed'}
-                                        </button>
-                                        <button
-                                            className="btn btn-secondary btn-xs"
-                                            onClick={() => runSegment(id)}
-                                            disabled={!profileInfo?.runtime_profile || profileInfo?.runtime_profile === 'laptop'}
-                                            title={profileInfo?.runtime_profile === 'laptop' ? 'Enable workstation profile for SAM2' : 'Run on-demand SAM2 segmentation'}
-                                        >
-                                            Segment
-                                        </button>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-}
-
-function Row({ label, value }) {
-    return (
-        <div style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            padding: '8px 10px', background: 'var(--bg-glass)',
-            borderRadius: 10, border: '1px solid var(--border)',
-        }}>
-            <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{label}</span>
-            <span style={{ fontWeight: 600, fontSize: 13 }}>{String(value)}</span>
+            )}
         </div>
     );
 }

@@ -9,7 +9,7 @@ import { motion } from 'framer-motion';
 import {
     LayoutDashboard, Users, Scan, Video, ShoppingBag,
     Flame, UsersRound, ShoppingCart, SmilePlus, ShieldCheck,
-    Activity, TrendingUp, BarChart3, LogOut, Sun, Moon, ShieldAlert, Scissors, Layers
+    Activity, TrendingUp, BarChart3, Film, LogOut, Sun, Moon, ShieldAlert, Scissors, Layers
 } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { tokenStore } from '../services/api';
@@ -20,7 +20,7 @@ const navItems = [
     { path: '/vibe', icon: Activity, label: 'Store Pulse' },
     { section: 'Video Workspace' },
     { path: '/jobs', icon: Layers, label: 'Jobs' },
-    { path: '/detection', icon: Scan, label: 'Video Feeds' },
+    { path: '/detection', icon: Film, label: 'Recordings' },
     { path: '/reid', icon: Users, label: 'Cross-Feed Match' },
     { path: '/trim', icon: Scissors, label: 'Video Trimmer' },
     { section: 'Insights' },
