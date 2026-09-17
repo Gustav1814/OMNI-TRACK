@@ -86,6 +86,10 @@ if TYPE_CHECKING:
 
 _MAX_REID_SNAPSHOT_CACHE = 400
 _REID_WS_EMIT_MIN_INTERVAL_S = 1.5
+# A match must clear this before its embedding joins the identity's gallery.
+# Sits above REID_SIMILARITY_THRESHOLD on purpose: matching is allowed to be
+# permissive, but only strong evidence is allowed to redefine an identity.
+_REID_REINFORCE_MIN = 0.85
 
 
 class PipelineState(str, Enum):
@@ -1484,7 +1488,14 @@ class ProcessingPipeline:
                             if matches:
                                 global_id = matches[0]["id"]
                                 match_sim = float(matches[0].get("similarity", 0.0))
-                                if match_sim < 0.92:
+                                # Only a confident match earns a place in the gallery.
+                                # Storing every borderline match let one wrong merge
+                                # widen that identity — search takes the BEST score
+                                # across an id's embeddings, so each bad addition
+                                # pulled in more strangers until everyone shared an id.
+                                # Above 0.97 adds nothing but memory: near-duplicates
+                                # of a view already stored.
+                                if _REID_REINFORCE_MIN <= match_sim < 0.97:
                                     self.reid.add_embedding_to_id(global_id, embedding)
                             elif prev_global and key:
                                 global_id = prev_global
