@@ -1200,3 +1200,67 @@ html.light .jobs-empty__steps li { background: rgba(15, 23, 42, 0.028); }
   border-color: var(--border-hover);
   box-shadow: var(--shadow-md);
 }
+
+/* ============================================================
+   Jobs header v6 — editorial header with a live subtitle
+   ============================================================ */
+.jobs-page__head {
+  align-items: flex-end;
+  padding-bottom: 0 !important;
+  margin-bottom: 14px;
+}
+
+.jobs-page__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent-secondary);
+  margin-bottom: 9px;
+}
+.jobs-page__eyebrow svg { opacity: 0.9; }
+
+.jobs-page__title {
+  font-size: 27px !important;
+  font-weight: 720;
+  letter-spacing: -0.032em !important;
+  line-height: 1.12 !important;
+  margin: 0 0 6px !important;
+}
+
+.jobs-page__sub {
+  font-size: 14px !important;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  max-width: 56ch;
+}
+
+/* Summary: a framed strip, not loose text on the page */
+.jobs-summary {
+  gap: 0 2px;
+  margin: 0 0 22px !important;
+  padding: 11px 6px !important;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-card);
+  box-shadow: var(--shadow-sm);
+}
+html.light .jobs-summary { background: var(--bg-card); }
+
+.jobs-summary__item { padding: 3px 12px; font-size: 13px; }
+.jobs-summary__item b { font-size: 13.5px; letter-spacing: -0.012em; }
+.jobs-summary__item em { font-size: 12px; }
+.jobs-summary__dot { background: var(--border); }
+
+/* Create Job: slightly more presence as the page's one action */
+.jobs-page__create {
+  height: 40px;
+  padding: 0 18px;
+  border-radius: 11px;
+  font-size: 13.5px;
+  transition: background var(--transition-fast), border-color var(--transition-fast),
+    transform var(--transition-fast);
+}

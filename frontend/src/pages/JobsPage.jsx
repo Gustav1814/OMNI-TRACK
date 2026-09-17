@@ -185,6 +185,7 @@ export default function JobsPage() {
     const jobs = useMemo(() => data?.jobs ?? [], [data]);
     const [createOpen, setCreateOpen] = useState(false);
     const atCapacity = jobs.length >= MAX_JOBS;
+    const runningCount = jobs.filter((j) => j.connected).length;
     const storagePct = artifacts?.quota_mb
         ? Math.min(100, (artifacts.usage_mb / artifacts.quota_mb) * 100)
         : 0;
@@ -206,32 +207,47 @@ export default function JobsPage() {
         <div className="jobs-page">
             <header className="jobs-page__head">
                 <div className="jobs-page__lead">
+                    <span className="jobs-page__eyebrow">
+                        <Layers size={12} aria-hidden />
+                        Video workspace
+                    </span>
                     <h2 className="jobs-page__title">Registered Jobs</h2>
                     <p className="jobs-page__sub">
-                        Each job runs one camera through its own model, tracker and regions.
+                        {runningCount > 0
+                            ? `${runningCount} of ${jobs.length} ${jobs.length === 1 ? 'job is' : 'jobs are'} processing frames right now.`
+                            : 'Each job runs one camera through its own model, tracker and regions.'}
                     </p>
                 </div>
-                <button
-                    type="button"
-                    className="jobs-page__create"
-                    onClick={() => setCreateOpen(true)}
-                    disabled={atCapacity}
-                    title={atCapacity
-                        ? `Job limit reached (${MAX_JOBS}) — delete one first`
-                        : 'Register a new job'}
-                >
-                    <Plus size={15} /> Create Job
-                </button>
+                {/* The empty state carries its own call to action, so showing this
+                    one too would put two identical buttons on the same screen. */}
+                {jobs.length > 0 && (
+                    <button
+                        type="button"
+                        className="jobs-page__create"
+                        onClick={() => setCreateOpen(true)}
+                        disabled={atCapacity}
+                        title={atCapacity
+                            ? `Job limit reached (${MAX_JOBS}) — delete one first`
+                            : 'Register a new job'}
+                    >
+                        <Plus size={15} /> Create Job
+                    </button>
+                )}
             </header>
 
             {/* One quiet line: no boxes, just the numbers and what they mean. */}
             <div className="jobs-summary">
-                <span className={`jobs-summary__item${atCapacity ? ' is-warn' : ''}`}>
-                    <Layers size={13} aria-hidden />
-                    <b>{jobs.length} of {MAX_JOBS}</b>
-                    <em>slots used</em>
-                </span>
-                <span className="jobs-summary__dot" aria-hidden />
+                {/* With no jobs the empty state already states the limit. */}
+                {jobs.length > 0 && (
+                    <>
+                        <span className={`jobs-summary__item${atCapacity ? ' is-warn' : ''}`}>
+                            <Layers size={13} aria-hidden />
+                            <b>{jobs.length} of {MAX_JOBS}</b>
+                            <em>slots used</em>
+                        </span>
+                        <span className="jobs-summary__dot" aria-hidden />
+                    </>
+                )}
                 <span className="jobs-summary__item">
                     <ImageIcon size={13} aria-hidden />
                     <b>{(artifacts?.snapshots ?? 0).toLocaleString()}</b>
