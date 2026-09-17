@@ -8,8 +8,8 @@
 
 import React, { useCallback, useMemo, useState } from 'react';
 import {
-    AlertTriangle, Cpu, Eye, Film, HardDrive, ImageIcon, Layers,
-    MonitorPlay, Plus, Trash2, Video,
+    AlertTriangle, Circle, Cpu, Eye, Film, HardDrive, ImageIcon, Layers,
+    MonitorPlay, Plus, Square, Trash2, Video,
 } from 'lucide-react';
 import { detectionAPI } from '../services/api';
 import useLivePoll from '../hooks/useLivePoll';
@@ -55,9 +55,15 @@ function headline(job) {
 
 /* ── Card ───────────────────────────────────────────────────────────── */
 
-function JobCard({ job, onDelete }) {
+function JobCard({ job, onDelete, isRecording, onToggleRecord }) {
     const [liveOpen, setLiveOpen] = useState(false);
     const [busy, setBusy] = useState(false);
+    const [recBusy, setRecBusy] = useState(false);
+
+    const toggleRecord = async () => {
+        setRecBusy(true);
+        try { await onToggleRecord(job.camera_id, isRecording); } finally { setRecBusy(false); }
+    };
 
     const { data: alertData } = useLivePoll(
         () => detectionAPI.jobAlerts(job.camera_id, 10),
@@ -163,6 +169,20 @@ function JobCard({ job, onDelete }) {
                 <button type="button" className="jcard__live" onClick={() => setLiveOpen(true)}>
                     <MonitorPlay size={13} aria-hidden /> Live stream
                 </button>
+                <button
+                    type="button"
+                    className={`jcard__rec${isRecording ? ' is-on' : ''}`}
+                    onClick={toggleRecord}
+                    disabled={recBusy || !job.connected}
+                    title={!job.connected
+                        ? 'Start the job before recording'
+                        : isRecording
+                            ? 'Stop recording and save the clip'
+                            : 'Record this feed with its detection overlay'}
+                >
+                    {isRecording ? <Square size={12} aria-hidden /> : <Circle size={12} aria-hidden />}
+                    {recBusy ? 'Working…' : isRecording ? 'Stop recording' : 'Record'}
+                </button>
             </footer>
 
             <LiveMonitorModal open={liveOpen} onClose={() => setLiveOpen(false)} job={job} />
@@ -181,8 +201,24 @@ export default function JobsPage() {
         () => detectionAPI.jobArtifacts(),
         { intervalMs: 15000 },
     );
+    // Which feeds are recording. Polled rather than held locally so the state
+    // survives a reload and reflects recordings started elsewhere.
+    const { data: recording, refresh: refreshRecording } = useLivePoll(
+        () => detectionAPI.recordingStatus(),
+        { intervalMs: 4000 },
+    );
 
     const jobs = useMemo(() => data?.jobs ?? [], [data]);
+    const recordingIds = useMemo(() => {
+        const ids = recording?.recording_cameras ?? recording?.recording ?? [];
+        return new Set((Array.isArray(ids) ? ids : []).map(Number));
+    }, [recording]);
+
+    const toggleRecord = useCallback(async (cameraId, isOn) => {
+        if (isOn) await detectionAPI.recordingStop(cameraId);
+        else await detectionAPI.recordingStart(cameraId);
+        await refreshRecording();
+    }, [refreshRecording]);
     const [createOpen, setCreateOpen] = useState(false);
     const atCapacity = jobs.length >= MAX_JOBS;
     const runningCount = jobs.filter((j) => j.connected).length;
@@ -301,7 +337,13 @@ export default function JobsPage() {
 
             <div className="jobs-grid">
                 {jobs.map((job) => (
-                    <JobCard key={job.camera_id} job={job} onDelete={onDelete} />
+                    <JobCard
+                        key={job.camera_id}
+                        job={job}
+                        onDelete={onDelete}
+                        isRecording={recordingIds.has(Number(job.camera_id))}
+                        onToggleRecord={toggleRecord}
+                    />
                 ))}
             </div>
 

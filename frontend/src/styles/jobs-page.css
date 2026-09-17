@@ -1264,3 +1264,37 @@ html.light .jobs-summary { background: var(--bg-card); }
   transition: background var(--transition-fast), border-color var(--transition-fast),
     transform var(--transition-fast);
 }
+
+/* ── Record control on a job card ───────────────────────────── */
+.jobs-page .jcard__rec {
+  flex: 1 0 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 34px;
+  margin-top: 6px;
+  border-radius: var(--r-sm, 8px);
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast),
+    color var(--transition-fast);
+}
+.jobs-page .jcard__rec:hover:not(:disabled) {
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+.jobs-page .jcard__rec:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Recording: unmistakable, and the dot pulses so it reads as live */
+.jobs-page .jcard__rec.is-on {
+  border-color: color-mix(in srgb, var(--status-danger) 40%, transparent);
+  background: color-mix(in srgb, var(--status-danger) 13%, transparent);
+  color: var(--status-danger);
+}
+.jobs-page .jcard__rec.is-on svg { fill: currentColor; }
+.jobs-page .jcard__rec:not(.is-on) svg { color: var(--status-danger); fill: currentColor; }
