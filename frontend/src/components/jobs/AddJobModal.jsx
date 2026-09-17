@@ -317,6 +317,24 @@ function SourceSection({
             : <span className="field__hint">{SOURCE_HINT[sourceMode]}</span>}
         </label>
       )}
+
+      <label className="ajm-toggle">
+        <input
+    type="checkbox"
+    checked={draft.enable_reid !== false}
+    onChange={(e) => patch({ enable_reid: e.target.checked })}
+  />
+        <span>
+          <strong>Cross-camera Re-ID</strong>
+          <em>
+            Gives each person a 512-d OSNet embedding and matches them against a
+            shared gallery, so the same shopper keeps one identity across feeds.
+            It is the heaviest step in the pipeline — turn it off for a single
+            camera, or when you only need per-feed tracking.
+          </em>
+        </span>
+      </label>
+
       <div className="ajm-source-actions">
         <button
     type="button"

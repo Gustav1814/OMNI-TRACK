@@ -1492,8 +1492,9 @@
   cursor: progress;
 }
 
-/* ── Source: replay-on-finish toggle ────────────────────────────────── */
-.ajm-loop {
+/* ── Toggles: replay-on-finish, cross-camera Re-ID ──────────────────── */
+.ajm-loop,
+.ajm-toggle {
   display: flex;
   align-items: flex-start;
   gap: 10px;
@@ -1505,7 +1506,8 @@
   cursor: pointer;
 }
 
-.ajm-loop input {
+.ajm-loop input,
+.ajm-toggle input {
   margin-top: 2px;
   width: 15px;
   height: 15px;
@@ -1513,22 +1515,28 @@
   cursor: pointer;
 }
 
-.ajm-loop span {
+.ajm-loop span,
+.ajm-toggle span {
   display: flex;
   flex-direction: column;
   gap: 3px;
   min-width: 0;
 }
 
-.ajm-loop strong {
+.ajm-loop strong,
+.ajm-toggle strong {
   font-size: 12.5px;
   font-weight: 650;
   color: var(--text-0);
 }
 
-.ajm-loop em {
+.ajm-loop em,
+.ajm-toggle em {
   font-style: normal;
   font-size: 11.5px;
   line-height: 1.5;
   color: var(--text-2);
 }
+
+/* Re-ID toggle sits below the stage panels, so it needs its own top gap */
+.ajm-toggle { margin-top: 14px; }

@@ -228,7 +228,7 @@ export function useRegisterJob() {
                 // clip with 15 crossings: every frame -> 15, every 2nd -> 11,
                 // every 6th -> 1.
                 skip_frames: 0,
-                enable_reid: true,
+                enable_reid: request.enable_reid !== false,
                 loop: Boolean(request.loop),
             });
 
