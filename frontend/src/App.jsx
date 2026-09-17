@@ -20,7 +20,6 @@ import RegisterPage from './pages/RegisterPage';
 import DashboardPage from './pages/DashboardPage';
 import DetectionPage from './pages/DetectionPage';
 import ReIDPage from './pages/ReIDPage';
-import SynopsisPage from './pages/SynopsisPage';
 import ShelfPage from './pages/ShelfPage';
 import FirePage from './pages/FirePage';
 import CrowdPage from './pages/CrowdPage';
@@ -39,7 +38,6 @@ const pageTitles = {
     '/jobs': 'Jobs',
     '/detection': 'Video Feeds',
     '/reid': 'Cross-Feed Matching',
-    '/synopsis': 'Highlights Reel',
     '/trim': 'Video Trimmer',
     '/shelf': 'Shelf Activity',
     '/fire': 'Safety Watch',
@@ -135,7 +133,6 @@ function ProtectedLayout() {
                             <Route path="/jobs" element={<JobsPage />} />
                             <Route path="/detection" element={<DetectionPage />} />
                             <Route path="/reid" element={<ReIDPage />} />
-                            <Route path="/synopsis" element={<SynopsisPage />} />
                             <Route path="/trim" element={<TrimPage />} />
                             <Route path="/shelf" element={<ShelfPage />} />
                             <Route path="/fire" element={<FirePage />} />

@@ -167,19 +167,6 @@ export const reidAPI = {
 };
 
 // ────────────────────────────────────────────────────────────────
-// Video Synopsis
-// ────────────────────────────────────────────────────────────────
-
-export const synopsisAPI = {
-    list: () => api.get('/synopsis/'),
-    generate: (cameraId, { source, compression = 10.0, hours = 1 } = {}) =>
-        api.post('/synopsis/generate', null, {
-            params: { camera_id: cameraId, hours, compression, ...(source ? { source } : {}) },
-        }),
-    job: (jobId) => api.get(`/synopsis/jobs/${jobId}`),
-};
-
-// ────────────────────────────────────────────────────────────────
 // Analytics
 // ────────────────────────────────────────────────────────────────
 

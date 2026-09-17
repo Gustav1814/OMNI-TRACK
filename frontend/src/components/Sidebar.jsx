@@ -22,7 +22,6 @@ const navItems = [
     { path: '/jobs', icon: Layers, label: 'Jobs' },
     { path: '/detection', icon: Scan, label: 'Video Feeds' },
     { path: '/reid', icon: Users, label: 'Cross-Feed Match' },
-    { path: '/synopsis', icon: Video, label: 'Highlights Reel' },
     { path: '/trim', icon: Scissors, label: 'Video Trimmer' },
     { section: 'Insights' },
     { path: '/shelf', icon: ShoppingBag, label: 'Shelf Activity' },
