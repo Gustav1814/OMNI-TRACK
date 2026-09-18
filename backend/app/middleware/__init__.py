@@ -120,15 +120,27 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # Determine rate limit
         client_ip = request.client.host if request.client else "unknown"
         
-        # Stricter limit for auth endpoints
+        # Each limit class needs its OWN counter. Deriving the bucket from the URL
+        # segment alone put /api/artifacts/file/* and /api/artifacts under the
+        # same key ("ip:artifacts") while giving them different ceilings, so 60
+        # thumbnail requests filled the shared counter and the next listing call
+        # was refused at 120 — a 429 on a page the user had just opened.
         if "/auth/login" in path:
-            max_requests, window = 10, 60   # 10 login attempts per minute
+            max_requests, window, bucket = 10, 60, "auth-login"
         elif "/auth/" in path:
-            max_requests, window = 30, 60   # 30 auth requests per minute
+            max_requests, window, bucket = 30, 60, "auth"
+        elif "/artifacts/file/" in path or "/footage/serve/" in path:
+            # Media reads, not actions. One gallery page is ~60 <img> requests
+            # fired at once, and a video preload can issue several ranged
+            # requests per clip. Still authenticated and still bounded, just at
+            # a browsing-shaped rate.
+            max_requests, window, bucket = 900, 60, "media"
         else:
+            parts = path.split("/")
             max_requests, window = 120, 60  # 120 general requests per minute
+            bucket = parts[2] if len(parts) > 2 else "general"
 
-        identifier = f"{client_ip}:{path.split('/')[2] if len(path.split('/')) > 2 else 'general'}"
+        identifier = f"{client_ip}:{bucket}"
 
         # Check rate limit
         if self._cache:

@@ -63,7 +63,6 @@ from app.middleware import (
 from app.services.cache import RedisCache
 from app.services.broadcast import BroadcastService
 from app.services.pipeline import ProcessingPipeline
-from app.services.export import ExportService
 from app.services.persistence import PersistencePipelineCallback
 from app.services.event_bus import KafkaBus, RedisStreamBus, NullBus
 from app.services.vector_store import PgVectorStore, QdrantStore, FaissStore
@@ -72,6 +71,8 @@ from app.services.storage_guard import StorageGuard
 
 # Routers
 from app.routers import auth, cameras, detection, reid, footage, model
+from app.routers import export as export_router_mod
+from app.routers import artifacts as artifacts_router_mod
 from app.routers.analytics import (
     synopsis_router,
     shelf_router,
@@ -395,6 +396,8 @@ app.include_router(vibe_router)
 app.include_router(demographics_router)
 app.include_router(peak_hours_router)
 app.include_router(dashboard_router)
+app.include_router(export_router_mod.router)
+app.include_router(artifacts_router_mod.router)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -415,16 +418,23 @@ async def security_robustness_run(
     sample_size: int = 4,
     eps_fgsm: float = 0.03,
     eps_pgd: float = 0.03,
-    pgd_steps: int = 5,
+    pgd_steps: int = 10,
     image_dir: str | None = None,
+    video_path: str | None = None,
 ):
     """
     Run adversarial robustness evaluation (FGSM, PGD) via ART.
-    Requires: pip install adversarial-robustness-toolbox[torch]
+    Requires: pip install adversarial-robustness-toolbox
 
-    If `image_dir` is provided, sample real images from that folder;
-    otherwise uses the configured `FOOTAGE_DIR`, or random noise as a last resort.
-    Returns YOLO person-detection counts before/after attacks.
+    White-box: gradients are taken through the YOLO network itself, so the
+    attacks target the weights actually being defended.
+
+    Samples come from `image_dir`, else `video_path`, else the configured
+    FOOTAGE_DIR, else a bundled clip. Returns person-detection counts on clean
+    vs adversarial frames — the ratio is the documented resilience figure.
+
+    This is CPU-bound and slow: PGD runs `pgd_steps` forward/backward passes
+    through the detector per image, roughly 30s for 8 images at 10 steps.
     """
     from app.security.adversarial_eval import run_detector_robustness_eval
     result = run_detector_robustness_eval(
@@ -433,6 +443,7 @@ async def security_robustness_run(
         eps_pgd=eps_pgd,
         pgd_steps=pgd_steps,
         image_dir=image_dir,
+        video_path=video_path,
     )
     return result
 
@@ -589,33 +600,6 @@ async def stream_camera_live(
         media_type="multipart/x-mixed-replace; boundary=frame",
         headers={"Cache-Control": "no-store, no-cache", "Pragma": "no-cache"},
     )
-
-
-# ═══════════════════════════════════════════════════════════════
-# EXPORT ENDPOINTS
-# ═══════════════════════════════════════════════════════════════
-
-@app.get("/api/export/detections", tags=["Export"])
-async def export_detections(format: str = "csv"):
-    """Export detection logs as CSV or JSON."""
-    # TODO: Pull real data from DB via CRUD service
-    sample = [
-        {"id": 1, "camera_id": 1, "timestamp": "2026-02-21T09:00:00", "class_name": "person",
-         "confidence": 0.92, "track_id": "T-001", "zone": "Entrance"},
-    ]
-    if format == "json":
-        return ExportService.to_json(sample, "detections")
-    return ExportService.detection_report(sample)
-
-
-@app.get("/api/export/traffic", tags=["Export"])
-async def export_traffic(format: str = "csv"):
-    """Export foot traffic report."""
-    sample = [{"date": "2026-02-21", "hour": 9, "zone": "Entrance", "person_count": 42,
-               "direction_in": 35, "direction_out": 7}]
-    if format == "json":
-        return ExportService.to_json(sample, "traffic")
-    return ExportService.traffic_report(sample)
 
 
 # ═══════════════════════════════════════════════════════════════

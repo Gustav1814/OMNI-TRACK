@@ -404,6 +404,46 @@ class EmbeddingService:
 # AUDIT LOG CRUD
 # ═══════════════════════════════════════════════════════════════
 
+# Advisory-lock key for the audit hash chain (any stable bigint).
+# Appending is a read-then-write: read the tip's hash, then insert a row that
+# points at it. Two concurrent appenders can both read the same tip and both
+# chain onto it, producing two rows with the same previous_hash and a
+# permanently forked chain. Observed twice in practice, 6ms apart.
+_AUDIT_CHAIN_LOCK_KEY = 0x0A0D17A0
+
+
+def _audit_timestamp_repr(ts: Any) -> str:
+    """Canonical string form of an audit timestamp, for hashing."""
+    if ts is None:
+        return ""
+    if isinstance(ts, str):
+        return ts
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return ts.astimezone(timezone.utc).isoformat()
+
+
+def _audit_payload(
+    event_type: str,
+    user_id: Optional[int],
+    description: Optional[str],
+    timestamp: Any,
+) -> Dict[str, Any]:
+    """
+    The exact dict that gets hashed for an audit entry.
+
+    Writer and verifier both build the payload here so they cannot drift apart —
+    if they did, every entry would fail to recompute and the chain would look
+    tampered when it is not.
+    """
+    return {
+        "event_type": event_type,
+        "user_id": user_id,
+        "description": description,
+        "timestamp": _audit_timestamp_repr(timestamp),
+    }
+
+
 class AuditService:
     """
     Tamper-evident audit trail operations.
@@ -422,6 +462,19 @@ class AuditService:
         metadata: Optional[Dict] = None,
         ip_address: Optional[str] = None,
     ) -> AuditLog:
+        # Serialise appends against other transactions. Released on commit or
+        # rollback; re-entrant, so several log_event calls in one transaction
+        # are fine. Postgres only — SQLite test runs skip it.
+        try:
+            dialect_name = db.get_bind().dialect.name
+        except Exception:
+            dialect_name = ""
+        if dialect_name == "postgresql":
+            await db.execute(
+                text("SELECT pg_advisory_xact_lock(:k)"),
+                {"k": _AUDIT_CHAIN_LOCK_KEY},
+            )
+
         # Get the previous hash for chaining
         result = await db.execute(
             select(AuditLog.current_hash)
@@ -430,13 +483,12 @@ class AuditService:
         )
         previous_hash = result.scalar_one_or_none()
 
-        # Build payload for hashing
-        payload = {
-            "event_type": event_type,
-            "user_id": user_id,
-            "description": description,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
+        # Hash the timestamp we are about to STORE, not a separate one. The
+        # column used to fill itself from server_default=func.now(), so the
+        # hashed value was never persisted and current_hash could never be
+        # recomputed — which is why tampering with a field went undetected.
+        occurred_at = datetime.now(timezone.utc)
+        payload = _audit_payload(event_type, user_id, description, occurred_at)
         current_hash = compute_hash(payload, previous_hash)
 
         # Encrypt metadata if present
@@ -452,6 +504,7 @@ class AuditService:
             previous_hash=previous_hash,
             encrypted_metadata=encrypted_meta,
             ip_address=ip_address,
+            timestamp=occurred_at,
         )
         db.add(entry)
         await db.flush()
@@ -473,7 +526,21 @@ class AuditService:
 
     @staticmethod
     async def verify_integrity(db: AsyncSession) -> Dict[str, Any]:
-        """Verify the entire hash chain is intact."""
+        """
+        Verify the chain end to end. Two independent checks per entry:
+
+          1. linkage — previous_hash points at the preceding entry's current_hash.
+             Catches inserted, deleted or reordered rows.
+          2. content — current_hash recomputes from the stored fields.
+             Catches edits to event_type, user_id, description or timestamp.
+
+        Check 2 is the one that makes this tamper-EVIDENT rather than merely
+        append-ordered, and it is only possible because log_event now persists
+        the same timestamp it hashes. Entries written before that fix hashed a
+        timestamp that was never stored, so they cannot be recomputed and are
+        reported as content failures — reset the chain (scripts/audit_chain.py
+        --reset) to clear them.
+        """
         result = await db.execute(
             select(AuditLog).order_by(AuditLog.id.asc())
         )
@@ -485,11 +552,40 @@ class AuditService:
                 return {
                     "valid": False,
                     "broken_at": entry.id,
+                    "checked": i,
                     "total": len(entries),
-                    "message": f"Chain broken at entry #{entry.id}",
+                    "break_reason": "linkage",
+                    "message": (
+                        f"Chain broken at entry #{entry.id}: previous_hash does not "
+                        f"match entry #{entries[i - 1].id}" if i > 0 else
+                        f"Chain broken at entry #{entry.id}: first entry must have no previous_hash"
+                    ),
                 }
 
-        return {"valid": True, "broken_at": None, "total": len(entries)}
+            payload = _audit_payload(
+                entry.event_type, entry.user_id, entry.description, entry.timestamp
+            )
+            if compute_hash(payload, entry.previous_hash) != entry.current_hash:
+                return {
+                    "valid": False,
+                    "broken_at": entry.id,
+                    "checked": i,
+                    "total": len(entries),
+                    "break_reason": "content",
+                    "message": (
+                        f"Chain broken at entry #{entry.id}: stored fields do not "
+                        f"reproduce current_hash (entry was modified after write)"
+                    ),
+                }
+
+        return {
+            "valid": True,
+            "broken_at": None,
+            "checked": len(entries),
+            "total": len(entries),
+            "break_reason": None,
+            "message": f"All {len(entries)} entries verified (linkage + content)",
+        }
 
 
 # ═══════════════════════════════════════════════════════════════

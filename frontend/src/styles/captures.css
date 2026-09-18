@@ -1,0 +1,365 @@
+/* ════════════════════════════════════════════════════════════════
+   Capture browser — the detection output tab on Recordings.
+   Reuses the app's existing tokens (--border, --bg-card, --accent-*)
+   so it sits alongside .rec-* without a second visual language.
+   ════════════════════════════════════════════════════════════════ */
+
+/* ── tabs shared with the Recordings page ─────────────────────── */
+.rec-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--bg-tertiary);
+}
+.rec-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 550;
+  cursor: pointer;
+  transition: background var(--transition-base), color var(--transition-base);
+}
+.rec-tab:hover { color: var(--text-primary); }
+.rec-tab.is-active {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+}
+.rec-tab__count {
+  padding: 1px 6px;
+  border-radius: 20px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.rec-tab.is-active .rec-tab__count {
+  background: var(--accent-primary-glow, rgba(97, 114, 255, 0.16));
+  color: var(--accent-primary);
+}
+
+/* ── filter bar ───────────────────────────────────────────────── */
+.cap-filters {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 13px 14px;
+  margin-bottom: 14px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--bg-card);
+}
+.cap-filters__icon {
+  display: grid;
+  place-items: center;
+  height: 34px;
+  color: var(--text-muted);
+}
+
+.cap-field { display: flex; flex-direction: column; gap: 5px; min-width: 128px; }
+.cap-field > span {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.cap-field .select,
+.cap-field .input { height: 34px; font-size: 13px; }
+.cap-field--time { min-width: 186px; }
+.cap-field .select:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* The native datetime-local widget paints its own background and calendar icon
+   from the OS colour scheme, so without this it renders as a white box on the
+   dark theme. ThemeContext puts .dark / .light on <html>. */
+.cap-field input[type="datetime-local"] {
+  color-scheme: light;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 0 10px;
+  font-family: inherit;
+}
+html.dark .cap-field input[type="datetime-local"] { color-scheme: dark; }
+.cap-field input[type="datetime-local"]:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--accent-primary-glow, rgba(97, 114, 255, 0.18));
+}
+
+.cap-reset {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary, var(--text-muted));
+  font-family: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.cap-reset:hover { border-color: var(--border-hover); color: var(--text-primary); }
+
+/* Sits with the date inputs it describes. Next to the result count it read as
+   an applied time filter, which it is not. */
+.cap-range-hint {
+  flex-basis: 100%;
+  padding-top: 2px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+/* ── result bar ───────────────────────────────────────────────── */
+.cap-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.cap-bar__count { display: inline-flex; align-items: center; gap: 7px; color: var(--text-muted); font-size: 13px; }
+.cap-bar__count svg { color: var(--accent-primary); }
+.cap-bar__count b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.cap-bar__count em { font-style: normal; }
+.cap-bar__range { color: var(--text-muted); font-size: 12px; }
+
+.cap-pager { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
+.cap-pager button {
+  display: grid;
+  place-items: center;
+  width: 28px; height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-secondary, var(--text-muted));
+  cursor: pointer;
+}
+.cap-pager button:hover:not(:disabled) { border-color: var(--accent-primary); color: var(--accent-primary); }
+.cap-pager button:disabled { opacity: 0.35; cursor: not-allowed; }
+.cap-pager em {
+  font-style: normal;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── grid ─────────────────────────────────────────────────────── */
+.cap-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
+  gap: 13px;
+}
+.cap-grid--clips { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+
+.cap-card {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--bg-card);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color var(--transition-base), box-shadow var(--transition-base), transform var(--transition-base);
+}
+.cap-card:hover { border-color: var(--accent-primary); box-shadow: var(--shadow-md); transform: translateY(-2px); }
+
+.cap-card__media {
+  display: grid;
+  place-items: center;
+  height: 122px;
+  /* Checkerboard reads as "this is the cropped object, not the scene" and stops a
+     dark crop from vanishing into a dark card. */
+  background-color: var(--bg-tertiary);
+  background-image:
+    linear-gradient(45deg, rgba(128, 128, 128, 0.09) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(128, 128, 128, 0.09) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(128, 128, 128, 0.09) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(128, 128, 128, 0.09) 75%);
+  background-size: 14px 14px;
+  background-position: 0 0, 0 7px, 7px -7px, -7px 0;
+  overflow: hidden;
+}
+.cap-card__media img,
+.cap-card__media video {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  /* Many crops are tiny (10x22px is real). Smooth upscaling turns them to mush;
+     pixelated at least shows what was actually captured. */
+  image-rendering: pixelated;
+}
+.cap-card__media video { width: 100%; height: 100%; image-rendering: auto; }
+
+.cap-card__body { display: flex; flex-direction: column; gap: 2px; padding: 9px 11px 11px; }
+.cap-card__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-transform: capitalize;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cap-card__meta,
+.cap-card__time {
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── empty ────────────────────────────────────────────────────── */
+.cap-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 54px 20px;
+  border: 1px dashed var(--border);
+  border-radius: 15px;
+  text-align: center;
+  color: var(--text-muted);
+}
+.cap-empty__glyph {
+  display: grid;
+  place-items: center;
+  width: 54px; height: 54px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+}
+.cap-empty h3 { margin: 4px 0 0; font-size: 15px; color: var(--text-primary); }
+.cap-empty p { margin: 0; font-size: 13px; max-width: 380px; }
+
+/* ── lightbox ─────────────────────────────────────────────────── */
+.cap-light {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(8, 10, 18, 0.72);
+  backdrop-filter: blur(4px);
+}
+.cap-light__box {
+  display: flex;
+  flex-direction: column;
+  width: min(680px, 100%);
+  max-height: 90vh;
+  border: 1px solid var(--border);
+  border-radius: 17px;
+  background: var(--bg-card);
+  box-shadow: var(--shadow-lg, 0 24px 60px rgba(0, 0, 0, 0.45));
+  overflow: hidden;
+}
+.cap-light__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-transform: capitalize;
+}
+.cap-light__head button {
+  display: grid;
+  place-items: center;
+  width: 28px; height: 28px;
+  border: none;
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.cap-light__head button:hover { color: var(--text-primary); }
+
+.cap-light__stage {
+  display: grid;
+  place-items: center;
+  min-height: 220px;
+  max-height: 46vh;
+  padding: 18px;
+  background-color: var(--bg-tertiary);
+  background-image:
+    linear-gradient(45deg, rgba(128, 128, 128, 0.09) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(128, 128, 128, 0.09) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(128, 128, 128, 0.09) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(128, 128, 128, 0.09) 75%);
+  background-size: 18px 18px;
+  background-position: 0 0, 0 9px, 9px -9px, -9px 0;
+}
+.cap-light__stage img {
+  max-width: 100%;
+  max-height: 42vh;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+.cap-light__stage video { max-width: 100%; max-height: 42vh; }
+
+.cap-light__facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 11px 16px;
+  margin: 0;
+  padding: 15px 16px;
+  overflow-y: auto;
+}
+.cap-light__facts > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cap-light__facts dt {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.cap-light__facts dd {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-primary);
+  text-transform: capitalize;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cap-light__foot {
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  overflow-x: auto;
+}
+.cap-light__foot code {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .cap-field, .cap-field--time { min-width: 100%; }
+  .cap-grid { grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); }
+}

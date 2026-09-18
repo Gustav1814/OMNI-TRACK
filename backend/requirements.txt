@@ -63,3 +63,6 @@ psutil>=5.9.8
 # aiokafka>=0.11.0           # Kafka event bus backend (app/services/event_bus.py)
 # FastReID: alternative Re-ID backend (app/ai/reid_backend.py) — install from
 # source, platform/GPU-specific: https://github.com/JDAI-CV/fast-reid
+
+# Adversarial robustness evaluation (FGSM/PGD against the detector)
+adversarial-robustness-toolbox>=1.20.0

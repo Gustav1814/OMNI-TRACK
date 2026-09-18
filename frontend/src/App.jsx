@@ -12,6 +12,7 @@ import { systemAPI } from './services/api';
 import './styles/jobs-modal.css';
 import './styles/jobs-page.css';
 import './styles/jobs-live.css';
+import './styles/captures.css';
 import Sidebar from './components/Sidebar';
 import Scene3D from './components/Scene3D';
 // Pages

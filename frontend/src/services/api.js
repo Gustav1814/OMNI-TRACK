@@ -240,6 +240,31 @@ export const modelAPI = {
 // Footage (stored CCTV clips)
 // ────────────────────────────────────────────────────────────────
 
+/**
+ * Job artifacts — the crops and clips the pipeline wrote to shared/ais1.
+ *
+ * Distinct from footageAPI: that serves the SOURCE clips you upload, this serves
+ * what detection produced from them.
+ */
+export const artifactsAPI = {
+    /** Filtered listing. Every param is optional. */
+    list: (params = {}) => api.get('/artifacts', { params }),
+
+    /** Distinct cameras/zones/activities/classes on disk, for filter dropdowns. */
+    facets: () => api.get('/artifacts/facets'),
+
+    /**
+     * Direct URL for an <img>/<video> tag. Those cannot send an Authorization
+     * header, so the token rides as a query param — get_current_user accepts
+     * either form. Same approach as footageAPI.serveUrl.
+     */
+    fileUrl: (filename) => {
+        const token = tokenStore.get();
+        const qs = token ? `?token=${encodeURIComponent(token)}` : '';
+        return `${API_BASE}/artifacts/file/${encodeURIComponent(filename)}${qs}`;
+    },
+};
+
 export const footageAPI = {
     list: (cameraId) => api.get('/footage/list', {
         params: cameraId != null ? { camera_id: cameraId } : {},

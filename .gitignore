@@ -79,3 +79,10 @@ docker-compose.override.yml
 backend/local.db
 **/~$*
 *.mp4
+
+# Benchmark artefacts: keep the JSON/markdown results, not the generated video
+backend/benchmarks/results/*.mp4
+
+# Local uvicorn logs from detached runs
+backend/uvicorn_out.log
+backend/uvicorn_err.log

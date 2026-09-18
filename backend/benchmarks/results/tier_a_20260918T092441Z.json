@@ -1,0 +1,168 @@
+{
+  "meta": {
+    "generated_at": "2026-09-18T09:24:41.245748+00:00",
+    "platform": "win32",
+    "python": "3.13.9"
+  },
+  "results": [
+    {
+      "name": "search_latency",
+      "criterion": "Search latency",
+      "target": "< 100ms",
+      "value": 2.49,
+      "status": "PASS",
+      "detail": {
+        "unit": "ms",
+        "runs": 100,
+        "top_k": 10,
+        "gallery_size": 94,
+        "mean": 1.83,
+        "p50": 1.79,
+        "p95": 2.49,
+        "p99": 3.22,
+        "min": 1.52,
+        "max": 3.22,
+        "note": "p95 is the reported figure; mean alone hides tail latency"
+      }
+    },
+    {
+      "name": "tamper_detection",
+      "criterion": "Integrity verification",
+      "target": "100% detection",
+      "value": 100.0,
+      "status": "PASS",
+      "detail": {
+        "unit": "%",
+        "chain_length": 25,
+        "mutations_tried": 6,
+        "mutations_detected": 6,
+        "false_positives": 0,
+        "control_passed": true,
+        "cases": [
+          {
+            "case": "control (no tampering)",
+            "kind": "control",
+            "expected": "valid",
+            "verifier_said": "valid",
+            "correct": true,
+            "reason": null
+          },
+          {
+            "case": "edit description",
+            "kind": "content",
+            "expected": "broken",
+            "verifier_said": "broken",
+            "correct": true,
+            "reason": "content",
+            "broken_at": 2042
+          },
+          {
+            "case": "re-attribute to another user",
+            "kind": "content",
+            "expected": "broken",
+            "verifier_said": "broken",
+            "correct": true,
+            "reason": "content",
+            "broken_at": 2042
+          },
+          {
+            "case": "edit event_type",
+            "kind": "content",
+            "expected": "broken",
+            "verifier_said": "broken",
+            "correct": true,
+            "reason": "content",
+            "broken_at": 2042
+          },
+          {
+            "case": "backdate timestamp",
+            "kind": "content",
+            "expected": "broken",
+            "verifier_said": "broken",
+            "correct": true,
+            "reason": "content",
+            "broken_at": 2042
+          },
+          {
+            "case": "delete a middle entry",
+            "kind": "linkage",
+            "expected": "broken",
+            "verifier_said": "broken",
+            "correct": true,
+            "reason": "linkage",
+            "broken_at": 2043
+          },
+          {
+            "case": "repoint previous_hash",
+            "kind": "linkage",
+            "expected": "broken",
+            "verifier_said": "broken",
+            "correct": true,
+            "reason": "linkage",
+            "broken_at": 2042
+          }
+        ],
+        "note": "ground truth is synthetic: we choose the mutations, so we know the answer"
+      }
+    },
+    {
+      "name": "throughput",
+      "criterion": "Throughput",
+      "target": "20+ FPS",
+      "value": 19.65,
+      "status": "FAIL",
+      "detail": {
+        "unit": "FPS",
+        "frames": 120,
+        "model": "yolov8n.pt",
+        "resolution": "1280x720",
+        "clip": "emotion test.mp4",
+        "device": "cpu",
+        "torch": "2.14.0+cpu",
+        "mean_ms_per_frame": 50.9,
+        "p95_ms_per_frame": 71.1,
+        "scope": "single camera, detector only (decode and tracking excluded)"
+      }
+    },
+    {
+      "name": "synopsis",
+      "criterion": "Video synopsis",
+      "target": ">= 10x",
+      "value": 10.0,
+      "status": "PASS",
+      "detail": {
+        "unit": "x",
+        "clip": "emotion test.mp4",
+        "original_duration_s": 10.0,
+        "synopsis_duration_s": 1.0,
+        "tubes_extracted": 359,
+        "tubes_placed": 359,
+        "event_retention": 1.0,
+        "caveat": "WEAK PASS. synopsis_length is derived from compression_target (synopsis.py:338), so the ratio is set by configuration, not measured \u2014 this criterion cannot fail by construction. The meaningful figure is event_retention: the fraction of extracted activity tubes that survived onto the condensed timeline. Whether the SURVIVING tubes are the right ones needs ground truth and is Tier C (see docs/EVALUATION.md)."
+      }
+    },
+    {
+      "name": "adversarial",
+      "criterion": "Adversarial robustness",
+      "target": "documented",
+      "value": 0.0,
+      "status": "PASS",
+      "detail": {
+        "unit": "",
+        "attacks": "FGSM, PGD (white-box, via ART)",
+        "art_version": "1.20.1",
+        "model": "yolov8n.pt",
+        "sample_size": 8,
+        "sample_source": "video:emotion test.mp4",
+        "eps": 0.03,
+        "pgd_steps": 10,
+        "persons_clean": 8,
+        "persons_after_fgsm": 6,
+        "persons_after_pgd": 0,
+        "retention_fgsm": 0.75,
+        "retention_pgd": 0.0,
+        "finding": "at L-inf eps=0.03, PGD retained 0% of clean detections and FGSM 75%. Reported value is PGD retention (the stronger attack); lower means less robust."
+      }
+    }
+  ]
+}

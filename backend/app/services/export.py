@@ -147,6 +147,84 @@ class ExportService:
         return ExportService.to_csv(headers, rows, "audit_trail_report")
 
     @staticmethod
+    def line_passing_report(rows: List[Dict]) -> dict:
+        """
+        Export line-crossing counts as CSV.
+
+        One row per track per line, carrying that track's cumulative counters at
+        the moment it was last written. Summing a column across tracks gives the
+        line total; summing across ROWS would double-count, because the counters
+        are cumulative rather than incremental.
+        """
+        headers = ["Job", "Camera", "Line", "Track ID", "Global ID", "Class",
+                   "In", "Out", "Left", "Right", "Crossed", "First Seen In",
+                   "Timestamp (us)", "Recorded At"]
+        rows_out = []
+        for r in rows:
+            rows_out.append([
+                r.get("job_id", ""), r.get("camera_id", ""),
+                r.get("region_name", ""), r.get("track_id", ""),
+                r.get("global_id", ""), r.get("class_name", ""),
+                r.get("in_count", 0), r.get("out_count", 0),
+                r.get("left_count", 0), r.get("right_count", 0),
+                r.get("is_line_crossed", False),
+                r.get("first_seen_in_region", ""),
+                r.get("at_us", ""), r.get("created_at", ""),
+            ])
+        return ExportService.to_csv(headers, rows_out, "line_passing_report")
+
+    @staticmethod
+    def roi_dwell_report(rows: List[Dict]) -> dict:
+        """Export ROI dwell times as CSV. Durations are converted us -> seconds."""
+        headers = ["Job", "Camera", "Region", "Track ID", "Global ID", "Class",
+                   "Current Dwell (s)", "Total Dwell (s)", "Visited Regions",
+                   "Timestamp (us)", "Recorded At"]
+        rows_out = []
+        for r in rows:
+            cur = (r.get("current_region_dwell_us") or 0) / 1_000_000.0
+            tot = (r.get("total_dwell_us") or 0) / 1_000_000.0
+            rows_out.append([
+                r.get("job_id", ""), r.get("camera_id", ""),
+                r.get("region_name", ""), r.get("track_id", ""),
+                r.get("global_id", ""), r.get("class_name", ""),
+                round(cur, 2), round(tot, 2),
+                r.get("visited_regions", ""),
+                r.get("at_us", ""), r.get("created_at", ""),
+            ])
+        return ExportService.to_csv(headers, rows_out, "roi_dwell_report")
+
+    @staticmethod
+    def alerts_report(rows: List[Dict]) -> dict:
+        """Export job alerts as CSV."""
+        headers = ["Job", "Camera", "Type", "Region", "Track ID", "Class",
+                   "Value", "Threshold", "Message", "Timestamp (us)", "Recorded At"]
+        rows_out = []
+        for r in rows:
+            rows_out.append([
+                r.get("job_id", ""), r.get("camera_id", ""),
+                r.get("alert_type", ""), r.get("region_name", ""),
+                r.get("track_id", ""), r.get("class_name", ""),
+                r.get("value", ""), r.get("threshold", ""),
+                r.get("message", ""), r.get("at_us", ""), r.get("created_at", ""),
+            ])
+        return ExportService.to_csv(headers, rows_out, "alerts_report")
+
+    @staticmethod
+    def journeys_report(rows: List[Dict]) -> dict:
+        """Export cross-camera customer journeys as CSV."""
+        headers = ["Global ID", "Camera", "Zone", "Dwell (s)", "Zones Visited",
+                   "Entry Time", "Exit Time", "Total Duration (s)"]
+        rows_out = []
+        for r in rows:
+            rows_out.append([
+                r.get("global_id", ""), r.get("camera_id", ""), r.get("zone", ""),
+                round(r.get("dwell_time") or 0, 2), r.get("zones_visited", 0),
+                r.get("entry_time", ""), r.get("exit_time", ""),
+                round(r.get("total_duration") or 0, 2),
+            ])
+        return ExportService.to_csv(headers, rows_out, "customer_journeys_report")
+
+    @staticmethod
     def full_store_report(
         detections: List[Dict],
         traffic: List[Dict],

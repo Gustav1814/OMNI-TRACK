@@ -1,17 +1,24 @@
 /**
  * OmniTrack AI — Recordings
  *
- * The clip library behind job registration. Everything listed here is what the
- * Add Job modal offers as a source, so this page is where clips are uploaded,
- * previewed and checked before a job points at one.
+ * Two tabs over two different kinds of video:
+ *
+ *   Source clips        what you UPLOAD — the footage a job points at. This is
+ *                       the library the Add Job modal offers as a source.
+ *   Detection captures  what a job PRODUCED — cropped objects and annotated
+ *                       clips written to shared/ais1 while the job ran.
+ *
+ * They were separate concepts with only the first one visible, so the ~24k
+ * captures on disk had nowhere to be seen.
  */
 
 import React, { useMemo, useRef, useState } from 'react';
 import {
-    Film, HardDrive, Play, Search, Upload, Video, X,
+    Film, HardDrive, Images, Play, Search, Upload, Video, X,
 } from 'lucide-react';
 import { footageAPI } from '../services/api';
 import useLivePoll from '../hooks/useLivePoll';
+import CaptureBrowser from '../components/captures/CaptureBrowser';
 
 const MB = 1024 * 1024;
 
@@ -40,6 +47,8 @@ function displayName(filename) {
 }
 
 export default function DetectionPage() {
+    const [tab, setTab] = useState('captures');
+
     const { data: footage, refresh } = useLivePoll(
         () => footageAPI.list(), { intervalMs: 10000 },
     );
@@ -51,18 +60,19 @@ export default function DetectionPage() {
     const [playing, setPlaying] = useState(null);
     const fileRef = useRef(null);
 
+    const rows = Array.isArray(footage) ? footage : [];
+
     const items = useMemo(() => {
-        const rows = Array.isArray(footage) ? footage : [];
         const q = query.trim().toLowerCase();
         const filtered = q
             ? rows.filter((f) => f.filename.toLowerCase().includes(q))
             : rows;
         return [...filtered].sort((a, b) => (b.created_ts || 0) - (a.created_ts || 0));
-    }, [footage, query]);
+    }, [rows, query]);
 
     const totalBytes = useMemo(
-        () => (Array.isArray(footage) ? footage : []).reduce((a, f) => a + (f.size_bytes || 0), 0),
-        [footage],
+        () => rows.reduce((a, f) => a + (f.size_bytes || 0), 0),
+        [rows],
     );
 
     const upload = async (fileList) => {
@@ -89,102 +99,135 @@ export default function DetectionPage() {
                     </span>
                     <h2 className="rec-title">Recordings</h2>
                     <p className="rec-sub">
-                        Clips stored on the backend. These are what a job can point at as
-                        its source, so upload footage here before registering one.
+                        {tab === 'source'
+                            ? 'Clips stored on the backend. These are what a job can point at as its source, so upload footage here before registering one.'
+                            : 'What detection produced — cropped objects and annotated clips, filterable by camera, location, object and time.'}
                     </p>
                 </div>
-                <label className={`rec-upload${busy ? ' is-busy' : ''}`}>
-                    <input
-                        ref={fileRef}
-                        type="file"
-                        accept="video/mp4,video/x-msvideo,video/x-matroska,video/webm,video/quicktime"
-                        hidden
-                        disabled={busy}
-                        onChange={(e) => { upload(e.target.files); e.target.value = ''; }}
-                    />
-                    <Upload size={15} aria-hidden />
-                    {busy ? 'Uploading…' : 'Upload clip'}
-                </label>
+                {tab === 'source' && (
+                    <label className={`rec-upload${busy ? ' is-busy' : ''}`}>
+                        <input
+                            ref={fileRef}
+                            type="file"
+                            accept="video/mp4,video/x-msvideo,video/x-matroska,video/webm,video/quicktime"
+                            hidden
+                            disabled={busy}
+                            onChange={(e) => { upload(e.target.files); e.target.value = ''; }}
+                        />
+                        <Upload size={15} aria-hidden />
+                        {busy ? 'Uploading…' : 'Upload clip'}
+                    </label>
+                )}
             </header>
 
-            <div className="rec-summary">
-                <span className="rec-summary__item">
+            <div className="rec-tabs" role="tablist">
+                <button
+                    type="button"
+                    role="tab"
+                    aria-selected={tab === 'source'}
+                    className={`rec-tab${tab === 'source' ? ' is-active' : ''}`}
+                    onClick={() => setTab('source')}
+                >
                     <Film size={13} aria-hidden />
-                    <b>{(Array.isArray(footage) ? footage : []).length}</b>
-                    <em>clip{(Array.isArray(footage) ? footage : []).length === 1 ? '' : 's'}</em>
-                </span>
-                <span className="rec-summary__dot" aria-hidden />
-                <span className="rec-summary__item">
-                    <HardDrive size={13} aria-hidden />
-                    <b>{formatSize(totalBytes)}</b>
-                    <em>stored</em>
-                </span>
+                    Source clips
+                    <span className="rec-tab__count">{rows.length}</span>
+                </button>
+                <button
+                    type="button"
+                    role="tab"
+                    aria-selected={tab === 'captures'}
+                    className={`rec-tab${tab === 'captures' ? ' is-active' : ''}`}
+                    onClick={() => setTab('captures')}
+                >
+                    <Images size={13} aria-hidden />
+                    Detection captures
+                </button>
             </div>
 
-            {error && <div className="alert-banner danger">{error}</div>}
-            {notice && <div className="alert-banner success">{notice}</div>}
-
-            {(Array.isArray(footage) ? footage : []).length > 0 && (
-                <div className="rec-search">
-                    <Search size={14} aria-hidden />
-                    <input
-                        className="rec-search__input"
-                        placeholder="Filter by filename…"
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
-                    />
-                    {query && (
-                        <button type="button" className="rec-search__clear" onClick={() => setQuery('')}>
-                            <X size={13} aria-hidden />
-                        </button>
-                    )}
-                </div>
-            )}
-
-            {items.length === 0 ? (
-                <div className="rec-empty">
-                    <span className="rec-empty__glyph"><Video size={26} aria-hidden /></span>
-                    <h3>{query ? 'No clips match that filter' : 'No recordings yet'}</h3>
-                    <p>
-                        {query
-                            ? 'Try a different search term.'
-                            : 'Upload a video and it becomes available as a job source. MP4, AVI, MKV, WEBM or MOV.'}
-                    </p>
-                    {!query && (
-                        <button
-                            type="button"
-                            className="rec-upload rec-upload--lg"
-                            onClick={() => fileRef.current?.click()}
-                            disabled={busy}
-                        >
-                            <Upload size={16} aria-hidden />
-                            {busy ? 'Uploading…' : 'Upload your first clip'}
-                        </button>
-                    )}
-                </div>
+            {tab === 'captures' ? (
+                <CaptureBrowser />
             ) : (
-                <div className="rec-grid">
-                    {items.map((f) => (
-                        <article className="rec-card" key={f.filename}>
-                            <button
-                                type="button"
-                                className="rec-card__thumb"
-                                onClick={() => setPlaying(f)}
-                                title="Preview this clip"
-                            >
-                                <span className="rec-card__play"><Play size={18} aria-hidden /></span>
-                            </button>
-                            <div className="rec-card__body">
-                                <span className="rec-card__name" title={f.filename}>
-                                    {displayName(f.filename)}
-                                </span>
-                                <span className="rec-card__meta">
-                                    {formatSize(f.size_bytes)} · {formatWhen(f.created_ts)}
-                                </span>
-                            </div>
-                        </article>
-                    ))}
-                </div>
+                <>
+                    <div className="rec-summary">
+                        <span className="rec-summary__item">
+                            <Film size={13} aria-hidden />
+                            <b>{rows.length}</b>
+                            <em>clip{rows.length === 1 ? '' : 's'}</em>
+                        </span>
+                        <span className="rec-summary__dot" aria-hidden />
+                        <span className="rec-summary__item">
+                            <HardDrive size={13} aria-hidden />
+                            <b>{formatSize(totalBytes)}</b>
+                            <em>stored</em>
+                        </span>
+                    </div>
+
+                    {error && <div className="alert-banner danger">{error}</div>}
+                    {notice && <div className="alert-banner success">{notice}</div>}
+
+                    {rows.length > 0 && (
+                        <div className="rec-search">
+                            <Search size={14} aria-hidden />
+                            <input
+                                className="rec-search__input"
+                                placeholder="Filter by filename…"
+                                value={query}
+                                onChange={(e) => setQuery(e.target.value)}
+                            />
+                            {query && (
+                                <button type="button" className="rec-search__clear" onClick={() => setQuery('')}>
+                                    <X size={13} aria-hidden />
+                                </button>
+                            )}
+                        </div>
+                    )}
+
+                    {items.length === 0 ? (
+                        <div className="rec-empty">
+                            <span className="rec-empty__glyph"><Video size={26} aria-hidden /></span>
+                            <h3>{query ? 'No clips match that filter' : 'No recordings yet'}</h3>
+                            <p>
+                                {query
+                                    ? 'Try a different search term.'
+                                    : 'Upload a video and it becomes available as a job source. MP4, AVI, MKV, WEBM or MOV.'}
+                            </p>
+                            {!query && (
+                                <button
+                                    type="button"
+                                    className="rec-upload rec-upload--lg"
+                                    onClick={() => fileRef.current?.click()}
+                                    disabled={busy}
+                                >
+                                    <Upload size={16} aria-hidden />
+                                    {busy ? 'Uploading…' : 'Upload your first clip'}
+                                </button>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="rec-grid">
+                            {items.map((f) => (
+                                <article className="rec-card" key={f.filename}>
+                                    <button
+                                        type="button"
+                                        className="rec-card__thumb"
+                                        onClick={() => setPlaying(f)}
+                                        title="Preview this clip"
+                                    >
+                                        <span className="rec-card__play"><Play size={18} aria-hidden /></span>
+                                    </button>
+                                    <div className="rec-card__body">
+                                        <span className="rec-card__name" title={f.filename}>
+                                            {displayName(f.filename)}
+                                        </span>
+                                        <span className="rec-card__meta">
+                                            {formatSize(f.size_bytes)} · {formatWhen(f.created_ts)}
+                                        </span>
+                                    </div>
+                                </article>
+                            ))}
+                        </div>
+                    )}
+                </>
             )}
 
             {playing && (

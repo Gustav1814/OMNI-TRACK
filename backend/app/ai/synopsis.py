@@ -141,12 +141,17 @@ class VideoSynopsis:
             "synopsis_duration": round(synopsis_duration, 2),
             "compression_ratio": round(ratio, 2),
             "tubes_extracted": len(self.tubes),
+            "tubes_placed": getattr(self, "tubes_placed", 0),
+            "event_retention": round(
+                getattr(self, "tubes_placed", 0) / len(self.tubes), 4
+            ) if self.tubes else 0.0,
             "output_path": output_path,
             "frames_written": len(synopsis_frames),
             "fps": fps,
         }
 
     def reset(self) -> None:
+        self.tubes_placed = 0
         self.tubes.clear()
         self.background = None
         self.frame_count = 0
@@ -343,6 +348,13 @@ class VideoSynopsis:
 
         # Schedule: distribute tubes across timeline, respecting max_parallel_tubes
         schedule = self._schedule_tubes(synopsis_length)
+
+        # How many tubes actually landed on the timeline. compression_ratio is
+        # set by compression_target (synopsis_length is derived from it), so it
+        # cannot fail; THIS is the number that says whether the condensed video
+        # still represents the original — a synopsis that hits 10x by dropping
+        # most of the activity has not preserved the events.
+        self.tubes_placed = len(schedule)
 
         # Composite each tube onto its scheduled synopsis frames
         for tube, start in schedule:

@@ -533,6 +533,9 @@ async def verify_chain(
         valid=result["valid"],
         broken_at=result.get("broken_at"),
         total=result["total"],
+        checked=result.get("checked", 0),
+        break_reason=result.get("break_reason"),
+        message=result.get("message"),
     )
 
 

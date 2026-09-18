@@ -256,6 +256,10 @@ class AuditChainStatus(BaseModel):
     valid: bool
     broken_at: Optional[int]
     total: int
+    checked: int = 0
+    # "linkage" (row inserted/deleted/reordered) or "content" (row edited in place).
+    break_reason: Optional[str] = None
+    message: Optional[str] = None
 
 
 # ---- Store Vibe (NEW) ----
