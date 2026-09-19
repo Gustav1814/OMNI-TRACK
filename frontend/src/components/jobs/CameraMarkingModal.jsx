@@ -1,5 +1,6 @@
 import { Bell, BellRing, BoxSelect, Minus, Pentagon, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { previewUrlFor } from "./jobsApi";
 import { DIRECTION_META, RegionCanvas } from "./RegionCanvas";
 const TOOL_META = [
@@ -64,7 +65,7 @@ function CameraMarkingModal({ open, onClose, draft, kpi, regions, onChange, onFr
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
   if (!open) return null;
-  return <div
+  return createPortal(<div
     className="cmark-backdrop"
     onMouseDown={(e) => {
       if (e.target === e.currentTarget) onClose();
@@ -178,7 +179,7 @@ function CameraMarkingModal({ open, onClose, draft, kpi, regions, onChange, onFr
           </div>
         </div>
       </div>
-    </div>;
+    </div>, document.body);
 }
 export {
   CameraMarkingModal

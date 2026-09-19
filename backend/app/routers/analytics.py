@@ -20,7 +20,7 @@ from app.schemas.schemas import (
     SynopsisResponse, ShelfEngagement, ShelfZone, FireAlert, CrowdStatus,
     CheckoutMetrics, EmotionResult, EmotionZoneAggregation,
     AuditEntry, AuditChainStatus, StoreVibe, FootTrafficData,
-    DemographicData, PeakHourData, PeakHoursSummary, DashboardOverview,
+    PeakHourData, PeakHoursSummary, DashboardOverview,
     CustomerJourneyResponse,
 )
 
@@ -293,42 +293,115 @@ async def get_top_zones(
 fire_router = APIRouter(prefix="/api/fire", tags=["Fire & Smoke Detection"])
 
 
+def _alert_key(a: Dict[str, Any]) -> tuple:
+    """Identity of one alert, for merging the live buffer with the stored one."""
+    return (a.get("camera_id"), a.get("alert_type"), str(a.get("timestamp")))
+
+
+async def _stored_fire_alerts(
+    db: AsyncSession, limit: int, since: Optional[datetime] = None
+) -> List[Dict[str, Any]]:
+    """
+    Fire alerts from the audit chain.
+
+    Every alert the pipeline raises is already written here by
+    PersistencePipelineCallback — SHA-256 chained, with the camera, zone,
+    confidence and bbox in AES-256 encrypted metadata. This endpoint used to
+    read the detector's in-memory deque instead, so the whole page emptied on
+    a backend restart while the durable record sat unread.
+    """
+    rows = await AuditService.get_logs_with_metadata(
+        db, event_type="fire_alert", limit=limit, since=since
+    )
+    alerts: List[Dict[str, Any]] = []
+    for row, meta in rows:
+        meta = meta or {}
+        alerts.append({
+            "id": row.id,
+            "alert_type": meta.get("alert_type") or "fire",
+            "confidence": meta.get("confidence"),
+            "camera_id": meta.get("camera_id"),
+            "zone": meta.get("zone"),
+            # The detector's own timestamp when it survived encryption, else
+            # the audit row's — they are written within the same tick.
+            "timestamp": meta.get("timestamp") or (
+                row.timestamp.isoformat() if row.timestamp else None
+            ),
+            "status": "recorded",
+            "bbox": meta.get("bbox"),
+        })
+    return alerts
+
+
 @fire_router.get("/alerts", response_model=List[Dict[str, Any]])
 async def get_fire_alerts(
-    request: Request, limit: int = 20,
+    request: Request,
+    limit: int = 20,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
-    snapshot = _snapshot(request)
-    history = (snapshot.get("fire") or {}).get("history") or []
-    if history:
-        recent = history[-limit:]
-        return [
-            {
-                "id": i,
-                "alert_type": a.get("alert_type"),
-                "confidence": a.get("confidence"),
-                "camera_id": a.get("camera_id"),
-                "zone": a.get("zone"),
-                "timestamp": a.get("timestamp"),
-                "status": "active",
-                "bbox": a.get("bbox"),
-            }
-            for i, a in enumerate(recent)
-        ]
-    return []
+    """
+    Recent fire/smoke alerts, newest first.
+
+    Read from the audit chain so the history survives a restart, with anything
+    the running pipeline has raised but not yet flushed merged on top.
+    """
+    try:
+        alerts = await _stored_fire_alerts(db, limit=limit)
+    except Exception:
+        alerts = []
+
+    seen = {_alert_key(a) for a in alerts}
+    live = (_snapshot(request).get("fire") or {}).get("active_alerts") or []
+    for a in live:
+        entry = {
+            "id": None,
+            "alert_type": a.get("alert_type"),
+            "confidence": a.get("confidence"),
+            "camera_id": a.get("camera_id"),
+            "zone": a.get("zone"),
+            "timestamp": a.get("timestamp"),
+            "status": "active",
+            "bbox": a.get("bbox"),
+        }
+        if _alert_key(entry) not in seen:
+            seen.add(_alert_key(entry))
+            alerts.append(entry)
+
+    alerts.sort(key=lambda a: str(a.get("timestamp") or ""), reverse=True)
+    return alerts[:limit]
 
 
 @fire_router.get("/status")
 async def fire_status(
     request: Request,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
+    """
+    Detector coverage and alert counts.
+
+    `total_today` counts alerts recorded since midnight UTC. It used to return
+    the length of the detector's in-memory deque, which is neither today nor a
+    total: it reset on restart and capped at the deque size.
+    """
     snapshot = _snapshot(request)
     fire = snapshot.get("fire") or {}
     cameras = snapshot.get("cameras") or {}
+
+    midnight = datetime.now(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    try:
+        total_today = await AuditService.count_events(
+            db, event_type="fire_alert", since=midnight
+        )
+    except Exception:
+        total_today = len(fire.get("history") or [])
+
     return {
         "active_alerts": len(fire.get("active_alerts") or []),
-        "total_today": len(fire.get("history") or []),
+        "total_today": total_today,
         "system_status": "monitoring",
         "cameras_covered": cameras.get("active", 0),
     }
@@ -357,18 +430,10 @@ async def get_crowd_status(
             )
             for z in zones
         ]
-    demo = [
-        ("Entrance", 12, "medium"), ("Main Floor", 45, "high"),
-        ("Food Court", 8, "low"), ("Electronics", 22, "medium"),
-        ("Checkout Area", 35, "high"), ("Parking", 5, "low"),
-    ]
-    return [
-        CrowdStatus(
-            zone=name, person_count=count, density=round(count / 50, 3),
-            classification=cls, threshold=50.0, camera_id=i + 1,
-        )
-        for i, (name, count, cls) in enumerate(demo)
-    ]
+    # No live zones: return nothing. This used to invent six shopping-mall zones
+    # ("Food Court", "Parking", ...) with made-up counts, which is what the page
+    # displayed by default, since the snapshot is empty whenever no job runs.
+    return []
 
 
 @crowd_router.get("/history/{zone}")
@@ -387,59 +452,8 @@ async def crowd_history(
     return []
 
 
-# --- Checkout Router ---
-checkout_router = APIRouter(prefix="/api/checkout", tags=["Checkout Analytics"])
-
-
-@checkout_router.get("/metrics", response_model=List[CheckoutMetrics])
-async def get_checkout_metrics(
-    request: Request,
-    current_user: User = Depends(get_current_user),
-):
-    snapshot = _snapshot(request)
-    lanes = (snapshot.get("checkout") or {}).get("lanes") or []
-    if lanes:
-        return [
-            CheckoutMetrics(
-                lane_id=str(l.get("lane_id", f"lane-{i}")),
-                queue_length=int(l.get("queue_length", 0)),
-                avg_service_time=float(l.get("avg_service_time", 0)),
-                throughput=float(l.get("throughput", 0)),
-                current_wait_estimate=float(l.get("current_wait_estimate", 0)),
-                camera_id=int(l.get("camera_id", 0)),
-            )
-            for i, l in enumerate(lanes)
-        ]
-    # No checkout lanes configured or no traffic through them yet.
-    return []
-
-
-@checkout_router.get("/summary")
-async def checkout_summary(
-    request: Request,
-    current_user: User = Depends(get_current_user),
-):
-    snapshot = _snapshot(request)
-    summary = (snapshot.get("checkout") or {}).get("summary") or {}
-    if summary.get("total_lanes"):
-        lanes = (snapshot.get("checkout") or {}).get("lanes") or []
-        busiest = max(lanes, key=lambda l: l.get("queue_length", 0), default=None)
-        return {
-            "total_lanes": summary.get("total_lanes", 0),
-            "active_lanes": sum(1 for l in lanes if l.get("queue_length", 0) > 0),
-            "total_served_today": summary.get("total_served", 0),
-            "avg_service_time": summary.get("overall_avg_service_time", 0),
-            "avg_wait_time": summary.get("overall_avg_service_time", 0),
-            "busiest_lane": busiest.get("lane_id") if busiest else None,
-        }
-    return {
-        "total_lanes": 0, "active_lanes": 0,
-        "total_served_today": 0,
-        "avg_service_time": 0.0,
-        "avg_wait_time": 0.0,
-        "busiest_lane": None,
-    }
-
+# Checkout endpoints now live in app/routers/checkout.py, which reads history
+# from Postgres instead of returning zeros whenever the pipeline is idle.
 
 # --- Emotion Router ---
 emotion_router = APIRouter(prefix="/api/emotion", tags=["Emotion Recognition"])
@@ -607,39 +621,11 @@ async def vibe_trend(
     return []
 
 
-# --- Demographics Router ---
-demographics_router = APIRouter(prefix="/api/demographics", tags=["Demographics"])
-
-
-@demographics_router.get("/current", response_model=DemographicData)
-async def get_demographics(
-    zone: Optional[str] = None,
-    hours: int = 24,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Age/gender breakdown for the last `hours` of live demographic snapshots."""
-    try:
-        breakdown = await AnalyticsService.get_demographics_breakdown(
-            db, hours=hours, zone=zone
-        )
-        if breakdown and breakdown.get("total_count", 0) > 0:
-            return DemographicData(
-                zone=breakdown.get("zone"),
-                age_distribution=breakdown.get("age_distribution") or {},
-                gender_distribution=breakdown.get("gender_distribution") or {},
-                total_count=int(breakdown.get("total_count", 0)),
-            )
-    except Exception:
-        pass
-    # Cold-start fallback
-    return DemographicData(
-        zone=zone,
-        age_distribution={"18-25": 35, "26-35": 45, "36-45": 28, "46-55": 18, "56+": 12},
-        gender_distribution={"male": 72, "female": 66},
-        total_count=138,
-    )
-
+# --- Demographics ---
+# Moved to app/routers/demographics.py. The endpoint that lived here ended in a
+# cold-start fallback returning a hand-written age curve and 138 people who did
+# not exist — and since nothing ever wrote demographic_snapshots, that fallback
+# was the only path a caller could reach.
 
 # --- Peak Hours Router ---
 peak_hours_router = APIRouter(prefix="/api/peak-hours", tags=["Peak Hours"])

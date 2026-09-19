@@ -31,8 +31,11 @@ export default function FirePage() {
                 <div>
                     <h1 className="page-title">Fire & Smoke Detection</h1>
                     <p className="page-subtitle">
-                        {status?.model_loaded ? 'Custom-trained YOLO model active' : 'Model not loaded — running in safe mode'}
-                        {status?.is_fire_specific === false && ' · generic model: alerts suppressed'}
+                        {/* This line used to read `status.model_loaded` and
+                            `status.is_fire_specific`. /api/fire/status has never
+                            returned either, so it permanently claimed the model
+                            was not loaded while the model was, in fact, loaded. */}
+                        Alerts are read from the audit chain, so history survives a restart.
                     </p>
                 </div>
             </div>
@@ -53,11 +56,27 @@ export default function FirePage() {
                 </div>
             )}
 
+            {/* Every value here is a field /api/fire/status actually returns.
+                The two cards that used to sit in the middle read `model_loaded`
+                and `is_fire_specific`, which the endpoint has never sent, so
+                both always displayed "no". */}
             <div className="stats-grid">
-                <Stat icon={Flame} label="Alerts Today" value={list.length} accent={list.length ? 'rose' : 'indigo'} />
-                <Stat icon={ShieldAlert} label="Model Loaded" value={status?.model_loaded ? 'yes' : 'no'} accent="amber" />
-                <Stat icon={ShieldAlert} label="Fire-Specific" value={status?.is_fire_specific ? 'yes' : 'no'} accent="cyan" />
-                <Stat icon={Flame} label="Live (last 5 min)" value={live.length} accent="gold" />
+                <Stat
+                    icon={Flame} label="Alerts Today"
+                    value={Number(status?.total_today ?? 0).toLocaleString()}
+                    accent={status?.total_today ? 'rose' : 'indigo'}
+                />
+                <Stat
+                    icon={AlertTriangle} label="Active Now"
+                    value={Number(status?.active_alerts ?? 0).toLocaleString()}
+                    accent={status?.active_alerts ? 'rose' : 'indigo'}
+                />
+                <Stat
+                    icon={ShieldAlert} label="Cameras Covered"
+                    value={Number(status?.cameras_covered ?? 0).toLocaleString()}
+                    accent="cyan"
+                />
+                <Stat icon={Flame} label="Live This Session" value={live.length} accent="gold" />
             </div>
 
             <div className="card">

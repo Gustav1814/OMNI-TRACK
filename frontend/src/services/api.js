@@ -51,15 +51,63 @@ api.interceptors.request.use((config) => {
     return config;
 });
 
+/**
+ * On 401, spend the refresh token before giving up.
+ *
+ * Access tokens are short-lived and refresh tokens last a week, but nothing
+ * ever redeemed one — a 401 cleared both and bounced straight to /login, so a
+ * session ended the moment the access token expired even though a perfectly
+ * valid refresh token was sitting in localStorage.
+ *
+ * The app polls several endpoints at once, so an expiry produces a burst of
+ * 401s rather than one. `pending` makes them share a single refresh: the first
+ * failure performs it, the rest await the same promise and then retry.
+ */
+let pending = null;
+
+function refreshOnce() {
+    if (!pending) {
+        const token = tokenStore.getRefresh();
+        if (!token) return Promise.reject(new Error('no refresh token'));
+        pending = api
+            .post('/auth/refresh', { refresh_token: token })
+            .then((r) => {
+                tokenStore.set(r.data?.access_token, r.data?.refresh_token);
+                return r.data?.access_token;
+            })
+            .finally(() => { pending = null; });
+    }
+    return pending;
+}
+
+function bounce() {
+    tokenStore.clear();
+    if (window.location.pathname !== '/login') window.location.href = '/login';
+}
+
 api.interceptors.response.use(
     (res) => res,
-    (err) => {
-        if (err.response?.status === 401) {
-            const onLogin = window.location.pathname === '/login';
-            tokenStore.clear();
-            if (!onLogin) window.location.href = '/login';
+    async (err) => {
+        const original = err.config;
+        const url = original?.url || '';
+        const isAuthCall = url.includes('/auth/login') || url.includes('/auth/refresh');
+
+        if (err.response?.status !== 401 || isAuthCall || original?._retried) {
+            // A 401 from login or refresh itself means the credentials are the
+            // problem, so retrying would loop.
+            if (err.response?.status === 401) bounce();
+            return Promise.reject(err);
         }
-        return Promise.reject(err);
+
+        try {
+            const access = await refreshOnce();
+            original._retried = true;
+            original.headers = { ...original.headers, Authorization: `Bearer ${access}` };
+            return api(original);
+        } catch {
+            bounce();
+            return Promise.reject(err);
+        }
     }
 );
 
@@ -123,6 +171,7 @@ export const detectionAPI = {
     recordingStop: (cameraId) => api.post(`/detection/recording/stop/${cameraId}`),
     recordingStatus: () => api.get('/detection/recording/status'),
     // Job config: regions + selected classes for a running feed.
+    startJob: (cameraId) => api.post(`/detection/jobs/${cameraId}/start`),
     setJobConfig: (cameraId, config) => api.post(`/detection/jobs/${cameraId}`, config),
     jobs: () => api.get('/detection/jobs'),
     deleteJob: (cameraId, purgeHistory = false) =>
@@ -209,6 +258,8 @@ export const vibeAPI = {
 };
 
 export const demographicsAPI = {
+    facets: () => api.get('/demographics/facets'),
+    overview: (params) => api.get('/demographics/overview', { params }),
     current: (zone) => api.get('/demographics/current', { params: zone ? { zone } : {} }),
 };
 
@@ -263,6 +314,39 @@ export const artifactsAPI = {
         const qs = token ? `?token=${encodeURIComponent(token)}` : '';
         return `${API_BASE}/artifacts/file/${encodeURIComponent(filename)}${qs}`;
     },
+
+    /**
+     * Poster frame for a clip. Clips are stored as FMP4, which browsers cannot
+     * decode, so a <video> alone renders an empty black box — the grid shows
+     * this instead and the player uses it as its poster.
+     */
+    thumbUrl: (filename) => {
+        const token = tokenStore.get();
+        const qs = token ? `?token=${encodeURIComponent(token)}` : '';
+        return `${API_BASE}/artifacts/thumb/${encodeURIComponent(filename)}${qs}`;
+    },
+};
+
+/** Queue Insights — checkout lane history + the live queue. */
+export const queueAPI = {
+    facets: () => api.get('/checkout/facets'),
+    overview: (params = {}) => api.get('/checkout/overview', { params }),
+    live: () => api.get('/checkout/live'),
+};
+
+/** Footfall — person counts, dwell and crossings, read from Postgres. */
+export const footfallAPI = {
+    facets: () => api.get('/footfall/facets'),
+    overview: (params = {}) => api.get('/footfall/overview', { params }),
+};
+
+/** Job alerts — threshold breaches raised by running jobs. */
+export const alertsAPI = {
+    list: (params = {}) => api.get('/alerts', { params }),
+    facets: () => api.get('/alerts/facets'),
+    ack: (alertId) => api.post(`/alerts/${encodeURIComponent(alertId)}/ack`),
+    images: (alertId) => api.get(`/alerts/${encodeURIComponent(alertId)}/images`),
+    video: (alertId) => api.get(`/alerts/${encodeURIComponent(alertId)}/video`),
 };
 
 export const footageAPI = {

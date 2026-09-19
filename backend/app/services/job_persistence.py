@@ -23,7 +23,9 @@ from sqlalchemy import delete, select, text, update
 
 from app.database import AsyncSessionLocal
 from app.models.camera import Camera
-from app.models.job import JobAlert, JobRun, LinePassingCount, RoiDwell
+from app.models.job import (
+    CheckoutSample, CheckoutService, JobAlert, JobRun, LinePassingCount, RoiDwell,
+)
 
 
 def _now_us() -> int:
@@ -159,6 +161,8 @@ class JobPersistence:
                     if hasattr(kpi, "tracks") and hasattr(kpi, "totals_by_region"):
                         if isinstance(getattr(kpi, "tracks", None), dict):
                             written += self._stage_tracks(db, kpi, job_id, camera_id, at_us)
+
+                written += self._stage_checkout(db, at_us)
                 if written:
                     await db.commit()
                     self._failures = 0
@@ -210,6 +214,63 @@ class JobPersistence:
                 written += 1
         return written
 
+    # ── checkout ──────────────────────────────────────────────────
+    def _stage_checkout(self, db, at_us: int) -> int:
+        """
+        Persist finished visits and a queue-depth sample per lane.
+
+        Completed visits are DRAINED from the engine, so each one is inserted
+        exactly once — without that the engine's list grows for the life of the
+        process and every flush re-inserts the whole history.
+        """
+        checkout = getattr(self._pipeline, "checkout", None)
+        if checkout is None:
+            return 0
+
+        staged = 0
+        job_for = {}
+        for camera_id in {l.camera_id for l in getattr(checkout, "lanes", [])}:
+            meta = (self._pipeline._camera_jobs.get(camera_id) or {}).get("meta") or {}
+            job_for[camera_id] = str(meta.get("job_id") or f"JOB-CAM{camera_id:02d}")
+
+        try:
+            for svc in checkout.drain_completed():
+                db.add(CheckoutService(
+                    job_id=job_for.get(svc.camera_id, f"JOB-CAM{svc.camera_id:02d}"),
+                    camera_id=svc.camera_id,
+                    lane_id=svc.lane_id,
+                    lane_name=svc.lane_name,
+                    track_id=svc.track_id,
+                    enter_at_us=int(svc.enter_time * 1_000_000),
+                    exit_at_us=int((svc.exit_time or svc.enter_time) * 1_000_000),
+                    time_in_lane_s=round(float(svc.time_in_lane), 2),
+                ))
+                staged += 1
+        except Exception as e:
+            logger.debug(f"Checkout service staging failed: {e}")
+
+        # Depth sample per lane — CheckoutService only records people who have
+        # already left, so nothing else can answer "how long was the queue at
+        # 14:32", which is exactly what the accuracy check needs.
+        try:
+            for cam_id, result in (self._pipeline._results_buffer or {}).items():
+                data = getattr(result, "checkout_data", None) or {}
+                for lane in data.get("lanes") or []:
+                    db.add(CheckoutSample(
+                        job_id=job_for.get(cam_id, f"JOB-CAM{cam_id:02d}"),
+                        camera_id=cam_id,
+                        lane_id=str(lane.get("lane_id")),
+                        lane_name=lane.get("lane_name"),
+                        queue_length=int(lane.get("queue_length", 0)),
+                        wait_estimate_s=float(lane.get("current_wait_estimate", 0)),
+                        at_us=at_us,
+                    ))
+                    staged += 1
+        except Exception as e:
+            logger.debug(f"Checkout sample staging failed: {e}")
+
+        return staged
+
     # ── alerts ────────────────────────────────────────────────────
     @staticmethod
     async def save_alert(
@@ -217,6 +278,7 @@ class JobPersistence:
         region_name: Optional[str] = None, track_id: Optional[int] = None,
         class_name: Optional[str] = None, value: Optional[float] = None,
         threshold: Optional[float] = None, snapshot_path: Optional[str] = None,
+        zone: Optional[str] = None,
     ) -> None:
         try:
             async with AsyncSessionLocal() as db:
@@ -224,7 +286,7 @@ class JobPersistence:
                     job_id=job_id, camera_id=camera_id, alert_type=alert_type,
                     region_name=region_name, track_id=track_id, class_name=class_name,
                     value=value, threshold=threshold, message=message,
-                    snapshot_path=snapshot_path, at_us=_now_us(),
+                    snapshot_path=snapshot_path, zone=zone, at_us=_now_us(),
                 ))
                 await db.commit()
         except Exception as e:

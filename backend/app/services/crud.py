@@ -29,7 +29,7 @@ from app.models.analytics import (
 # Security
 from app.security.jwt_handler import hash_password
 from app.security.hashing import compute_hash, verify_chain
-from app.security.encryption import encrypt_data
+from app.security.encryption import encrypt_data, decrypt_data
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -525,6 +525,56 @@ class AuditService:
         return result.scalars().all()
 
     @staticmethod
+    async def get_logs_with_metadata(
+        db: AsyncSession,
+        event_type: Optional[str] = None,
+        limit: int = 100,
+        since: Optional[datetime] = None,
+    ) -> List[tuple]:
+        """
+        Audit rows paired with their DECRYPTED metadata, newest first.
+
+        `get_logs` returns rows whose `encrypted_metadata` is an opaque string,
+        which is correct for an audit viewer but useless to a feature that
+        needs the payload back — fire alerts carry their camera, zone,
+        confidence and bbox in there.
+
+        A row whose metadata cannot be decrypted (written under a different
+        key, or corrupted) is still returned, with None. Losing the payload
+        must not hide the fact that the event happened.
+        """
+        query = select(AuditLog).order_by(AuditLog.timestamp.desc())
+        if event_type:
+            query = query.where(AuditLog.event_type == event_type)
+        if since is not None:
+            query = query.where(AuditLog.timestamp >= since)
+        query = query.limit(limit)
+        rows = (await db.execute(query)).scalars().all()
+
+        out: List[tuple] = []
+        for row in rows:
+            meta = None
+            if row.encrypted_metadata:
+                try:
+                    meta = decrypt_data(row.encrypted_metadata)
+                except Exception as e:
+                    logger.debug(f"Audit metadata decrypt failed for id={row.id}: {e}")
+            out.append((row, meta))
+        return out
+
+    @staticmethod
+    async def count_events(
+        db: AsyncSession,
+        event_type: str,
+        since: Optional[datetime] = None,
+    ) -> int:
+        """Count audit entries of one type, optionally since a moment."""
+        query = select(func.count(AuditLog.id)).where(AuditLog.event_type == event_type)
+        if since is not None:
+            query = query.where(AuditLog.timestamp >= since)
+        return int((await db.execute(query)).scalar() or 0)
+
+    @staticmethod
     async def verify_integrity(db: AsyncSession) -> Dict[str, Any]:
         """
         Verify the chain end to end. Two independent checks per entry:
@@ -652,16 +702,31 @@ class AnalyticsService:
         estimated_age: Optional[float] = None,
         estimated_gender: Optional[str] = None,
         confidence: Optional[float] = None,
+        track_id: Optional[int] = None,
+        global_id: Optional[str] = None,
+        dominant_emotion: Optional[str] = None,
+        sentiment_score: Optional[float] = None,
+        sample_count: int = 1,
     ) -> DemographicSnapshot:
+        """
+        Write ONE visitor. The caller has already reduced that visitor's face
+        samples to a median age and a modal gender — see
+        ProcessingPipeline._visit_to_row.
+        """
         entry = DemographicSnapshot(
             camera_id=camera_id,
             zone=zone,
+            track_id=track_id,
+            global_id=global_id,
             age_group=age_group,
             gender=gender or estimated_gender,
             estimated_age=estimated_age,
             estimated_gender=estimated_gender or gender,
             count=count,
             confidence=confidence,
+            dominant_emotion=dominant_emotion,
+            sentiment_score=sentiment_score,
+            sample_count=sample_count,
         )
         db.add(entry)
         await db.flush()

@@ -13,6 +13,8 @@ import './styles/jobs-modal.css';
 import './styles/jobs-page.css';
 import './styles/jobs-live.css';
 import './styles/captures.css';
+import './styles/alerts.css';
+import './styles/footfall.css';
 import Sidebar from './components/Sidebar';
 import Scene3D from './components/Scene3D';
 // Pages
@@ -33,6 +35,7 @@ import DemographicsPage from './pages/DemographicsPage';
 import SecurityPage from './pages/SecurityPage';
 import TrimPage from './pages/TrimPage';
 import JobsPage from './pages/JobsPage';
+import AlertsPage from './pages/AlertsPage';
 
 const pageTitles = {
     '/': 'Live Overview',
@@ -132,6 +135,7 @@ function ProtectedLayout() {
                         <Routes>
                             <Route path="/" element={<DashboardPage />} />
                             <Route path="/jobs" element={<JobsPage />} />
+                            <Route path="/alerts" element={<AlertsPage />} />
                             <Route path="/detection" element={<DetectionPage />} />
                             <Route path="/reid" element={<ReIDPage />} />
                             <Route path="/trim" element={<TrimPage />} />

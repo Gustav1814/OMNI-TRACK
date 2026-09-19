@@ -108,6 +108,54 @@ class RoiDwell(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class CheckoutService(Base):
+    """
+    One customer's visit to a checkout lane, written when they leave the box.
+
+    Append-once-per-event, unlike LinePassingCount and RoiDwell whose rows carry
+    cumulative counters rewritten on every flush. A visit is a fact that happened
+    at a point in time, so it is recorded once and never revised — which is also
+    what keeps this table linear in job duration rather than quadratic.
+    """
+
+    __tablename__ = "checkout_services"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(String(100), nullable=False, index=True)
+    camera_id = Column(Integer, nullable=False, index=True)
+    lane_id = Column(String(120), nullable=False, index=True)
+    lane_name = Column(String(120), nullable=True)
+    track_id = Column(Integer, nullable=True, index=True)
+    global_id = Column(String(100), nullable=True)
+    enter_at_us = Column(BigInteger, nullable=False, index=True)
+    exit_at_us = Column(BigInteger, nullable=False, index=True)
+    # Wait AND service; a single box cannot separate them. See checkout_analytics.
+    time_in_lane_s = Column(Float, nullable=False, default=0.0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class CheckoutSample(Base):
+    """
+    Queue depth for one lane at one moment, sampled on the persistence flush.
+
+    Needed because CheckoutService only records completed visits: without these
+    samples there is no way to draw queue length over time, and no way to check
+    the proposal's "queue length +/- 1 person" criterion against a manual count.
+    """
+
+    __tablename__ = "checkout_samples"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(String(100), nullable=False, index=True)
+    camera_id = Column(Integer, nullable=False, index=True)
+    lane_id = Column(String(120), nullable=False, index=True)
+    lane_name = Column(String(120), nullable=True)
+    queue_length = Column(Integer, nullable=False, default=0)
+    wait_estimate_s = Column(Float, nullable=True)
+    at_us = Column(BigInteger, nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class JobAlert(Base):
     """
     Threshold breaches worth surfacing — currently ROI dwell overruns.
@@ -128,5 +176,10 @@ class JobAlert(Base):
     threshold = Column(Float, nullable=True)
     message = Column(Text, nullable=True)
     snapshot_path = Column(Text, nullable=True)
+    # Zone the job ran under. Denormalised from job_runs so the alerts list can
+    # filter by location without a join per row.
+    zone = Column(String(100), nullable=True, index=True)
+    acknowledged = Column(Boolean, default=False, nullable=False, index=True)
+    acknowledged_at = Column(DateTime(timezone=True), nullable=True)
     at_us = Column(BigInteger, nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)

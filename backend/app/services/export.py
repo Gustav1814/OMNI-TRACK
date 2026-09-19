@@ -91,10 +91,18 @@ class ExportService:
 
     @staticmethod
     def demographics_report(demo_data: List[Dict]) -> dict:
-        """Export demographics data as CSV."""
-        headers = ["Date", "Zone", "Age Group", "Gender", "Count"]
-        rows = [[d.get("date", ""), d.get("zone", ""),
+        """
+        Export demographics data as CSV.
+
+        One row is one VISITOR: `Faces` is how many face reads were averaged
+        into it, and a blank Age Group means the face was read but too small
+        or too turned away to call.
+        """
+        headers = ["Date", "Zone", "Camera", "Age Group", "Gender",
+                   "Mood", "Faces", "Count"]
+        rows = [[d.get("date", ""), d.get("zone", ""), d.get("camera_id", ""),
                  d.get("age_group", ""), d.get("gender", ""),
+                 d.get("dominant_emotion", ""), d.get("sample_count", ""),
                  d.get("count", 0)] for d in demo_data]
         return ExportService.to_csv(headers, rows, "demographics_report")
 

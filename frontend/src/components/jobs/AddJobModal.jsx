@@ -4,12 +4,13 @@ import {
   X
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { inferStreamType, useFootage, useKpiCatalog, useRegisterJob, useTrackers } from "./jobsApi";
 import { buildRegisterRequest, emptyDraft } from "./draft";
 import { validateSourceUrl } from "./validation";
 import { CameraMarkingModal } from "./CameraMarkingModal";
 import { ObjectClassesEditor } from "./ObjectClassesEditor";
-const KPI_REQUIRES_REGIONS = /* @__PURE__ */ new Set(["line_passing", "roi_region"]);
+const KPI_REQUIRES_REGIONS = /* @__PURE__ */ new Set(["line_passing", "roi_region", "checkout_queue"]);
 /** Backend `_resolve_source` vocabulary: rtsp | http | file | webcam. */
 function inferUrlType(url) {
   return inferStreamType(url);
@@ -428,7 +429,7 @@ function AddJobModal({ open, onClose }) {
     }
   };
   const sourceProps = { draft, patch, kpi };
-  return <div
+  return createPortal(<div
     className="ajm-backdrop"
     onMouseDown={(e) => {
       if (e.target === e.currentTarget) onClose();
@@ -480,7 +481,7 @@ function AddJobModal({ open, onClose }) {
     onChange={(regions) => patch({ regions })}
     onFrameSize={(w, h) => patch({ frame_width: w, frame_height: h })}
   />
-    </div>;
+    </div>, document.body);
 }
 export {
   AddJobModal

@@ -30,7 +30,7 @@ from app.database import get_db
 from app.models.job import JobRun
 from app.models.user import User
 from app.security.dependencies import get_current_user
-from app.services import artifact_index
+from app.services import artifact_index, artifact_media
 from app.services.artifact_index import ArtifactMeta
 
 router = APIRouter(prefix="/api/artifacts", tags=["Artifacts"])
@@ -93,6 +93,11 @@ def _attribute(meta: ArtifactMeta, jobs: List[JobRun]) -> Dict[str, Any]:
 def _serialise(meta: ArtifactMeta, jobs: List[JobRun]) -> Dict[str, Any]:
     d = meta.to_dict()
     d["url"] = f"/api/artifacts/file/{meta.filename}"
+    # Clips need a poster: the stored encoding is FMP4, which no browser can
+    # decode, so a <video> shows an empty black box until it has a thumbnail.
+    d["thumb_url"] = (
+        f"/api/artifacts/thumb/{meta.filename}" if meta.kind == "clip" else d["url"]
+    )
     d.update(_attribute(meta, jobs))
     return d
 
@@ -215,9 +220,38 @@ async def get_artifact_file(
     if media_type is None:
         raise HTTPException(400, "Unsupported artifact type")
 
+    headers = {"Content-Disposition": f'inline; filename="{meta.filename}"'}
+    return FileResponse(path, media_type=media_type, headers=headers)
+
+
+@router.get("/thumb/{filename}", summary="Poster frame for a clip")
+async def get_artifact_thumb(
+    filename: str,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    A JPEG poster frame, extracted from the clip with OpenCV.
+
+    OpenCV decodes FMP4 happily even though browsers do not, so this works for
+    every clip already on disk without transcoding anything. For an image
+    artifact the original is returned, so callers can use one URL for both.
+    """
+    meta = artifact_index.parse_artifact_name(filename)
+    if meta is None:
+        raise HTTPException(400, "Not a valid artifact filename")
+
+    root = resolved_artifacts_dir()
+    if meta.kind == "image":
+        path = (root / meta.filename).resolve()
+        if path.parent != root.resolve() or not path.is_file():
+            raise HTTPException(404, "Artifact not found")
+        return FileResponse(path, media_type="image/png")
+
+    thumb = artifact_media.thumbnail(root, meta.filename)
+    if thumb is None:
+        # Two of the stored clips are truncated (no moov atom) because the
+        # process was killed while they were still open.
+        raise HTTPException(404, "No poster frame could be decoded from this clip")
     return FileResponse(
-        path,
-        media_type=media_type,
-        # inline so a browser renders it in the page rather than downloading
-        headers={"Content-Disposition": f'inline; filename="{meta.filename}"'},
+        thumb, media_type="image/jpeg", headers={"Cache-Control": "max-age=3600"},
     )

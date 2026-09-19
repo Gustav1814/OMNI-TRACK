@@ -10,8 +10,9 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
-    Camera, ChevronLeft, ChevronRight, Filter, ImageOff, Layers, RotateCcw, X,
+    Camera, ChevronLeft, ChevronRight, Filter, ImageOff, Layers, Play, RotateCcw, X,
 } from 'lucide-react';
 import { artifactsAPI } from '../../services/api';
 
@@ -118,12 +119,32 @@ export default function CaptureBrowser() {
     const totalPages = Math.max(1, Math.ceil((data.total || 0) / PAGE_SIZE));
     const items = data.items || [];
 
+    // Position within the current page, so the viewer can step without closing.
+    const selectedIndex = useMemo(
+        () => (selected ? items.findIndex((i) => i.filename === selected.filename) : -1),
+        [selected, items],
+    );
+    const hasPrev = selectedIndex > 0;
+    const hasNext = selectedIndex >= 0 && selectedIndex < items.length - 1;
+
+    const goPrev = useCallback(() => {
+        if (hasPrev) setSelected(items[selectedIndex - 1]);
+    }, [hasPrev, items, selectedIndex]);
+
+    const goNext = useCallback(() => {
+        if (hasNext) setSelected(items[selectedIndex + 1]);
+    }, [hasNext, items, selectedIndex]);
+
     useEffect(() => {
         if (!selected) return undefined;
-        const onKey = (e) => { if (e.key === 'Escape') setSelected(null); };
+        const onKey = (e) => {
+            if (e.key === 'Escape') setSelected(null);
+            else if (e.key === 'ArrowLeft') goPrev();
+            else if (e.key === 'ArrowRight') goNext();
+        };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [selected]);
+    }, [selected, goPrev, goNext]);
 
     return (
         <div className="cap">
@@ -315,16 +336,28 @@ export default function CaptureBrowser() {
                             title={it.filename}
                         >
                             <span className="cap-card__media">
-                                {it.kind === 'clip' ? (
-                                    <video src={artifactsAPI.fileUrl(it.filename)} muted preload="metadata" />
-                                ) : (
-                                    // Crops are small (some are 10x22px) — contain + pixelated
-                                    // keeps them honest rather than smeared.
-                                    <img
-                                        src={artifactsAPI.fileUrl(it.filename)}
-                                        alt={`${it.class_name ?? 'capture'} on camera ${it.camera_id}`}
-                                        loading="lazy"
-                                    />
+                                {/* Both branches are images: a clip shows its poster
+                                    frame, since loading 60 <video> elements would
+                                    fire ranged requests for every one of them and
+                                    still render black (the stored codec is FMP4). */}
+                                <img
+                                    src={
+                                        it.kind === 'clip'
+                                            ? artifactsAPI.thumbUrl(it.filename)
+                                            : artifactsAPI.fileUrl(it.filename)
+                                    }
+                                    className={it.kind === 'clip' ? 'is-poster' : undefined}
+                                    alt={
+                                        it.kind === 'clip'
+                                            ? `Clip from camera ${it.camera_id}`
+                                            : `${it.class_name ?? 'capture'} on camera ${it.camera_id}`
+                                    }
+                                    loading="lazy"
+                                />
+                                {it.kind === 'clip' && (
+                                    <span className="cap-card__play" aria-hidden>
+                                        <Play size={16} />
+                                    </span>
                                 )}
                             </span>
                             <span className="cap-card__body">
@@ -343,7 +376,7 @@ export default function CaptureBrowser() {
             )}
 
             {/* ── lightbox ────────────────────────────────────────── */}
-            {selected && (
+            {selected && createPortal(
                 <div className="cap-light" role="dialog" aria-modal="true" onClick={() => setSelected(null)}>
                     <div className="cap-light__box" onClick={(e) => e.stopPropagation()}>
                         <header className="cap-light__head">
@@ -351,14 +384,46 @@ export default function CaptureBrowser() {
                                 {selected.class_name ?? 'Clip'}
                                 {selected.track_id != null && selected.track_id >= 0 && ` · track ${selected.track_id}`}
                             </span>
+                            <span className="cap-light__pos">
+                                {selectedIndex >= 0 && `${selectedIndex + 1} / ${items.length}`}
+                            </span>
                             <button type="button" onClick={() => setSelected(null)} aria-label="Close">
                                 <X size={16} />
                             </button>
                         </header>
 
                         <div className="cap-light__stage">
+                        {items.length > 1 && (
+                            <>
+                                <button
+                                    type="button"
+                                    className="cap-light__nav cap-light__nav--prev"
+                                    onClick={goPrev}
+                                    disabled={!hasPrev}
+                                    aria-label="Previous capture"
+                                    title="Previous (←)"
+                                >
+                                    <ChevronLeft size={20} />
+                                </button>
+                                <button
+                                    type="button"
+                                    className="cap-light__nav cap-light__nav--next"
+                                    onClick={goNext}
+                                    disabled={!hasNext}
+                                    aria-label="Next capture"
+                                    title="Next (→)"
+                                >
+                                    <ChevronRight size={20} />
+                                </button>
+                            </>
+                        )}
                             {selected.kind === 'clip' ? (
-                                <video src={artifactsAPI.fileUrl(selected.filename)} controls autoPlay />
+                                <video
+                                    src={artifactsAPI.fileUrl(selected.filename)}
+                                    poster={artifactsAPI.thumbUrl(selected.filename)}
+                                    controls
+                                    autoPlay
+                                />
                             ) : (
                                 <img src={artifactsAPI.fileUrl(selected.filename)} alt={selected.filename} />
                             )}
@@ -376,7 +441,8 @@ export default function CaptureBrowser() {
 
                         <footer className="cap-light__foot"><code>{selected.filename}</code></footer>
                     </div>
-                </div>
+                </div>,
+                document.body,
             )}
         </div>
     );

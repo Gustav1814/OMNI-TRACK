@@ -11,6 +11,8 @@ Local playback (FYP / no live cameras):
 import asyncio
 from pathlib import Path
 
+from loguru import logger
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional, Tuple
@@ -110,6 +112,17 @@ def _resolve_model(model: str) -> str:
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Failed to load model {model}: {e}")
     return model_path
+
+
+async def _flush_job_state(pipeline) -> None:
+    """Force a KPI flush so in-memory counters are not lost on stop/delete."""
+    jp = getattr(pipeline, "job_persistence", None)
+    if jp is None:
+        return
+    try:
+        await jp.flush(force=True)
+    except Exception as e:
+        logger.debug(f"Pre-stop flush failed: {e}")
 
 
 @router.post("/start/{camera_id}")
@@ -215,6 +228,17 @@ class JobConfigRequest(BaseModel):
     zone: Optional[str] = None
     job_id: Optional[str] = None
 
+    # Runtime settings, kept with the job so it can be started, stopped and
+    # started again without re-registering. Registering used to imply starting,
+    # which meant a finished clip could only be watched again by creating the
+    # whole job from scratch.
+    stream_type: Optional[str] = None
+    fps: int = 30
+    skip_frames: int = 0
+    enable_reid: bool = True
+    loop: bool = False
+    extra_models: str = ""
+
 
 @router.post("/jobs/{camera_id}")
 async def set_job_config(
@@ -224,7 +248,11 @@ async def set_job_config(
     pipeline=Depends(get_pipeline),
 ):
     """
-    Attach a job's regions and class selection to a running camera.
+    Register a job: save its regions, classes and runtime settings.
+
+    This does NOT start the feed — use POST /jobs/{camera_id}/start for that.
+    Separating the two means a job outlives one run: when a clip reaches its end
+    you press Start again instead of rebuilding the job.
 
     Regions are stored in the frame coordinates the browser drew them in; the
     pipeline rescales them onto whatever resolution it actually decodes.
@@ -266,6 +294,12 @@ async def set_job_config(
             "source": body.source,
             "zone": body.zone,
             "job_id": body.job_id or f"JOB-CAM{camera_id:02d}",
+            "stream_type": body.stream_type,
+            "fps": body.fps,
+            "skip_frames": body.skip_frames,
+            "enable_reid": body.enable_reid,
+            "loop": body.loop,
+            "extra_models": body.extra_models,
         },
     )
     saved = pipeline.get_camera_job(camera_id) or {}
@@ -386,6 +420,10 @@ async def delete_job(
     History is KEPT by default so past counts remain queryable; pass
     `purge_history=true` to delete the rows as well.
     """
+    # Flush first: KPI counters live in memory between 5s flushes, and
+    # clear_camera_job drops the state, so deleting without this silently
+    # discards the last interval's counts.
+    await _flush_job_state(pipeline)
     pipeline.remove_camera(camera_id)
     pipeline.clear_camera_job(camera_id)
     await JobPersistence.end_job(camera_id)
@@ -400,10 +438,81 @@ async def stop_detection(
     current_user: User = Depends(get_current_user),
     pipeline=Depends(get_pipeline),
 ):
-    """Stop detection on a camera feed (removes from pipeline)."""
+    """
+    Stop the feed but KEEP the job.
+
+    Stopping used to call clear_camera_job, which threw the configuration away —
+    so a clip that reached its end left nothing to restart and the job had to be
+    rebuilt from scratch. Now the config, its regions and its history stay put
+    and the job can be started again. Use DELETE /jobs/{camera_id} to remove it.
+    """
+    await _flush_job_state(pipeline)
     pipeline.remove_camera(camera_id)
-    pipeline.clear_camera_job(camera_id)
     return {"message": f"Detection stopped on camera {camera_id}", "status": "stopped"}
+
+
+@router.post("/jobs/{camera_id}/start")
+async def start_job(
+    camera_id: int,
+    current_user: User = Depends(get_current_user),
+    pipeline=Depends(get_pipeline),
+):
+    """
+    Start (or restart) a registered job from its saved settings.
+
+    A file source replays from the beginning, so finishing a clip and pressing
+    Start again is a fresh run rather than a resumption.
+    """
+    job = pipeline.get_camera_job(camera_id)
+    if not job:
+        raise HTTPException(404, f"No job registered for camera {camera_id}")
+
+    meta = job.get("meta") or {}
+    raw_source = str(meta.get("source") or "")
+    if not raw_source:
+        raise HTTPException(400, "This job has no source to start")
+
+    # Same translation the /start endpoint does. Without it a "footage:name.mp4"
+    # source reaches the stream reader verbatim and every open fails.
+    source, stream_type = _resolve_source(
+        raw_source, str(meta.get("stream_type") or "file"),
+    )
+
+    model_path = _resolve_model(meta.get("model")) if meta.get("model") else None
+    extra_model_paths = []
+    for name in str(meta.get("extra_models") or "").split(","):
+        name = name.strip()
+        if not name:
+            continue
+        resolved = _resolve_model(name)
+        if resolved and resolved != model_path:
+            extra_model_paths.append(resolved)
+
+    try:
+        pipeline.add_camera(
+            camera_id=camera_id,
+            source=source,
+            stream_type=stream_type,
+            zone=str(meta.get("zone") or "default"),
+            fps=int(meta.get("fps") or 30),
+            skip_frames=int(meta.get("skip_frames") or 0),
+            model_path=model_path,
+            tracker_config=str(meta.get("tracker") or "botsort.yaml"),
+            enable_reid=bool(meta.get("enable_reid", True)),
+            loop=bool(meta.get("loop", False)),
+            extra_models=extra_model_paths,
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    if pipeline.state.value != "running":
+        await pipeline.start()
+
+    # add_camera does not re-run set_camera_job, so the lanes and KPI built at
+    # registration are still in place — but re-syncing is cheap and keeps a
+    # restarted job identical to a freshly registered one.
+    await JobPersistence.save_job(camera_id, job)
+    return {"status": "started", "camera_id": camera_id, "job_id": meta.get("job_id")}
 
 
 @router.get("/status")

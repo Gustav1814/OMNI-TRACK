@@ -73,16 +73,18 @@ from app.services.storage_guard import StorageGuard
 from app.routers import auth, cameras, detection, reid, footage, model
 from app.routers import export as export_router_mod
 from app.routers import artifacts as artifacts_router_mod
+from app.routers import alerts as alerts_router_mod
+from app.routers import footfall as footfall_router_mod
+from app.routers import checkout as checkout_router_mod
+from app.routers import demographics as demographics_router_mod
 from app.routers.analytics import (
     synopsis_router,
     shelf_router,
     fire_router,
     crowd_router,
-    checkout_router,
     emotion_router,
     audit_router,
     vibe_router,
-    demographics_router,
     peak_hours_router,
     dashboard_router,
 )
@@ -92,7 +94,9 @@ from app.config import settings
 from app.security.adversarial_eval import get_robustness_status
 from app.security.dependencies import get_current_user
 from app.models.user import User
-from app.models.job import JobAlert, JobRun, LinePassingCount, RoiDwell  # noqa: F401
+from app.models.job import (  # noqa: F401
+    CheckoutSample, CheckoutService, JobAlert, JobRun, LinePassingCount, RoiDwell,
+)
 from app.services.job_persistence import JobPersistence
 
 
@@ -172,6 +176,25 @@ async def lifespan(app: FastAPI):
                 await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
                 logger.info("✅ pgvector extension enabled")
             await conn.run_sync(Base.metadata.create_all)
+
+            # create_all only CREATES tables; it never alters an existing one.
+            # Columns added to a model after a table exists therefore need an
+            # explicit migration, and ADD COLUMN IF NOT EXISTS makes it safe to
+            # run on every start and on a teammate's older database.
+            if settings.DATABASE_URL.startswith("postgresql"):
+                for ddl in (
+                    "ALTER TABLE job_alerts ADD COLUMN IF NOT EXISTS zone VARCHAR(100)",
+                    "ALTER TABLE job_alerts ADD COLUMN IF NOT EXISTS acknowledged BOOLEAN NOT NULL DEFAULT FALSE",
+                    "ALTER TABLE job_alerts ADD COLUMN IF NOT EXISTS acknowledged_at TIMESTAMPTZ",
+                    # Demographics moved from one row per observation to one row
+                    # per visitor, which needs the track it belongs to.
+                    "ALTER TABLE demographic_snapshots ADD COLUMN IF NOT EXISTS track_id INTEGER",
+                    "ALTER TABLE demographic_snapshots ADD COLUMN IF NOT EXISTS global_id VARCHAR(100)",
+                    "ALTER TABLE demographic_snapshots ADD COLUMN IF NOT EXISTS dominant_emotion VARCHAR(20)",
+                    "ALTER TABLE demographic_snapshots ADD COLUMN IF NOT EXISTS sentiment_score DOUBLE PRECISION",
+                    "ALTER TABLE demographic_snapshots ADD COLUMN IF NOT EXISTS sample_count INTEGER DEFAULT 1",
+                ):
+                    await conn.execute(text(ddl))
         logger.info("✅ Database tables ready")
 
         # Vector index for cross-camera Re-ID search. Without it every similarity
@@ -389,15 +412,17 @@ app.include_router(synopsis_router)
 app.include_router(shelf_router)
 app.include_router(fire_router)
 app.include_router(crowd_router)
-app.include_router(checkout_router)
 app.include_router(emotion_router)
 app.include_router(audit_router)
 app.include_router(vibe_router)
-app.include_router(demographics_router)
+app.include_router(demographics_router_mod.router)
 app.include_router(peak_hours_router)
 app.include_router(dashboard_router)
 app.include_router(export_router_mod.router)
 app.include_router(artifacts_router_mod.router)
+app.include_router(alerts_router_mod.router)
+app.include_router(footfall_router_mod.router)
+app.include_router(checkout_router_mod.router)
 
 
 # ═══════════════════════════════════════════════════════════════

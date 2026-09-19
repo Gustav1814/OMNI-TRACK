@@ -13,6 +13,7 @@
  */
 
 import React, { useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
     Film, HardDrive, Images, Play, Search, Upload, Video, X,
 } from 'lucide-react';
@@ -230,7 +231,7 @@ export default function DetectionPage() {
                 </>
             )}
 
-            {playing && (
+            {playing && createPortal(
                 <div
                     className="rec-player"
                     role="dialog"
@@ -255,7 +256,8 @@ export default function DetectionPage() {
                             <span>{formatSize(playing.size_bytes)}</span>
                         </footer>
                     </div>
-                </div>
+                </div>,
+                document.body,
             )}
         </div>
     );

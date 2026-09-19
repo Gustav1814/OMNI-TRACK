@@ -10,6 +10,11 @@
 
 /* Design tokens (light) */
 .jobs-page,
+.alerts-page,
+.ff-page,
+.qi-page,
+.dm-page,
+.alerts-modal-backdrop,
 .lmm-backdrop {  color-scheme: light;
 
   /* Brand gradient — sampled from the logo mark (shared by both themes) */
@@ -187,6 +192,11 @@
 
 /* Design tokens (dark) */
 .dark .jobs-page,
+.dark .alerts-page,
+.dark .ff-page,
+.dark .qi-page,
+.dark .dm-page,
+.dark .alerts-modal-backdrop,
 .dark .lmm-backdrop {  color-scheme: dark;
 
   /* Surfaces */

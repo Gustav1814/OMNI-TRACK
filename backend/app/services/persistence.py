@@ -97,6 +97,14 @@ class PersistencePipelineCallback:
         now = time.time()
         pipeline = self._pipeline
 
+        # An empty tick means no camera produced a frame — the pipeline fires
+        # one so visitors banked from a finished clip can be written. Nothing
+        # else may run on it: the interval-gated vibe and foot-traffic writes
+        # would otherwise keep appending rows to an idle system.
+        if not results:
+            await self._write_demographics(db)
+            return
+
         # ── 1. Detections ─────────────────────────────────────────
         detection_rows_by_cam: Dict[int, List[Any]] = {}
         for cam_id, r in results.items():
@@ -176,6 +184,11 @@ class PersistencePipelineCallback:
         # ── 5. Customer journey legs ──────────────────────────────
         await self._update_journey_legs(db, results, now)
 
+        # ── 5b. Demographics: completed visitors ──────────────────
+        # Not bucketed by time like foot traffic: a visit is written when it
+        # ENDS, so the write rate is people-per-minute, not ticks-per-minute.
+        await self._write_demographics(db)
+
         # ── 6. Fire alerts → audit chain (SHA-256 + AES-256) ─────
         for cam_id, r in results.items():
             for alert in (r.fire_alerts or []):
@@ -206,6 +219,44 @@ class PersistencePipelineCallback:
                     )
                 except Exception as e:
                     logger.debug(f"AuditService fire_alert failed: {e}")
+
+    async def _write_demographics(self, db: AsyncSession) -> None:
+        """
+        Persist visitors whose visit has ended.
+
+        The pipeline hands over rows that are already reduced — one per person,
+        median age, modal gender. Rows with a NULL track_id are faces that could
+        not be attributed to anyone; they carry no age or gender and exist only
+        so the page can report how much of what it saw it could attribute.
+        """
+        drain = getattr(self._pipeline, "get_and_clear_finished_demographics", None)
+        if drain is None:
+            return
+        try:
+            visits = drain()
+        except Exception as e:
+            logger.debug(f"Demographics drain failed: {e}")
+            return
+
+        for v in visits or []:
+            try:
+                await AnalyticsService.save_demographics(
+                    db,
+                    camera_id=int(v["camera_id"]),
+                    zone=v.get("zone"),
+                    track_id=v.get("track_id"),
+                    global_id=v.get("global_id"),
+                    age_group=v.get("age_group"),
+                    gender=v.get("gender"),
+                    estimated_age=v.get("estimated_age"),
+                    confidence=v.get("confidence"),
+                    dominant_emotion=v.get("dominant_emotion"),
+                    sentiment_score=v.get("sentiment_score"),
+                    count=int(v.get("count", 1)),
+                    sample_count=int(v.get("sample_count", 1)),
+                )
+            except Exception as e:
+                logger.debug(f"Demographics save failed: {e}")
 
     async def _update_journey_legs(
         self,
@@ -267,6 +318,18 @@ class PersistencePipelineCallback:
             "camera_removed": f"Camera removed: {payload.get('camera_id')}",
         }
         description = description_map.get(event, event)
+
+        # The pipeline closes every open visit before the processing loop dies,
+        # so the last visitors are sitting in the buffer with no tick left to
+        # drain them. This is that tick.
+        if event in ("pipeline_stopped", "camera_removed"):
+            try:
+                async with self._session_maker() as db:
+                    await self._write_demographics(db)
+                    await db.commit()
+            except Exception as e:
+                logger.debug(f"Final demographics flush failed: {e}")
+
         try:
             async with self._session_maker() as db:
                 try:

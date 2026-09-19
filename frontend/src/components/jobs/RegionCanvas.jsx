@@ -389,6 +389,7 @@ function RegionCanvas({
     onPointerLeave={() => setHover(null)}
     aria-label="Region drawing canvas"
   />
+        </div>
 
           {naming && <div className="region-naming-popup" role="dialog" aria-label="Name region">
             <span className="region-naming-popup__label">Region name</span>
@@ -438,7 +439,7 @@ function RegionCanvas({
               <button type="button" className="btn btn--primary btn--sm" onClick={confirmName}>Confirm</button>
             </div>
           </div>}
-        </div>
+
       </div>
 
       {variant === "panel" && <div className="region-sidebar">

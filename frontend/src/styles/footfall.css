@@ -1,0 +1,385 @@
+/* ════════════════════════════════════════════════════════════════
+   Footfall — same visual language as the Alerts page, built from the
+   token set jobs-live.css defines for both themes.
+   ════════════════════════════════════════════════════════════════ */
+
+.ff-page { padding-bottom: 28px; }
+
+.ff-head { margin-bottom: 16px; }
+.ff-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-strong, var(--accent-primary));
+}
+.ff-title {
+  margin: 6px 0 4px;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-0, var(--text-primary));
+}
+.ff-sub {
+  margin: 0;
+  max-width: 64ch;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-2, var(--text-muted));
+}
+
+/* ── filters ──────────────────────────────────────────────────── */
+.ff-filters {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--pane, var(--bg-card));
+}
+.ff-field { display: flex; flex-direction: column; gap: 5px; min-width: 140px; }
+.ff-field > span {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-3, var(--text-muted));
+}
+.ff-field .select,
+.ff-field .input { height: 34px; font-size: 13px; width: 100%; }
+.ff-field--time { min-width: 190px; }
+.ff-field input[type="datetime-local"] {
+  color-scheme: light;
+  background: var(--pane-4, var(--bg-tertiary));
+  color: var(--text-0, var(--text-primary));
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 0 10px;
+  font-family: inherit;
+}
+html.dark .ff-field input[type="datetime-local"] { color-scheme: dark; }
+
+.ff-filters__actions { display: flex; gap: 8px; }
+.ff-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--border-strong, var(--border));
+  border-radius: 9px;
+  background: var(--pane-4, var(--bg-tertiary));
+  color: var(--text-1, var(--text-primary));
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ff-btn:hover { border-color: var(--border-hover, var(--accent-primary)); }
+.ff-btn--primary {
+  background: var(--accent-strong, var(--accent-primary));
+  border-color: transparent;
+  color: #fff;
+}
+.ff-btn--primary:hover { filter: brightness(1.07); }
+.ff-range {
+  flex-basis: 100%;
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  color: var(--text-3, var(--text-muted));
+}
+
+/* ── headline stats ───────────────────────────────────────────── */
+.ff-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 13px;
+  margin-bottom: 16px;
+}
+.ff-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 15px 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--pane, var(--bg-card));
+}
+.ff-stat__icon {
+  display: grid;
+  place-items: center;
+  width: 32px; height: 32px;
+  margin-bottom: 6px;
+  border-radius: 9px;
+}
+.ff-stat--indigo .ff-stat__icon { background: rgba(97, 114, 255, 0.14); color: #6172ff; }
+.ff-stat--amber  .ff-stat__icon { background: rgba(234, 179, 8, 0.14);  color: #eab308; }
+.ff-stat--cyan   .ff-stat__icon { background: rgba(6, 182, 212, 0.14);  color: #06b6d4; }
+.ff-stat--rose   .ff-stat__icon { background: rgba(244, 63, 94, 0.14);  color: #f43f5e; }
+.ff-stat__label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-3, var(--text-muted));
+}
+.ff-stat__value {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-0, var(--text-primary));
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ff-stat__note { font-size: 11.5px; color: var(--text-3, var(--text-muted)); }
+
+/* ── cards ────────────────────────────────────────────────────── */
+.ff-card {
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--pane, var(--bg-card));
+  overflow: hidden;
+}
+.ff-card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 15px 18px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.ff-card__head h3 {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--text-0, var(--text-primary));
+}
+.ff-card__head span { font-size: 12px; color: var(--text-3, var(--text-muted)); }
+
+/* Recharts inherits `currentColor` for axes, so the axis labels follow the
+   theme instead of being pinned to one grey. */
+.ff-chart { padding: 14px 10px 6px; color: var(--text-3, var(--text-muted)); }
+
+/* ── tables ───────────────────────────────────────────────────── */
+.ff-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ff-table thead th {
+  padding: 9px 16px;
+  text-align: left;
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-3, var(--text-muted));
+  background: var(--pane-3, var(--bg-tertiary));
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.ff-table tbody tr { border-bottom: 1px solid var(--border); }
+.ff-table tbody tr:last-child { border-bottom: none; }
+.ff-table tbody tr:hover { background: var(--surface-hover, rgba(128, 128, 128, 0.05)); }
+.ff-table td {
+  padding: 10px 16px;
+  color: var(--text-1, var(--text-primary));
+  font-variant-numeric: tabular-nums;
+}
+.ff-table__strong { font-weight: 600; color: var(--text-0, var(--text-primary)); }
+.ff-table__dim { color: var(--text-3, var(--text-muted)); font-size: 12px; }
+.ff-in  { color: #10b981; font-weight: 600; }
+.ff-out { color: #f97316; font-weight: 600; }
+
+/* Caveats about the data belong next to the data, not in a tooltip. */
+.ff-note {
+  margin: 0;
+  padding: 12px 18px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-3, var(--text-muted));
+  border-top: 1px solid var(--border);
+  background: var(--pane-3, var(--bg-tertiary));
+}
+
+/* ── empty ────────────────────────────────────────────────────── */
+.ff-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 54px 20px;
+  border: 1px dashed var(--border);
+  border-radius: 15px;
+  text-align: center;
+  color: var(--text-3, var(--text-muted));
+}
+.ff-empty__glyph {
+  display: grid;
+  place-items: center;
+  width: 54px; height: 54px;
+  border-radius: 50%;
+  background: var(--pane-4, var(--bg-tertiary));
+}
+.ff-empty h3 { margin: 4px 0 0; font-size: 15px; color: var(--text-0, var(--text-primary)); }
+.ff-empty p { margin: 0; font-size: 13px; max-width: 40ch; }
+
+@media (max-width: 720px) {
+  .ff-field, .ff-field--time { min-width: 100%; }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Queue Insights — reuses the Footfall shell (.ff-*), adding only the
+   live lane strip, which has no Footfall equivalent.
+   ════════════════════════════════════════════════════════════════ */
+
+.qi-live {
+  padding: 14px 16px 16px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--pane, var(--bg-card));
+}
+.qi-live__head {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3, var(--text-muted));
+}
+.qi-live__dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.18);
+}
+
+.qi-live__lanes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 11px;
+}
+.qi-lane {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 13px 14px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 11px;
+  background: var(--pane-3, var(--bg-tertiary));
+}
+.qi-lane__name {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-2, var(--text-muted));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.qi-lane__count {
+  font-size: 27px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--text-0, var(--text-primary));
+  font-variant-numeric: tabular-nums;
+}
+.qi-lane__meta { font-size: 11px; color: var(--text-3, var(--text-muted)); }
+
+/* Depth as colour: a backed-up till should be visible without reading. */
+.qi-lane--low  { border-left-color: #10b981; }
+.qi-lane--mid  { border-left-color: #eab308; }
+.qi-lane--high { border-left-color: #f97316; }
+.qi-lane--crit { border-left-color: #f43f5e; }
+.qi-lane--crit .qi-lane__count { color: #f43f5e; }
+
+.qi-footnote { border: 1px solid var(--border); border-radius: 12px; }
+
+/* ════════════════════════════════════════════════════════════════
+   Audience Mix — reuses the Footfall shell (.ff-*), adding only the
+   sample-size banner, the two-up split and the mood strip.
+   ════════════════════════════════════════════════════════════════ */
+
+/* How much the page is based on, stated before any of the numbers.
+   Small samples are the normal case here — faces are far rarer than
+   detections — so this sits above the stats rather than under them. */
+.dm-basis {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 15px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--pane-3, var(--bg-tertiary));
+  color: var(--text-2, var(--text-muted));
+}
+.dm-basis svg { flex-shrink: 0; margin-top: 1px; color: var(--accent-strong, var(--accent-primary)); }
+.dm-basis p { margin: 0; font-size: 12.5px; line-height: 1.55; }
+.dm-basis strong { color: var(--text-0, var(--text-primary)); font-variant-numeric: tabular-nums; }
+
+/* Thin sample: amber, because the numbers below are still real but
+   should not be read as proportions of anything. */
+.dm-basis--thin {
+  border-color: rgba(234, 179, 8, 0.4);
+  background: rgba(234, 179, 8, 0.07);
+}
+.dm-basis--thin svg { color: #eab308; }
+
+.dm-split {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+}
+.dm-split > .ff-card { margin-bottom: 16px; }
+
+/* ── mood strip ───────────────────────────────────────────────── */
+.dm-moods {
+  display: grid;
+  gap: 9px;
+  padding: 15px 18px;
+}
+.dm-mood {
+  display: grid;
+  grid-template-columns: 10px 84px 52px 1fr;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+}
+.dm-mood__swatch { width: 10px; height: 10px; border-radius: 50%; }
+.dm-mood__name {
+  text-transform: capitalize;
+  color: var(--text-1, var(--text-primary));
+  font-weight: 600;
+}
+.dm-mood__count {
+  color: var(--text-2, var(--text-muted));
+  font-variant-numeric: tabular-nums;
+}
+.dm-mood__bar {
+  height: 7px;
+  border-radius: 999px;
+  background: var(--pane-4, var(--bg-tertiary));
+  overflow: hidden;
+}
+.dm-mood__bar i { display: block; height: 100%; border-radius: 999px; }
+
+@media (max-width: 720px) {
+  .dm-mood { grid-template-columns: 10px 1fr 46px; }
+  .dm-mood__bar { grid-column: 1 / -1; }
+}

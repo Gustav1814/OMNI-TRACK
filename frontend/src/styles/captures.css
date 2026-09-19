@@ -209,6 +209,31 @@ html.dark .cap-field input[type="datetime-local"] { color-scheme: dark; }
 }
 .cap-card__media video { width: 100%; height: 100%; image-rendering: auto; }
 
+/* A clip poster is a full frame, not a tiny crop, so it should fill the card
+   and be smoothed like any photo. */
+.cap-card__media img.is-poster {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  image-rendering: auto;
+}
+
+/* Marks a card as a clip, so a poster is not mistaken for a still. */
+.cap-card__media { position: relative; }
+.cap-card__play {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(10, 12, 20, 0.66);
+  color: #fff;
+  backdrop-filter: blur(2px);
+}
+
 .cap-card__body { display: flex; flex-direction: column; gap: 2px; padding: 9px 11px 11px; }
 .cap-card__title {
   font-size: 13px;
@@ -262,6 +287,7 @@ html.dark .cap-field input[type="datetime-local"] { color-scheme: dark; }
   backdrop-filter: blur(4px);
 }
 .cap-light__box {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: min(680px, 100%);
@@ -284,6 +310,43 @@ html.dark .cap-field input[type="datetime-local"] { color-scheme: dark; }
   color: var(--text-primary);
   text-transform: capitalize;
 }
+/* Step through the page without closing — the grid can hold sixty captures and
+   reopening one at a time is the slow way to look at them. */
+.cap-light__nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 38px; height: 38px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  z-index: 3;
+  transition: background var(--transition-base), transform var(--transition-base);
+}
+.cap-light__nav:hover:not(:disabled) {
+  border-color: var(--accent-primary);
+  transform: translateY(-50%) scale(1.05);
+}
+.cap-light__nav:disabled { opacity: 0.3; cursor: default; }
+/* Inside the stage: .cap-light__box clips its overflow, so anything placed
+   beyond its bounds simply disappears. */
+.cap-light__nav--prev { left: 12px; }
+.cap-light__nav--next { right: 12px; }
+
+.cap-light__pos {
+  margin-left: auto;
+  padding-right: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .cap-light__head button {
   display: grid;
   place-items: center;
@@ -297,6 +360,7 @@ html.dark .cap-field input[type="datetime-local"] { color-scheme: dark; }
 .cap-light__head button:hover { color: var(--text-primary); }
 
 .cap-light__stage {
+  position: relative;   /* anchors the prev/next buttons */
   display: grid;
   place-items: center;
   min-height: 220px;

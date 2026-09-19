@@ -50,18 +50,43 @@ class CustomerJourney(Base):
 
 
 class DemographicSnapshot(Base):
-    """Age/gender demographics estimated via DeepFace."""
+    """
+    ONE ROW PER VISITOR, not per frame.
+
+    Age and gender come from DeepFace, whose estimate wobbles several years
+    between consecutive frames of the same face. A row per observation would
+    turn one shopper at a till into fifteen "people" of disagreeing ages, so
+    the pipeline banks every sample against the person's track and writes a
+    single row carrying the MEDIAN age and the MODAL gender once the visit
+    ends. `sample_count` is how many faces went into it.
+
+    Rows with a NULL track_id are faces that could not be tied to a tracked
+    person; they carry no age or gender and exist only so the page can be
+    honest about how much of what it saw it could attribute.
+
+    Privacy: `track_id` scopes to one camera session and is never a durable
+    identity. Age is stored both raw and bucketed because the page shows only
+    buckets — the raw value is kept for the median-of-medians across zones.
+    """
     __tablename__ = "demographic_snapshots"
 
     id = Column(Integer, primary_key=True, index=True)
     camera_id = Column(Integer, ForeignKey("cameras.id"), nullable=False)
     zone = Column(String(100), nullable=True, index=True)
+    track_id = Column(Integer, nullable=True, index=True)
+    global_id = Column(String(100), nullable=True, index=True)
     estimated_age = Column(Float, nullable=True)
     estimated_gender = Column(String(20), nullable=True)
     age_group = Column(String(20), nullable=True, index=True)  # "18-25", "26-35", ...
     gender = Column(String(20), nullable=True)
     count = Column(Integer, default=1)
     confidence = Column(Float, nullable=True)
+    # Emotion rides along on the same DeepFace result. It costs nothing extra
+    # here and gives the Emotion page a history — it is otherwise live-only and
+    # blanks the moment the pipeline stops.
+    dominant_emotion = Column(String(20), nullable=True)
+    sentiment_score = Column(Float, nullable=True)
+    sample_count = Column(Integer, default=1)
     timestamp = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 

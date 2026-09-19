@@ -9,7 +9,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
     AlertTriangle, Circle, Cpu, Eye, Film, HardDrive, ImageIcon, Layers,
-    MonitorPlay, Plus, Square, Trash2, Video,
+    MonitorPlay, Play, Plus, Square, Trash2, Video,
 } from 'lucide-react';
 import { detectionAPI } from '../services/api';
 import useLivePoll from '../hooks/useLivePoll';
@@ -28,6 +28,9 @@ const ACTIVITY_LABEL = {
 
 const LINE_ACTIVITIES = new Set(['line_passing', 'line_passing_count']);
 const ROI_ACTIVITIES = new Set(['roi_region', 'roi_region_dependency_object_detection']);
+// Checkout lanes are regions as well; without this the card said "No regions"
+// for a job that plainly had two.
+const REGION_ACTIVITIES = new Set(['checkout_queue', 'checkout']);
 
 function sourceLabel(job) {
     const src = (job.source || '').toLowerCase();
@@ -55,7 +58,7 @@ function headline(job) {
 
 /* ── Card ───────────────────────────────────────────────────────────── */
 
-function JobCard({ job, onDelete, isRecording, onToggleRecord }) {
+function JobCard({ job, onDelete, isRecording, onToggleRecord, onToggleRun }) {
     const [liveOpen, setLiveOpen] = useState(false);
     const [busy, setBusy] = useState(false);
     const [recBusy, setRecBusy] = useState(false);
@@ -65,6 +68,16 @@ function JobCard({ job, onDelete, isRecording, onToggleRecord }) {
         try { await onToggleRecord(job.camera_id, isRecording); } finally { setRecBusy(false); }
     };
 
+    const [runBusy, setRunBusy] = useState(false);
+    const toggleRun = async () => {
+        setRunBusy(true);
+        try {
+            await onToggleRun(job.camera_id, job.connected);
+        } finally {
+            setRunBusy(false);
+        }
+    };
+
     const { data: alertData } = useLivePoll(
         () => detectionAPI.jobAlerts(job.camera_id, 10),
         { intervalMs: 10000 },
@@ -72,7 +85,9 @@ function JobCard({ job, onDelete, isRecording, onToggleRecord }) {
     const alerts = alertData?.alerts ?? [];
 
     const usesRegions =
-        LINE_ACTIVITIES.has(job.activity_type) || ROI_ACTIVITIES.has(job.activity_type);
+        LINE_ACTIVITIES.has(job.activity_type)
+        || ROI_ACTIVITIES.has(job.activity_type)
+        || REGION_ACTIVITIES.has(job.activity_type);
 
     const regions = job.regions || [];
     const classes = job.classes || [];
@@ -159,14 +174,32 @@ function JobCard({ job, onDelete, isRecording, onToggleRecord }) {
 
             {!job.connected && (
                 <p className="jcard__idle-note">
-                    Saved from a previous run — config and history intact, feed not running.
+                    Idle — press Start to run it. Config, regions and history are kept.
                 </p>
             )}
 
             <footer className="jcard__foot">
                 <span className="jcard__id" title={job.job_id}>{job.job_id}</span>
                 <span className="jcard__time">{headline(job)}</span>
-                <button type="button" className="jcard__live" onClick={() => setLiveOpen(true)}>
+                <button
+                    type="button"
+                    className={`jcard__run${job.connected ? ' is-on' : ''}`}
+                    onClick={toggleRun}
+                    disabled={runBusy}
+                    title={job.connected
+                        ? 'Stop the feed — the job and its history stay'
+                        : 'Start this job. A clip replays from the beginning.'}
+                >
+                    {job.connected ? <Square size={12} aria-hidden /> : <Play size={12} aria-hidden />}
+                    {runBusy ? 'Working…' : job.connected ? 'Stop' : 'Start'}
+                </button>
+                <button
+                    type="button"
+                    className="jcard__live"
+                    onClick={() => setLiveOpen(true)}
+                    disabled={!job.connected}
+                    title={job.connected ? 'Watch the feed' : 'Start the job to watch it'}
+                >
                     <MonitorPlay size={13} aria-hidden /> Live stream
                 </button>
                 <button
@@ -213,6 +246,12 @@ export default function JobsPage() {
         const ids = recording?.recording_cameras ?? recording?.recording ?? [];
         return new Set((Array.isArray(ids) ? ids : []).map(Number));
     }, [recording]);
+
+    const toggleRun = useCallback(async (cameraId, isRunning) => {
+        if (isRunning) await detectionAPI.stop(cameraId);
+        else await detectionAPI.startJob(cameraId);
+        await refresh();
+    }, [refresh]);
 
     const toggleRecord = useCallback(async (cameraId, isOn) => {
         if (isOn) await detectionAPI.recordingStop(cameraId);
@@ -343,6 +382,7 @@ export default function JobsPage() {
                         onDelete={onDelete}
                         isRecording={recordingIds.has(Number(job.camera_id))}
                         onToggleRecord={toggleRecord}
+                        onToggleRun={toggleRun}
                     />
                 ))}
             </div>

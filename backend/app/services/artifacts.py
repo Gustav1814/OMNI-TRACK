@@ -29,8 +29,17 @@ import cv2
 import numpy as np
 from loguru import logger
 
-# Codecs tried in order when opening a segment writer, as VisRax does.
-_SEGMENT_CODECS = ("mp4v", "avc1")
+# Codecs tried in order when opening a segment writer.
+#
+# H.264 FIRST, and the order matters: "mp4v" produces FMP4 (MPEG-4 Part 2),
+# which no browser can decode, so every clip written that way rendered as a
+# black player in the dashboard. avc1 gives real H.264 — OpenCV logs a
+# "Could not open codec libopenh264" warning and then falls back to libx264,
+# which succeeds, so that message is noise rather than a failure.
+#
+# mp4v is kept as a fallback for a machine with no H.264 encoder at all: a
+# clip that needs transcoding to play beats no clip.
+_SEGMENT_CODECS = ("avc1", "mp4v")
 _DATE_FMT = "%Y_%m_%d"
 _TIME_FMT = "%H_%M_%S"
 

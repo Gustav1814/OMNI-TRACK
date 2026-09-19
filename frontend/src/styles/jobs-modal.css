@@ -1391,20 +1391,13 @@
 }
 .ajm-backdrop .region-naming-popup,
 .cmark-backdrop .region-naming-popup {
-  /* Overlaid on the canvas itself (positioned relative to .canvas-wrap), not
-     flowed below it — the canvas can fill all the vertical space its
-     container has (fixed aspect-ratio inside an overflow:hidden modal), so
-     anything appended after it in normal flow can end up clipped/invisible. */
-  position: absolute;
-  bottom: 14px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 5;
-  max-width: calc(100% - 28px);
+  /* Below the canvas, in normal flow. Overlaying it meant competing with the
+     video for width, which squeezed the name field down to a few characters. */
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-3);
+  margin-top: var(--sp-3);
   padding: var(--sp-3) var(--sp-4);
   background: var(--pane);
   border: 1px solid var(--border);
@@ -1413,8 +1406,14 @@
 }
 .ajm-backdrop .region-naming-popup .input,
 .cmark-backdrop .region-naming-popup .input {
-  flex: 1;
-  min-width: 0;
+  flex: 1 1 200px;   /* a usable field, not the few characters a shrink-to-fit gave */
+  min-width: 160px;
+}
+.ajm-backdrop .region-naming-popup__actions,
+.cmark-backdrop .region-naming-popup__actions {
+  display: inline-flex;
+  gap: var(--sp-2);
+  margin-left: auto;
 }
 .ajm-backdrop .region-line-direction,
 .cmark-backdrop .region-line-direction {

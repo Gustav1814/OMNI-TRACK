@@ -7,9 +7,7 @@ import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
-    LayoutDashboard, Users, Scan, Video, ShoppingBag,
-    Flame, UsersRound, ShoppingCart, SmilePlus, ShieldCheck,
-    Activity, TrendingUp, BarChart3, Film, LogOut, Sun, Moon, ShieldAlert, Scissors, Layers
+    Activity, BarChart3, Bell, Film, Flame, Layers, LayoutDashboard, LogOut, Moon, Scan, Scissors, ShieldAlert, ShieldCheck, ShoppingBag, ShoppingCart, SmilePlus, Sun, TrendingUp, Users, UsersRound, Video,
 } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { tokenStore } from '../services/api';
@@ -24,6 +22,7 @@ const navItems = [
     { path: '/reid', icon: Users, label: 'Cross-Feed Match' },
     { path: '/trim', icon: Scissors, label: 'Video Trimmer' },
     { section: 'Insights' },
+    { path: '/alerts', icon: Bell, label: 'Alerts' },
     { path: '/shelf', icon: ShoppingBag, label: 'Shelf Activity' },
     { path: '/fire', icon: Flame, label: 'Safety Watch' },
     { path: '/crowd', icon: UsersRound, label: 'Footfall' },

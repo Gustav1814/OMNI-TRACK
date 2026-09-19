@@ -46,7 +46,8 @@ import time
 import json
 import numpy as np
 import cv2
-from collections import OrderedDict
+from collections import Counter, OrderedDict
+from statistics import median
 from typing import Dict, List, Optional, Any, Callable, Tuple, TYPE_CHECKING
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -62,7 +63,9 @@ from app.ai.emotion import EmotionRecognizer
 from app.ai.fire_detector import FireSmokeDetector  # alias for FireDetector
 from app.ai.crowd_density import CrowdDensityEstimator
 from app.ai.shelf_analytics import ShelfEngagementTracker  # alias for ShelfAnalytics
-from app.ai.checkout_analytics import CheckoutAnalyzer  # alias for CheckoutAnalytics
+from app.ai.checkout_analytics import (  # CheckoutAnalyzer is the alias
+    CheckoutAnalyzer, CheckoutLane,
+)
 from app.ai.store_vibe import StoreVibeEngine
 from app.ai.regions import assign_regions
 from app.ai.kpi_line_passing import LinePassingKPI
@@ -73,6 +76,7 @@ from app.ai.kpi_general_detection import GeneralDetectionKPI
 from app.services.stream_manager import StreamManager, StreamConfig, StreamType
 from app.config import (
     settings,
+    age_group,
     resolved_artifacts_dir,
     resolved_footage_dir,
     resolved_logs_dir,
@@ -110,6 +114,7 @@ class CameraResult:
     tracks: List[Dict[str, Any]] = field(default_factory=list)
     reid_matches: List[Dict[str, Any]] = field(default_factory=list)
     emotions: Dict[str, Any] = field(default_factory=dict)
+    demographics: Dict[str, Any] = field(default_factory=dict)
     fire_alerts: List[Dict[str, Any]] = field(default_factory=list)
     crowd_status: Dict[str, Any] = field(default_factory=dict)
     shelf_data: Dict[str, Any] = field(default_factory=dict)
@@ -133,6 +138,10 @@ class GlobalState:
     fire_alert_active: bool = False
     vibe_score: float = 0.0
     last_updated: float = 0.0
+
+
+# Activities whose regions describe checkout lanes.
+CHECKOUT_ACTIVITIES = {"checkout_queue", "checkout"}
 
 
 class ProcessingPipeline:
@@ -249,6 +258,25 @@ class ProcessingPipeline:
         # Throttle state: tick counter and last summary, per camera.
         self._emotion_tick: Dict[int, int] = {}
         self._last_emotion: Dict[int, Dict[str, Any]] = {}
+
+        # Demographics rides on the emotion call (same DeepFace pass, two extra
+        # heads) so it is only available when emotion is.
+        self._enable_demographics = emotions_on and getattr(
+            settings, "ENABLE_DEMOGRAPHICS", True
+        )
+        # (camera_id, track_id) -> running samples for ONE visitor. A shopper
+        # standing at a till yields a face every EMOTION_EVERY_N_TICKS ticks;
+        # DeepFace's age wobbles several years between them, so the samples are
+        # collected here and reduced to a median once the visit ends. Recording
+        # each observation would turn one shopper into fifteen disagreeing people.
+        self._demo_visits: Dict[Tuple[int, int], Dict[str, Any]] = {}
+        self._demo_finished: List[Dict[str, Any]] = []
+        # Faces that could not be tied to any tracked person. Counted, never
+        # given an age or a gender — see _absorb_faces.
+        self._demo_unattributed: Dict[int, Dict[str, Any]] = {}
+        # Cameras already warned about faces too small to read, so the warning
+        # appears once per camera rather than on every analysis tick.
+        self._demo_size_warned: set = set()
         fire_on = enable_fire and getattr(settings, "ENABLE_FIRE_DETECTION", True)
         self._enable_fire = fire_on
         self.fire_detector = (
@@ -301,6 +329,11 @@ class ProcessingPipeline:
         )
         # Alerts already raised, so one long dwell does not re-alert every tick.
         self._roi_alerted: set = set()
+        # lane_id -> when it first went over the queue threshold. Queue depth
+        # oscillates as people shuffle, so an alert needs a sustained breach
+        # rather than a single tick over the line.
+        self._queue_over_since: Dict[int, Dict[str, float]] = {}
+        self._queue_alerted: Dict[int, set] = {}
         # Alerts produced this tick, drained by the pipeline loop.
         self._pending_alerts: List[Dict[str, Any]] = []
         # Filled in by main.py once the DB layer exists.
@@ -370,6 +403,7 @@ class ProcessingPipeline:
         }
         activity = str((meta or {}).get("activity_type") or "")
         self._camera_kpis[camera_id] = self._build_kpi(activity)
+        self._sync_checkout_lanes(camera_id, activity, regions or [])
 
         # Per-job class filter. Resolved once here rather than per frame, and
         # applied to the tracker too — a class the tracker ignores never gets a
@@ -424,6 +458,74 @@ class ProcessingPipeline:
         self._camera_class_ids.pop(camera_id, None)
         self.artifacts.close_segment(camera_id)
         self._roi_alerted = {k for k in self._roi_alerted if k[0] != camera_id}
+        if self.checkout is not None:
+            self.checkout.clear_lanes(camera_id)
+        self._queue_alerted.pop(camera_id, None)
+
+    def _sync_checkout_lanes(
+        self, camera_id: int, activity: str, regions: List[Dict[str, Any]],
+    ) -> None:
+        """
+        Turn a checkout job's boxes into lanes the queue engine can count in.
+
+        Until now nothing ever called `add_lane`, so the engine ran every tick
+        against an empty lane list and reported zeros forever. Each drawn box
+        becomes one lane and the name the operator typed becomes its label.
+
+        Boxes and polygons both work. A polygon is usually the right shape:
+        on a camera where the tills run diagonally, the smallest rectangle
+        around one lane also covers its neighbours.
+
+        Coordinates stay in the browser's frame here; they are scaled to the
+        decoded frame at count time, because the decode size is not known until
+        the first frame arrives.
+        """
+        if self.checkout is None:
+            return
+        if activity not in CHECKOUT_ACTIVITIES:
+            # Switching a camera away from checkout must drop its lanes too.
+            self.checkout.clear_lanes(camera_id)
+            return
+
+        lanes: List[CheckoutLane] = []
+        for region in regions:
+            kind = str(region.get("type") or "")
+            name = str(region.get("name") or f"lane-{len(lanes) + 1}")
+            points = None
+            bbox = [0.0, 0.0, 0.0, 0.0]
+
+            if kind == "polygon":
+                points = region.get("points") or []
+                if len(points) < 3:
+                    continue
+                # Keep a bounding box alongside the polygon as a fallback for
+                # anything that cannot read points.
+                xs = [float(p.get("x", 0)) for p in points]
+                ys = [float(p.get("y", 0)) for p in points]
+                bbox = [min(xs), min(ys), max(xs), max(ys)]
+            elif kind == "bounding_box":
+                c = region.get("coordinates") or {}
+                try:
+                    bbox = [
+                        float(c["x_min"]), float(c["y_min"]),
+                        float(c["x_max"]), float(c["y_max"]),
+                    ]
+                except (KeyError, TypeError, ValueError):
+                    continue
+            else:
+                continue
+
+            lanes.append(CheckoutLane(
+                lane_id=f"{camera_id}:{name}", camera_id=camera_id,
+                bbox=bbox, name=name, points=points,
+            ))
+
+        self.checkout.set_lanes_for_camera(camera_id, lanes)
+        if lanes:
+            logger.info(
+                f"Checkout: camera {camera_id} watching "
+                f"{len(lanes)} lane(s): {', '.join(l.name for l in lanes)}"
+            )
 
     def _region_scale(self, camera_id: int, w: int, h: int) -> Tuple[float, float]:
         """Factor from the browser's drawing frame to this frame's pixels."""
@@ -436,6 +538,10 @@ class ProcessingPipeline:
 
     # Activity type -> KPI class. Ported from VisRax's KPI registry
     # (core/container.py kpi_manager.register calls).
+    #
+    # checkout_queue has no entry: queue counting is done by CheckoutAnalytics
+    # rather than a KPI state machine, so it falls through to the plain detector
+    # KPI while its boxes drive the lane engine.
     _KPI_BY_ACTIVITY = {
         "line_passing": LinePassingKPI,
         "line_passing_count": LinePassingKPI,
@@ -563,6 +669,8 @@ class ProcessingPipeline:
                 "type": "roi_dwell",
                 "job_id": job_id,
                 "camera_id": camera_id,
+                "zone": str((job.get("meta") or {}).get("zone")
+                            or self._camera_zones.get(camera_id, "default")),
                 "region_name": region,
                 "track_id": track.track_id,
                 "class_name": getattr(track, "class_name", "unknown"),
@@ -571,6 +679,67 @@ class ProcessingPipeline:
                 "message": (
                     f"{getattr(track, 'class_name', 'object')} #{track.track_id} has been in "
                     f"'{region}' for {dwell_s:.0f}s (limit {threshold:.0f}s)"
+                ),
+            })
+        return raised
+
+    def _check_queue_alerts(
+        self, camera_id: int, checkout_data: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        """
+        Raise an alert when a lane stays over its queue threshold.
+
+        Debounced deliberately: queue depth flickers as people shuffle in and
+        out of the box, and alerting on a single tick over the line would make
+        the Alerts page unusable. A lane must stay over for
+        QUEUE_ALERT_SECONDS before it counts, and it alerts once until it
+        drops back below.
+        """
+        threshold = int(getattr(settings, "QUEUE_ALERT_LENGTH", 0) or 0)
+        if threshold <= 0 or not checkout_data:
+            return []
+        hold_s = float(getattr(settings, "QUEUE_ALERT_SECONDS", 30) or 0)
+
+        job = self._camera_jobs.get(camera_id) or {}
+        meta = job.get("meta") or {}
+        job_id = str(meta.get("job_id") or f"JOB-CAM{camera_id:02d}")
+        zone = str(meta.get("zone") or self._camera_zones.get(camera_id, "default"))
+
+        now = time.time()
+        since = self._queue_over_since.setdefault(camera_id, {})
+        alerted = self._queue_alerted.setdefault(camera_id, set())
+        raised: List[Dict[str, Any]] = []
+
+        for lane in checkout_data.get("lanes") or []:
+            lane_id = str(lane.get("lane_id"))
+            depth = int(lane.get("queue_length", 0))
+
+            if depth < threshold:
+                # Back under: forget it, so the lane can alert again later.
+                since.pop(lane_id, None)
+                alerted.discard(lane_id)
+                continue
+
+            first = since.setdefault(lane_id, now)
+            if now - first < hold_s or lane_id in alerted:
+                continue
+            alerted.add(lane_id)
+
+            wait = float(lane.get("current_wait_estimate", 0))
+            raised.append({
+                "type": "queue_length",
+                "job_id": job_id,
+                "camera_id": camera_id,
+                "zone": zone,
+                "region_name": lane.get("lane_name") or lane_id,
+                "track_id": None,
+                "class_name": "person",
+                "value": float(depth),
+                "threshold": float(threshold),
+                "message": (
+                    f"{depth} people queuing at '{lane.get('lane_name') or lane_id}' "
+                    f"for over {hold_s:.0f}s (limit {threshold}) — "
+                    f"about {wait / 60:.0f} min wait"
                 ),
             })
         return raised
@@ -816,6 +985,9 @@ class ProcessingPipeline:
             k: v for k, v in self._camera_model_class_ids.items() if k[0] != camera_id
         }
         self._camera_reid_enabled.pop(int(camera_id), None)
+        # This camera's visitors are gone for good — close their rows now, or
+        # they would sit in memory until the whole pipeline stops.
+        self.flush_demographics(camera_id=camera_id)
         zone = self._camera_zones.pop(camera_id, None)
         self._last_global_by_track = {k: v for k, v in self._last_global_by_track.items() if k[0] != camera_id}
         try:
@@ -1156,6 +1328,243 @@ class ProcessingPipeline:
             self._pending_embeddings = []
         return drained
 
+    # ─────────────────────────────────────────────────────────────
+    # Demographics: faces → visitors
+    #
+    # DeepFace is handed the whole frame and finds faces itself, which is fine
+    # for a store-wide sentiment average but says nothing about WHICH person a
+    # face belongs to. Age and gender are per-person facts, so each face is
+    # matched to the person box containing it and banked against that track.
+    # One visitor then produces ONE row carrying the median of their samples,
+    # instead of one row per frame with ages several years apart.
+    # ─────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _containment(face_box: List[float], person_box: List[float]) -> float:
+        """Fraction of the face box lying inside the person box. Both [x, y, w, h]."""
+        if len(face_box) < 4 or len(person_box) < 4:
+            return 0.0
+        fx, fy, fw, fh = (float(v or 0) for v in face_box[:4])
+        px, py, pw, ph = (float(v or 0) for v in person_box[:4])
+        if fw <= 0 or fh <= 0:
+            return 0.0
+        ix = max(0.0, min(fx + fw, px + pw) - max(fx, px))
+        iy = max(0.0, min(fy + fh, py + ph) - max(fy, py))
+        return (ix * iy) / (fw * fh)
+
+    def _absorb_faces(
+        self,
+        camera_id: int,
+        zone: str,
+        faces: List[Dict[str, Any]],
+        people: List[Dict[str, Any]],
+        timestamp: float,
+    ) -> None:
+        """Attribute each analysed face to a tracked person and bank the sample."""
+        if not faces:
+            return
+        min_c = float(getattr(settings, "DEMOGRAPHICS_FACE_CONTAINMENT", 0.6))
+
+        # Every face too small to read is worth saying once. The usual cause is
+        # not the camera but DECODE_IMGSZ: frames are downscaled to that longest
+        # side before anything sees them, so a 97px face in a 1280-wide clip
+        # arrives as 36px at the default 480 and no age model can read it.
+        if camera_id not in self._demo_size_warned and all(f.get("too_small") for f in faces):
+            self._demo_size_warned.add(camera_id)
+            biggest = max((f.get("face_px") or 0) for f in faces)
+            logger.warning(
+                f"Demographics cam {camera_id}: {len(faces)} face(s) found but the "
+                f"largest is {biggest:.0f}px, under DEMOGRAPHICS_MIN_FACE_PX="
+                f"{int(getattr(settings, 'DEMOGRAPHICS_MIN_FACE_PX', 45))}. No age or "
+                f"gender will be recorded. Frames are analysed at DECODE_IMGSZ="
+                f"{int(getattr(settings, 'DECODE_IMGSZ', 0))}px on the long side — raise "
+                f"it, or use a camera that sees faces larger."
+            )
+
+        for face in faces:
+            box = face.get("bbox") or []
+            best: Optional[Dict[str, Any]] = None
+            best_c = 0.0
+            for person in people:
+                if person.get("track_id") is None:
+                    continue
+                c = self._containment(box, person.get("bbox") or [])
+                if c <= best_c:
+                    continue
+                best, best_c = person, c
+
+            if best is None or best_c < min_c:
+                # Nobody to pin this face on — most often because the job has no
+                # person class enabled. Counted so the page can be honest about
+                # coverage, but never given an age or a gender.
+                slot = self._demo_unattributed.setdefault(
+                    camera_id, {"zone": zone, "faces": 0, "started": timestamp, "last": timestamp}
+                )
+                slot["faces"] += 1
+                slot["last"] = timestamp
+                slot["zone"] = zone
+                continue
+
+            key = (int(camera_id), int(best["track_id"]))
+            visit = self._demo_visits.get(key)
+            if visit is None:
+                visit = {
+                    "camera_id": int(camera_id),
+                    "track_id": int(best["track_id"]),
+                    "global_id": None,
+                    "zone": zone,
+                    "ages": [],
+                    "genders": [],
+                    "gender_conf": [],
+                    "emotions": [],
+                    "samples": 0,
+                    "started": timestamp,
+                    "last": timestamp,
+                }
+                self._demo_visits[key] = visit
+
+            visit["samples"] += 1
+            visit["last"] = timestamp
+            visit["zone"] = zone or visit["zone"]
+            if best.get("global_id"):
+                visit["global_id"] = best["global_id"]
+
+            age = face.get("estimated_age")
+            if age is not None:
+                visit["ages"].append(float(age))
+            gender = face.get("gender")
+            if gender and gender != "unknown":
+                visit["genders"].append(gender)
+                visit["gender_conf"].append(float(face.get("gender_confidence") or 0.0))
+            # Emotion off a face too small to age is the same noise: every read
+            # on the 20px faces in the checkout clip came back "fear" or "sad"
+            # with a confident score. The live Emotion page keeps its own looser
+            # gate; what gets PERSISTED here passes the size test.
+            emotion = face.get("dominant_emotion")
+            if emotion and not face.get("too_small"):
+                visit["emotions"].append(emotion)
+
+    def _touch_demographic_tracks(
+        self, camera_id: int, people: List[Dict[str, Any]], timestamp: float
+    ) -> None:
+        """
+        Keep an open visit alive while its track is still on screen.
+
+        Without this a shopper who turns away from the camera for longer than
+        the timeout would be closed and reopened as two separate visitors. A
+        visit ends when the PERSON leaves, not when their face does.
+        """
+        live = {int(p["track_id"]) for p in people if p.get("track_id") is not None}
+        if not live:
+            return
+        for (cam, tid), visit in self._demo_visits.items():
+            if cam == camera_id and tid in live:
+                visit["last"] = timestamp
+
+    def _retire_demographic_visits(
+        self, now: float, force: bool = False, camera_id: Optional[int] = None
+    ) -> None:
+        """Close visits whose track has gone quiet and queue them for persistence."""
+        timeout = float(getattr(settings, "DEMOGRAPHICS_VISIT_TIMEOUT_S", 45.0))
+
+        def mine(cam: int) -> bool:
+            return camera_id is None or int(cam) == int(camera_id)
+
+        for key in [
+            k for k, v in self._demo_visits.items()
+            if mine(k[0]) and (force or (now - float(v["last"])) > timeout)
+        ]:
+            visit = self._demo_visits.pop(key)
+            row = self._visit_to_row(visit)
+            if row:
+                self._demo_finished.append(row)
+
+        for cam_id in [
+            c for c, slot in self._demo_unattributed.items()
+            if mine(c) and (force or (now - float(slot["last"])) > timeout)
+        ]:
+            slot = self._demo_unattributed.pop(cam_id)
+            if slot.get("faces"):
+                self._demo_finished.append({
+                    "camera_id": int(cam_id),
+                    "zone": slot.get("zone"),
+                    "track_id": None,
+                    "global_id": None,
+                    "estimated_age": None,
+                    "age_group": None,
+                    "gender": None,
+                    "confidence": None,
+                    "dominant_emotion": None,
+                    "sentiment_score": None,
+                    # count 0 keeps these out of the legacy age/gender totals;
+                    # sample_count carries how many faces went unattributed.
+                    "count": 0,
+                    "sample_count": int(slot["faces"]),
+                })
+
+    @staticmethod
+    def _visit_to_row(visit: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Reduce a visitor's samples to one row.
+
+        Median age, not mean: DeepFace occasionally returns one wild estimate
+        and the median ignores it. Modal gender for the same reason.
+        """
+        if not visit.get("samples"):
+            return None
+        ages = visit.get("ages") or []
+        genders = visit.get("genders") or []
+        emotions = visit.get("emotions") or []
+        confs = visit.get("gender_conf") or []
+
+        age_value = round(float(median(ages)), 1) if ages else None
+        gender_value = Counter(genders).most_common(1)[0][0] if genders else "unknown"
+        emotion_value = Counter(emotions).most_common(1)[0][0] if emotions else None
+
+        positive = sum(1 for e in emotions if e in ("happy", "surprise"))
+        negative = sum(1 for e in emotions if e in ("sad", "angry", "fear", "disgust"))
+        sentiment = round((positive - negative) / len(emotions), 3) if emotions else None
+
+        return {
+            "camera_id": visit["camera_id"],
+            "zone": visit.get("zone"),
+            "track_id": visit.get("track_id"),
+            "global_id": visit.get("global_id"),
+            "estimated_age": age_value,
+            "age_group": age_group(age_value),
+            "gender": gender_value,
+            "confidence": round(sum(confs) / len(confs), 3) if confs else None,
+            "dominant_emotion": emotion_value,
+            "sentiment_score": sentiment,
+            "count": 1,
+            "sample_count": int(visit["samples"]),
+        }
+
+    def _demographics_live(self, camera_id: int) -> Dict[str, Any]:
+        """Open visits on one camera — what the live snapshot shows."""
+        visits = [v for (cam, _t), v in self._demo_visits.items() if cam == camera_id]
+        ages = [a for v in visits for a in v["ages"]]
+        genders = Counter(g for v in visits for g in v["genders"])
+        return {
+            "camera_id": camera_id,
+            "visitors_open": len(visits),
+            "faces_sampled": sum(int(v["samples"]) for v in visits),
+            "unattributed_faces": int(self._demo_unattributed.get(camera_id, {}).get("faces", 0)),
+            "median_age": round(float(median(ages)), 1) if ages else None,
+            "gender_counts": dict(genders),
+        }
+
+    def get_and_clear_finished_demographics(self) -> List[Dict[str, Any]]:
+        """Drain completed visits. Called by PersistencePipelineCallback."""
+        drained = self._demo_finished
+        self._demo_finished = []
+        return drained
+
+    def flush_demographics(self, camera_id: Optional[int] = None) -> None:
+        """Close open visits — on pipeline stop, or when one camera goes away."""
+        if self._enable_demographics:
+            self._retire_demographic_visits(time.time(), force=True, camera_id=camera_id)
+
     def record_journey_leg(self, global_id: str, camera_id: int, zone: str, started_at: float) -> None:
         """Store the first-seen time for a (global_id, camera, zone) leg so persistence can compute dwell."""
         key = (global_id, camera_id, zone)
@@ -1223,6 +1632,10 @@ class ProcessingPipeline:
         self.state = PipelineState.STOPPING
         logger.info("🛑 Stopping pipeline...")
 
+        # Close every open visit BEFORE the loop dies, so the persistence
+        # callback still has something to drain on the stop event.
+        self.flush_demographics()
+
         if self._processing_task:
             self._processing_task.cancel()
             try:
@@ -1271,6 +1684,21 @@ class ProcessingPipeline:
                         frames[cam_id] = result  # (frame, timestamp)
 
                 if not frames:
+                    # A clip that has run out still has visitors banked in
+                    # memory, and their tracks will never be touched again.
+                    # Retire them here and give the callbacks one empty tick to
+                    # write them, or they would sit unwritten until the job was
+                    # explicitly stopped.
+                    if self._enable_demographics:
+                        self._retire_demographic_visits(time.time())
+                        if self._demo_finished:
+                            for cb in self._callbacks:
+                                try:
+                                    outcome = cb({}, self.global_state)
+                                    if inspect.isawaitable(outcome):
+                                        await outcome
+                                except Exception as e:
+                                    logger.error(f"Idle callback error: {e}")
                     await asyncio.sleep(0.1)
                     continue
 
@@ -1585,6 +2013,13 @@ class ProcessingPipeline:
                 except Exception as e:
                     logger.debug(f"Fire detect error cam {cam_id}: {e}")
 
+            # An open visit stays open while its person is still on screen, even
+            # on the ticks where no face analysis runs.
+            if self._enable_demographics:
+                self._touch_demographic_tracks(
+                    cam_id, self._person_subset(dets, cam_id), timestamp
+                )
+
             # Emotion recognition — returns a single summary dict per frame.
             if self._enable_emotions and self.emotion:
                 try:
@@ -1594,10 +2029,23 @@ class ProcessingPipeline:
                     self._emotion_tick[cam_id] = count + 1
                     if count % n == 0:
                         summary = await asyncio.to_thread(
-                            self.emotion.analyze_frame_summary, frame, cam_id, zone
+                            self.emotion.analyze_frame_summary,
+                            frame, cam_id, zone, self._enable_demographics,
                         )
+                        # Age/gender are per-PERSON, so each face has to be tied
+                        # to the person box it sits in before it can be banked.
+                        if self._enable_demographics:
+                            self._absorb_faces(
+                                cam_id, zone,
+                                summary.pop("faces", None) or [],
+                                self._person_subset(dets, cam_id),
+                                timestamp,
+                            )
+                        summary.pop("faces", None)
                         self._last_emotion[cam_id] = summary
                     results[cam_id].emotions = self._last_emotion.get(cam_id, {})
+                    if self._enable_demographics:
+                        results[cam_id].demographics = self._demographics_live(cam_id)
                 except Exception as e:
                     logger.debug(f"Emotion analyze error cam {cam_id}: {e}")
 
@@ -1609,13 +2057,30 @@ class ProcessingPipeline:
                 except Exception as e:
                     logger.debug(f"Shelf update error cam {cam_id}: {e}")
 
-            # Checkout analytics
+            # Checkout analytics.
+            #
+            # People only: this used to receive every detection, so a chair or a
+            # trolley parked in the lane box counted as a customer and never
+            # left the queue.
             if self._enable_checkout and self.checkout:
                 try:
-                    checkout_data = self.checkout.update(cam_id, dets, timestamp)
+                    fh, fw = frame.shape[:2]
+                    checkout_data = self.checkout.update(
+                        cam_id,
+                        self._person_subset(dets, cam_id),
+                        timestamp,
+                        scale=self._region_scale(cam_id, fw, fh),
+                    )
                     results[cam_id].checkout_data = checkout_data
+                    for alert in self._check_queue_alerts(cam_id, checkout_data):
+                        self._pending_alerts.append(alert)
                 except Exception as e:
                     logger.debug(f"Checkout update error cam {cam_id}: {e}")
+
+        # Visits whose track has gone quiet become rows. Checked every tick, not
+        # only on the throttled emotion ticks, so a visit closes on time.
+        if self._enable_demographics:
+            self._retire_demographic_visits(time.time())
 
         # ── PHASE 4: Store Vibe Score (aggregate everything) ──
         try:
@@ -1947,6 +2412,7 @@ class ProcessingPipeline:
                 "reid": self._reid_status_payload(),
                 "reid_gallery_size": len(getattr(self.reid, "_gallery", []) or []),
                 "emotion": "enabled" if self._enable_emotions else "disabled",
+                "demographics": "enabled" if self._enable_demographics else "disabled",
                 "fire": "enabled" if self._enable_fire else "disabled",
                 "shelf": "enabled" if self._enable_shelf else "disabled",
                 "checkout": "enabled" if self._enable_checkout else "disabled",
@@ -1999,6 +2465,7 @@ class ProcessingPipeline:
         emotions_per_zone: List[Dict[str, Any]] = []
         shelf_per_camera: List[Dict[str, Any]] = []
         checkout_lanes: List[Dict[str, Any]] = []
+        demographics_per_camera: List[Dict[str, Any]] = []
         total_detections_snapshot = 0
 
         for cam_id, r in self._results_buffer.items():
@@ -2014,6 +2481,8 @@ class ProcessingPipeline:
             if r.checkout_data and isinstance(r.checkout_data, dict):
                 lanes = r.checkout_data.get("lanes") or []
                 checkout_lanes.extend(lanes)
+            if r.demographics and isinstance(r.demographics, dict):
+                demographics_per_camera.append(r.demographics)
 
         # Sentiment aggregate across all zones
         total_sentiment_samples = sum(e.get("sample_count", 0) for e in emotions_per_zone)
@@ -2077,6 +2546,16 @@ class ProcessingPipeline:
             "shelf": {
                 "rankings": shelf_rankings,
                 "per_camera": shelf_per_camera,
+            },
+            # Visits still OPEN. Finished ones are in Postgres — this is only
+            # "who is being measured right now", never the page's totals.
+            "demographics": {
+                "per_camera": demographics_per_camera,
+                "visitors_open": sum(d.get("visitors_open", 0) for d in demographics_per_camera),
+                "faces_sampled": sum(d.get("faces_sampled", 0) for d in demographics_per_camera),
+                "unattributed_faces": sum(
+                    d.get("unattributed_faces", 0) for d in demographics_per_camera
+                ),
             },
             "checkout": {
                 "lanes": checkout_lanes,

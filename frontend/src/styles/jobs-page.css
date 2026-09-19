@@ -1298,3 +1298,41 @@ html.light .jobs-summary { background: var(--bg-card); }
 }
 .jobs-page .jcard__rec.is-on svg { fill: currentColor; }
 .jobs-page .jcard__rec:not(.is-on) svg { color: var(--status-danger); fill: currentColor; }
+
+/* Start / Stop — the primary control on an idle job, so it carries the accent
+   rather than sitting quiet like Record. A job now outlives one run: stopping
+   parks it, starting replays a clip from the beginning. */
+.jobs-page .jcard__run {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 13px;
+  border-radius: var(--r-sm, 8px);
+  border: 1px solid transparent;
+  background: var(--accent-strong, var(--accent-primary));
+  color: #fff;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: filter var(--transition-fast), background var(--transition-fast),
+    border-color var(--transition-fast), color var(--transition-fast);
+}
+.jobs-page .jcard__run:hover:not(:disabled) { filter: brightness(1.08); }
+.jobs-page .jcard__run:disabled { opacity: 0.55; cursor: not-allowed; }
+.jobs-page .jcard__run svg { fill: currentColor; }
+
+/* While running, Stop steps back: the job is already doing its work. */
+.jobs-page .jcard__run.is-on {
+  background: var(--bg-tertiary);
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+.jobs-page .jcard__run.is-on:hover:not(:disabled) {
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+.jobs-page .jcard__live:disabled { opacity: 0.45; cursor: not-allowed; }

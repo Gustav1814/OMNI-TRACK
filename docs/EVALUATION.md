@@ -20,7 +20,7 @@ numbers; six still need data that has to be obtained or annotated.
 | 6 | Detection accuracy | > 85% mAP | ⬜ Tier B | — |
 | 7 | Re-ID accuracy | > 70% Rank-1 | ⬜ Tier B | — |
 | 8 | Emotion recognition | > 70% accuracy | ⬜ Tier B | — |
-| 9 | Fire/smoke detection | > 90% precision, < 5% FPR | ⬜ Tier C | — |
+| 9 | Fire/smoke detection | > 90% precision, < 5% FPR | 🟡 **HALF** | FPR 0% at conf 0.60 (120 negative frames); precision unmeasured — see §4.2 |
 | 10 | Crowd classification | > 85% accuracy | ⬜ Tier C | — |
 | 11 | Checkout metrics | queue length ± 1 person | ⬜ Tier C | — |
 
@@ -337,9 +337,34 @@ public benchmark corresponds to it. Frame-level binary labelling:
 3. Run `FireDetector` over the set, compute precision, recall and false-positive
    rate at the operating threshold.
 
-Highest-value Tier C item: the clips exist, the target is specific, and one
-properly annotated custom benchmark is worth more at a defence than three
-reproduced public ones.
+**Step 1's negative half is done.** 120 frames containing no fire — 60 from a
+face close-up, 60 from the supermarket checkout clip — were swept at the decode
+size the pipeline actually uses. Labelling was free: neither clip contains fire,
+so every detection is a false positive by construction.
+
+| Threshold | Face clip | Checkout clip |
+|---|---|---|
+| 0.40 (old default) | 15 alerts, 25% of frames | 2 alerts |
+| 0.50 | 5 alerts, 8% of frames | 0 alerts |
+| **0.60 (new default)** | **0 alerts** | **0 alerts** |
+
+Highest false score anywhere: **0.552**, a human face read as fire. The operating
+threshold moved from 0.40 to 0.60 on this evidence, which takes the measured
+false-positive rate on these negatives from 25% of frames to **0%** — inside the
+< 5% target.
+
+What is still missing is the **positive** half. Without footage containing real
+fire there is no recall or precision figure, and no way to know what 0.60 costs
+in sensitivity. Report the FPR result on its own and say so: a false-positive
+rate measured against no true-positive rate is half a result, and presenting it
+as the whole criterion would be the same kind of overclaim this document exists
+to avoid.
+
+Reproduce the sweep with `backend/scripts/fire_fpr.py`.
+
+Still the highest-value Tier C item: the target is specific, half the work is
+done, and one properly annotated custom benchmark is worth more at a defence
+than three reproduced public ones.
 
 **Crowd classification (> 85%)** — "crowded vs uncrowded" is a project-specific
 definition, so ground truth means a human judging zone occupancy per interval.

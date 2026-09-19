@@ -42,6 +42,20 @@ export const ACTIVITY_TYPES = [
         },
     },
     {
+        kpi_name: "checkout_queue",
+        label: "Checkout queue",
+        allowed_region_types: ["polygon", "bounding_box"],
+        region_descriptions: {
+            polygon:
+                "One shape per till, around where customers stand. Usually the " +
+                "right choice — tills rarely sit square to the camera, and a " +
+                "rectangle around one lane tends to cover its neighbours.",
+            bounding_box:
+                "A rectangle per till. Fine when the camera looks straight down " +
+                "a lane. Keep the cashier outside it, or the queue never empties.",
+        },
+    },
+    {
         // No regions at all — the right shape for detector-only models such as
         // fire/smoke, where "is it present, and when" is the whole question.
         // VisRax likewise leaves this KPI out of its region mappings.
@@ -214,31 +228,14 @@ export function useRegisterJob() {
 
             const zone = request.location_id?.trim() || "default";
 
-            await detectionAPI.start(cameraId, {
-                source,
-                stream_type: inferStreamType(source),
-                zone,
-                model,
-                tracker,
-                fps: request.num_of_frame_per_sec > 1 ? request.num_of_frame_per_sec : 30,
-                // Process EVERY frame. Skipping frames breaks tracking continuity:
-                // ByteTrack loses identities across the gaps, tracks fragment, and
-                // many are first seen already past the counting line — which the
-                // KPI then (correctly) refuses to count. Measured on a 12.5fps
-                // clip with 15 crossings: every frame -> 15, every 2nd -> 11,
-                // every 6th -> 1.
-                skip_frames: 0,
-                enable_reid: request.enable_reid !== false,
-                loop: Boolean(request.loop),
-                extra_models: (request.extra_models || []).join(','),
-            });
-
             // `tag` is the comma-joined list of classes with Detection enabled.
             const classes = (request.tag || "")
                 .split(",")
                 .map((c) => c.trim())
                 .filter(Boolean);
 
+            // Register only. The job is started from the Jobs page, so it can
+            // be run again when a clip ends instead of being rebuilt.
             await detectionAPI.setJobConfig(cameraId, {
                 regions: request.regions || [],
                 frame_width: request.frame_width || 0,
@@ -250,6 +247,18 @@ export function useRegisterJob() {
                 source,
                 zone,
                 job_id: request.job_id || `JOB-CAM${String(cameraId).padStart(2, "0")}`,
+                stream_type: inferStreamType(source),
+                fps: request.num_of_frame_per_sec > 1 ? request.num_of_frame_per_sec : 30,
+                // Process EVERY frame. Skipping breaks tracking continuity:
+                // ByteTrack loses identities across the gaps, tracks fragment, and
+                // many are first seen already past the counting line — which the
+                // KPI then (correctly) refuses to count. Measured on a 12.5fps
+                // clip with 15 crossings: every frame -> 15, every 2nd -> 11,
+                // every 6th -> 1.
+                skip_frames: 0,
+                enable_reid: request.enable_reid !== false,
+                loop: Boolean(request.loop),
+                extra_models: (request.extra_models || []).join(","),
             });
 
             return { data: `Camera ${cameraId}` };
