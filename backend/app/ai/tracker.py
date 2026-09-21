@@ -39,14 +39,14 @@ class MultiObjectTracker:
     def __init__(
         self,
         model_path: str = "yolov8n.pt",
-        tracker_config: str = "botsort.yaml",
+        tracker_config: str = "bytetrack.yaml",
         max_age: int = 30,
         min_hits: int = 3,
         iou_threshold: float = 0.3,
         classes: Optional[List[int]] = None,
     ):
         self.model_path = model_path
-        self.tracker_config = tracker_config or getattr(settings, "TRACKER_DEFAULT", "botsort.yaml")
+        self.tracker_config = tracker_config or getattr(settings, "TRACKER_DEFAULT", "bytetrack.yaml")
         self.max_age = max_age
         self.min_hits = min_hits
         self.iou_threshold = iou_threshold

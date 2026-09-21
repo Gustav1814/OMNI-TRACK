@@ -89,7 +89,9 @@ function ModelSection({
           model_id: modelId,
           order: otherPicked.length,
           lead_by: stage > 0 ? stage0Picked?.model_id ?? null : null,
-          track_name: stage === 0 ? trackerNames[0] ?? null : null
+          track_name: stage === 0
+            ? trackerNames.find((name) => name === "bytetrack.yaml") ?? trackerNames[0] ?? null
+            : null
         }
       ],
       // A model promoted to a stage must not also run as an extra.

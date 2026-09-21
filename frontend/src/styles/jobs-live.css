@@ -683,6 +683,14 @@
   overflow: hidden;
   animation: ajm-pop var(--dur-med) var(--ease-out);
 }
+.lmm-backdrop .lmm.is-maximized {
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+}
 .lmm-backdrop .lmm__stage {
   display: flex;
   flex: 1;
@@ -702,6 +710,12 @@
   max-height: none;
   object-fit: contain;
 }
+.lmm-backdrop .lmm.is-maximized .lmm__frame {
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  border-bottom: 0;
+}
 .lmm-backdrop .lmm__side {
   width: 300px;
   flex-shrink: 0;
@@ -712,11 +726,17 @@
   border: 1px solid var(--border);
   border-radius: 10px;
 }
-.lmm-backdrop .lmm__close {
+.lmm-backdrop .lmm__controls {
   position: absolute;
   top: 12px;
   right: 12px;
   z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lmm-backdrop .lmm__size,
+.lmm-backdrop .lmm__close {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -729,8 +749,10 @@
   cursor: pointer;
   box-shadow: var(--shadow-1);
 }
+.lmm-backdrop .lmm__size:hover,
 .lmm-backdrop .lmm__close:hover {
   color: var(--text-0);
+  border-color: var(--border-hover);
 }
 .lmm-backdrop .lmm-counts__total,
 .lmm-backdrop .lmm-counts__stat {
@@ -799,6 +821,10 @@
     backdrop-filter: blur(4px);
     -webkit-backdrop-filter: blur(4px);
     animation: lmm-fade var(--dur-fast) var(--ease-out);
+}
+
+.lmm-backdrop.is-maximized {
+    padding: 0;
 }
 
 @keyframes lmm-fade {

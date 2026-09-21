@@ -114,8 +114,8 @@ pipeline = ProcessingPipeline(
     confidence=settings.DETECTION_CONFIDENCE,
     device=settings.DEVICE,
     processing_fps=settings.PROCESSING_FPS,
-    reid_threshold=getattr(settings, "REID_SIMILARITY_THRESHOLD", 0.6),
-    reid_embeddings_per_id=getattr(settings, "REID_EMBEDDINGS_PER_ID", 5),
+    reid_threshold=getattr(settings, "REID_SIMILARITY_THRESHOLD", 0.78),
+    reid_embeddings_per_id=getattr(settings, "REID_EMBEDDINGS_PER_ID", 3),
 )
 pipeline.set_broadcast(broadcast)
 event_bus = NullBus()

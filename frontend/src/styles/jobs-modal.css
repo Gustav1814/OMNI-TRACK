@@ -436,8 +436,17 @@
   border: 1px solid var(--border-strong);
   border-radius: 14px;
   box-shadow: 0 24px 60px rgba(var(--shadow-rgb), 0.28);
+  color: var(--text-1);
   overflow: hidden;
   animation: ajm-pop var(--dur-med) var(--ease-out);
+}
+
+/* Generic form labels come from the imported job UI and otherwise inherit
+   the application's page color. Keep them tied to this modal's theme tokens
+   so they remain readable in both light and dark mode. */
+.ajm-backdrop .field__label {
+  display: block;
+  color: var(--text-1);
 }
 
 .ajm__head {
@@ -1570,6 +1579,7 @@
   border: 1px solid var(--border-strong);
   border-radius: 999px;
   background: var(--pane-2, transparent);
+  color: var(--text-1);
   font-size: 11.5px;
   cursor: pointer;
   transition: border-color var(--dur-fast) var(--ease-out),

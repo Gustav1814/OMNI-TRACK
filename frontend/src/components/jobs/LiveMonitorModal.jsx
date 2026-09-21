@@ -15,7 +15,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X } from 'lucide-react';
+import { Maximize2, Minimize2, X } from 'lucide-react';
 import { liveStreamUrl, pipelineAPI } from '../../services/api';
 import useLivePoll from '../../hooks/useLivePoll';
 
@@ -191,6 +191,7 @@ function FrameDetections({ detections, groupByRegion }) {
 export default function LiveMonitorModal({ open, onClose, job }) {
     const [loaded, setLoaded] = useState(false);
     const [error, setError] = useState(false);
+    const [maximized, setMaximized] = useState(false);
 
     const isActive = Boolean(job?.connected);
     const isLine = LINE_ACTIVITIES.has(job?.activity_type);
@@ -212,7 +213,11 @@ export default function LiveMonitorModal({ open, onClose, job }) {
 
     useEffect(() => {
         if (!open) return undefined;
-        const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+        const onKey = (e) => {
+            if (e.key !== 'Escape') return;
+            if (maximized) setMaximized(false);
+            else onClose();
+        };
         window.addEventListener('keydown', onKey);
         const prev = document.body.style.overflow;
         document.body.style.overflow = 'hidden';
@@ -220,23 +225,43 @@ export default function LiveMonitorModal({ open, onClose, job }) {
             window.removeEventListener('keydown', onKey);
             document.body.style.overflow = prev;
         };
-    }, [open, onClose]);
+    }, [open, onClose, maximized]);
 
     useEffect(() => {
-        if (open) { setLoaded(false); setError(false); }
+        if (open) {
+            setLoaded(false);
+            setError(false);
+            setMaximized(false);
+        }
     }, [open, job?.camera_id]);
 
     if (!open || !job) return null;
 
     return createPortal(
         <div
-            className="lmm-backdrop"
+            className={`lmm-backdrop${maximized ? ' is-maximized' : ''}`}
             onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
         >
-            <div className="lmm" role="dialog" aria-modal="true" aria-label="Live monitoring">
-                <button type="button" className="lmm__close" onClick={onClose} aria-label="Close">
-                    <X size={16} />
-                </button>
+            <div
+                className={`lmm${maximized ? ' is-maximized' : ''}`}
+                role="dialog"
+                aria-modal="true"
+                aria-label="Live monitoring"
+            >
+                <div className="lmm__controls">
+                    <button
+                        type="button"
+                        className="lmm__size"
+                        onClick={() => setMaximized((value) => !value)}
+                        aria-label={maximized ? 'Minimize live stream' : 'Maximize live stream'}
+                        title={maximized ? 'Minimize live stream' : 'Maximize live stream'}
+                    >
+                        {maximized ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                    </button>
+                    <button type="button" className="lmm__close" onClick={onClose} aria-label="Close">
+                        <X size={16} />
+                    </button>
+                </div>
 
                 <div className="lmm__stage">
                     {/* Pane 1 — the live stream */}

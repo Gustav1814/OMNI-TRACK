@@ -27,9 +27,10 @@ const navItems = [
     { path: '/fire', icon: Flame, label: 'Safety Watch' },
     { path: '/crowd', icon: UsersRound, label: 'Footfall' },
     { path: '/checkout', icon: ShoppingCart, label: 'Queue Insights' },
-    { section: 'Business View' },
-    { path: '/peak-hours', icon: TrendingUp, label: 'Rush Hours' },
-    { path: '/demographics', icon: BarChart3, label: 'Audience Mix' },
+    // Business View pages are intentionally hidden from the sidebar for now.
+    // { section: 'Business View' },
+    // { path: '/peak-hours', icon: TrendingUp, label: 'Rush Hours' },
+    // { path: '/demographics', icon: BarChart3, label: 'Audience Mix' },
 ];
 
 export default function Sidebar() {

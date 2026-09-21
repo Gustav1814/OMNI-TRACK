@@ -33,9 +33,8 @@ from loguru import logger
 #
 # H.264 FIRST, and the order matters: "mp4v" produces FMP4 (MPEG-4 Part 2),
 # which no browser can decode, so every clip written that way rendered as a
-# black player in the dashboard. avc1 gives real H.264 — OpenCV logs a
-# "Could not open codec libopenh264" warning and then falls back to libx264,
-# which succeeds, so that message is noise rather than a failure.
+# black player in the dashboard. On Windows, avc1 is opened explicitly through
+# Media Foundation to avoid OpenCV first probing an incompatible OpenH264 DLL.
 #
 # mp4v is kept as a fallback for a machine with no H.264 encoder at all: a
 # clip that needs transcoding to play beats no clip.
@@ -136,15 +135,42 @@ class ArtifactStore:
     @staticmethod
     def _open_writer(path: str, fps: float, size: Tuple[int, int]):
         for codec in _SEGMENT_CODECS:
-            try:
-                writer = cv2.VideoWriter(
-                    path, cv2.VideoWriter_fourcc(*codec), max(1.0, fps), size
+            if os.name == "nt" and codec == "avc1":
+                # CAP_ANY probes FFmpeg first, which can load an incompatible
+                # OpenH264 DLL before OpenCV falls back to Media Foundation.
+                # Selecting MSMF directly avoids that noisy failure and writes
+                # a browser-compatible H.264 MP4 on Windows.
+                backends = ((cv2.CAP_MSMF, "MSMF"),)
+            elif os.name == "nt":
+                backends = (
+                    (cv2.CAP_FFMPEG, "FFMPEG"),
+                    (cv2.CAP_MSMF, "MSMF"),
                 )
-                if writer.isOpened():
-                    return writer, codec
-                writer.release()
-            except Exception:
-                continue
+            else:
+                backends = (
+                    (cv2.CAP_FFMPEG, "FFMPEG"),
+                    (cv2.CAP_ANY, "AUTO"),
+                )
+
+            for backend, backend_name in backends:
+                writer = None
+                opened = False
+                try:
+                    writer = cv2.VideoWriter(
+                        path,
+                        backend,
+                        cv2.VideoWriter_fourcc(*codec),
+                        max(1.0, fps),
+                        size,
+                    )
+                    opened = writer.isOpened()
+                    if opened:
+                        return writer, f"{codec}/{backend_name}"
+                except Exception:
+                    pass
+                finally:
+                    if writer is not None and not opened:
+                        writer.release()
         return None, None
 
     def write_segment_frame(

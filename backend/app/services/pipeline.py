@@ -198,8 +198,8 @@ class ProcessingPipeline:
         device: str = "auto",
         confidence: float = 0.5,
         processing_fps: int = 15,     # How many frames/sec to process per camera
-        reid_threshold: float = 0.6,
-        reid_embeddings_per_id: int = 5,
+        reid_threshold: float = 0.78,
+        reid_embeddings_per_id: int = 3,
         enable_emotions: bool = True,
         enable_fire: bool = True,
         enable_shelf: bool = True,
@@ -239,7 +239,8 @@ class ProcessingPipeline:
         self._trackers: Dict[int, MultiObjectTracker] = {}
         self.reid = PersonReID(
             model_name=reid_model,
-            device=device if device != "auto" else "cpu",
+            # PersonReID resolves "auto" to CUDA when PyTorch can see a GPU.
+            device=device,
             similarity_threshold=reid_threshold,
             max_embeddings_per_id=reid_embeddings_per_id,
         )
@@ -279,13 +280,11 @@ class ProcessingPipeline:
         self._demo_size_warned: set = set()
         fire_on = enable_fire and getattr(settings, "ENABLE_FIRE_DETECTION", True)
         self._enable_fire = fire_on
-        self.fire_detector = (
-            FireSmokeDetector(
-                model_path=fire_model,
-                confidence=getattr(settings, "FIRE_CONFIDENCE", 0.4),
-            )
-            if fire_on else None
-        )
+        # The fire weight is opt-in per job, so do not load a second YOLO model
+        # at application startup when no camera asked for it.
+        self._fire_model_path = fire_model
+        self._fire_confidence = getattr(settings, "FIRE_CONFIDENCE", 0.4)
+        self.fire_detector: Optional[FireSmokeDetector] = None
         self.shelf_tracker = ShelfEngagementTracker() if enable_shelf else None
         self.checkout = CheckoutAnalyzer() if enable_checkout else None
         self.crowd = CrowdDensityEstimator()
@@ -414,7 +413,7 @@ class ProcessingPipeline:
         self._get_or_create_detector(model_path, class_ids)
         self._trackers[camera_id] = MultiObjectTracker(
             model_path=model_path,
-            tracker_config=getattr(settings, "TRACKER_DEFAULT", "botsort.yaml"),
+            tracker_config=getattr(settings, "TRACKER_DEFAULT", "bytetrack.yaml"),
             classes=class_ids,
         )
         logger.info(
@@ -799,6 +798,46 @@ class ProcessingPipeline:
             return dets
         return [d for d in dets if str(d.get("class_name", "")).lower() == "person"]
 
+    @staticmethod
+    def _same_model_reference(left: Optional[str], right: Optional[str]) -> bool:
+        """Return whether two absolute or filename-only references name one model."""
+        if not left or not right:
+            return False
+        left_path = Path(str(left))
+        right_path = Path(str(right))
+        try:
+            if str(left_path.resolve(strict=False)).casefold() == str(
+                right_path.resolve(strict=False)
+            ).casefold():
+                return True
+        except OSError:
+            pass
+        return left_path.name.casefold() == right_path.name.casefold()
+
+    def _camera_uses_fire_model(self, camera_id: int) -> bool:
+        """Fire analytics are opt-in through the camera's selected model list."""
+        if not self._enable_fire:
+            return False
+        assigned_models = [
+            self._camera_models.get(camera_id),
+            *self._camera_extra_models.get(camera_id, []),
+        ]
+        return any(
+            self._same_model_reference(model, self._fire_model_path)
+            for model in assigned_models
+        )
+
+    def _ensure_fire_detector(self) -> Optional[FireSmokeDetector]:
+        """Load the dedicated alert detector only after a job opts into it."""
+        if not self._enable_fire:
+            return None
+        if self.fire_detector is None:
+            self.fire_detector = FireSmokeDetector(
+                model_path=self._fire_model_path,
+                confidence=self._fire_confidence,
+            )
+        return self.fire_detector
+
     def _get_or_create_detector(
         self, model_path: str, classes: Optional[List[int]] = None
     ) -> PersonDetector:
@@ -944,11 +983,14 @@ class ProcessingPipeline:
             except Exception as e:
                 logger.error(f"Extra model {m} could not be loaded for camera {camera_id}: {e}")
 
+        if self._camera_uses_fire_model(camera_id):
+            self._ensure_fire_detector()
+
         # One tracker per camera so local track IDs are per-feed; Re-ID assigns global_id across cameras.
         if camera_id not in self._trackers:
             self._trackers[camera_id] = MultiObjectTracker(
                 model_path=effective_model,
-                tracker_config=tracker_config or getattr(settings, "TRACKER_DEFAULT", "botsort.yaml"),
+                tracker_config=tracker_config or getattr(settings, "TRACKER_DEFAULT", "bytetrack.yaml"),
                 classes=self._detector_classes,
             )
 
@@ -1888,6 +1930,12 @@ class ProcessingPipeline:
                     det["global_id"] = None
         else:
             async with self._reid_merge_lock:
+                # A physical identity cannot belong to two different local tracks
+                # in the same camera frame. Without this guard, several similar
+                # shoppers can all select the same highest-scoring gallery entry.
+                claimed_global_ids: Dict[int, set] = {
+                    int(camera_id): set() for camera_id in frames
+                }
                 for cam_id, (frame, timestamp) in frames.items():
                     if not self._reid_on_for_camera(cam_id):
                         for det in all_detections.get(cam_id, []):
@@ -1900,6 +1948,13 @@ class ProcessingPipeline:
                                 continue
                             x, y, w, h = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
                             x, y = max(0, x), max(0, y)
+                            min_crop_height = int(
+                                getattr(settings, "REID_MIN_CROP_HEIGHT", 96)
+                            )
+                            if h < min_crop_height or w < max(24, min_crop_height // 4):
+                                # Small/distant crops are too noisy for reliable
+                                # appearance matching and commonly cause ID merges.
+                                continue
                             crop = frame[y : y + h, x : x + w]
                             if crop.size == 0:
                                 continue
@@ -1911,11 +1966,43 @@ class ProcessingPipeline:
                                 continue
                             key = (cam_id, track_id) if track_id is not None else None
                             prev_global = self._last_global_by_track.get(key) if key else None
-                            matches = self.reid.search_gallery(embedding, top_k=1)
+                            matches = self.reid.search_gallery(embedding, top_k=5)
                             match_sim: Optional[float] = None
-                            if matches:
-                                global_id = matches[0]["id"]
-                                match_sim = float(matches[0].get("similarity", 0.0))
+                            global_id: Optional[str] = None
+                            selected_match: Optional[Dict[str, Any]] = None
+                            camera_claims = claimed_global_ids[int(cam_id)]
+
+                            # The tracker is the strongest short-term identity
+                            # signal. Keep its existing global ID instead of
+                            # allowing every new embedding to overwrite it.
+                            if prev_global and prev_global not in camera_claims:
+                                global_id = prev_global
+                                selected_match = next(
+                                    (m for m in matches if m["id"] == prev_global),
+                                    None,
+                                )
+                            else:
+                                eligible = [
+                                    m for m in matches if m["id"] not in camera_claims
+                                ]
+                                if eligible:
+                                    best = eligible[0]
+                                    runner_up = eligible[1] if len(eligible) > 1 else None
+                                    margin = float(
+                                        getattr(settings, "REID_MATCH_MARGIN", 0.08)
+                                    )
+                                    best_score = float(best.get("similarity", 0.0))
+                                    runner_score = (
+                                        float(runner_up.get("similarity", 0.0))
+                                        if runner_up
+                                        else None
+                                    )
+                                    if runner_score is None or best_score - runner_score >= margin:
+                                        selected_match = best
+                                        global_id = str(best["id"])
+
+                            if selected_match is not None:
+                                match_sim = float(selected_match.get("similarity", 0.0))
                                 # Only a confident match earns a place in the gallery.
                                 # Storing every borderline match let one wrong merge
                                 # widen that identity — search takes the BEST score
@@ -1925,14 +2012,13 @@ class ProcessingPipeline:
                                 # of a view already stored.
                                 if _REID_REINFORCE_MIN <= match_sim < 0.97:
                                     self.reid.add_embedding_to_id(global_id, embedding)
-                            elif prev_global and key:
-                                global_id = prev_global
-                                match_sim = None
-                            else:
+
+                            if global_id is None:
                                 global_id = f"PERSON-{self.global_state.total_persons_tracked:05d}"
                                 self.reid.add_to_gallery(global_id, embedding)
                                 self.global_state.total_persons_tracked += 1
                                 match_sim = None
+                            camera_claims.add(global_id)
                             if key:
                                 self._last_global_by_track[key] = global_id
                             det["global_id"] = global_id
@@ -2000,11 +2086,16 @@ class ProcessingPipeline:
             except Exception as e:
                 logger.debug(f"Crowd update error cam {cam_id}: {e}")
 
-            # Fire detection (safety-first — always runs)
-            if self._enable_fire and self.fire_detector:
+            # Fire detection is opt-in per camera. It runs only when the configured
+            # fire weight is the primary model or an explicitly selected extra.
+            if self._camera_uses_fire_model(cam_id):
                 try:
-                    fire_results = await asyncio.to_thread(
-                        self.fire_detector.detect, frame, cam_id, zone
+                    fire_detector = self._ensure_fire_detector()
+                    fire_results = (
+                        await asyncio.to_thread(
+                            fire_detector.detect, frame, cam_id, zone
+                        )
+                        if fire_detector is not None else []
                     )
                     results[cam_id].fire_alerts = fire_results
                     if fire_results:
@@ -2352,11 +2443,6 @@ class ProcessingPipeline:
         if result.camera_id is not None:
             self._draw_job_regions(frame, result.camera_id)
 
-        if result.fire_alerts:
-            cv2.putText(
-                frame, "FIRE ALERT", (10, 30),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2, cv2.LINE_AA
-            )
         return frame
 
     def get_latest_annotated_jpeg(self, camera_id: int) -> Optional[bytes]:

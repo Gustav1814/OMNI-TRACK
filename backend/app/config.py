@@ -54,8 +54,10 @@ class Settings(BaseSettings):
     YOLO_MODEL: str = "yolo11n.pt"           # YOLO person detection model (legacy)
     FIRE_MODEL: str = "yolo11n.pt"           # Fire/smoke detection model (you can train custom)
     REID_MODEL: str = "osnet_x0_25"          # Re-ID model (from torchreid)
-    REID_SIMILARITY_THRESHOLD: float = 0.6   # Cosine similarity threshold (higher = stricter; use 0.65–0.75 if many similar-looking people)
-    REID_EMBEDDINGS_PER_ID: int = 5          # Max embeddings per global_id for multi-view (back/front/side) when face not visible
+    REID_SIMILARITY_THRESHOLD: float = 0.78  # Stricter matching keeps similar-looking shoppers separate
+    REID_MATCH_MARGIN: float = 0.08           # Best match must clearly beat the runner-up
+    REID_MIN_CROP_HEIGHT: int = 96            # Tiny crops produce unreliable appearance embeddings
+    REID_EMBEDDINGS_PER_ID: int = 3           # A few strong views without over-broadening an identity
     DETECTION_CONFIDENCE: float = 0.5        # Min confidence to count a detection
     # Which classes the detector AND tracker keep. "all" (or "") = every class the
     # loaded model knows about; otherwise a comma-separated list of class ids,
@@ -71,9 +73,9 @@ class Settings(BaseSettings):
     YOLO_CONFIDENCE: float = 0.5
     YOLO_NMS_THRESHOLD: float = 0.45
     FIRE_MODEL_PATH: str = "fire-smoke.pt"
-    # The fire detector runs on EVERY camera regardless of the job's activity,
-    # so its false-positive rate is a property of the whole system, not of one
-    # job. Measured on two negative controls — 60 sampled frames each from a
+    # The fire detector runs only for jobs that select FIRE_MODEL_PATH as their
+    # primary model or as an extra model. Measured on two negative controls —
+    # 60 sampled frames each from a
     # face close-up and a supermarket checkout, neither containing any fire or
     # smoke, decoded at the same DECODE_IMGSZ the pipeline uses:
     #
@@ -99,7 +101,7 @@ class Settings(BaseSettings):
     ENABLE_SAM2: bool = False                # Keep disabled by default on laptop
 
     # --- Tracking ---
-    TRACKER_DEFAULT: str = "botsort.yaml"    # botsort.yaml | bytetrack.yaml or custom yaml path
+    TRACKER_DEFAULT: str = "bytetrack.yaml"  # Stable and efficient for fixed retail CCTV
     TRACKER_REID: bool = False
 
     # --- Pipeline ---
@@ -267,7 +269,7 @@ class Settings(BaseSettings):
 
         # Keep a sane default tracker
         if not self.TRACKER_DEFAULT:
-            object.__setattr__(self, "TRACKER_DEFAULT", "botsort.yaml")
+            object.__setattr__(self, "TRACKER_DEFAULT", "bytetrack.yaml")
         return self
 
     @model_validator(mode="after")
