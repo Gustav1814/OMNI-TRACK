@@ -1,71 +1,107 @@
 """
-OmniTrack AI — Multi-Camera Synchronized Processing Pipeline
-═══════════════════════════════════════════════════════════════
+OmniTrack AI — Processing pipeline.
 
-HOW IT WORKS (for a non-CV person):
-  Think of this as the "brain" of the system. Each camera is like an eye.
-  The pipeline does:
+    camera thread (stream_manager) ── newest frame only ──▶ camera task (asyncio, one per camera)
+                                                              │
+      ┌───────────────────────────────────────────────────────┤
+      │ 1. detect      ──▶ InferenceWorker thread: detect jobs from every camera are batched into
+      │                    one predict([f1, f2, …]); Re-ID and specialist jobs are serialised on
+      │                    the same thread, so models never compete for the CPU/GPU.
+      │ 2. track       ByteTrack + tentative/confirmed/lost lifecycle (one tracker per camera).
+      │ 3. Re-ID       quality gate → embed → TrackCoordinator (tracklets, Hungarian, topology).
+      │ 4. analytics   zone engine on confirmed tracks only (+ fire / face hooks).
+      │ 5. specialists fire every FIRE_INTERVAL_FRAMES, products every PRODUCT_INTERVAL_S,
+      │                emotion every EMOTION_ANALYTICS_INTERVAL_FRAMES (only with people).
+      │                Their boxes never reach the tracker or people counts.
+      └ 6. render      thread pool, only while someone watches the feed or it is recording.
 
-  1. CAPTURE  → Grabs frames from ALL cameras simultaneously (threaded)
-  2. DETECT   → Runs YOLOv8 on each frame to find all people (bounding boxes)
-  3. TRACK    → Assigns each person a track ID so we follow them across frames
-  4. RE-ID    → When a person disappears from Cam1 and appears on Cam2,
-                Re-ID matches them by their visual "fingerprint" (512-d embedding)
-  5. ANALYZE  → Runs all analytics in parallel:
-                - Shelf engagement (how long did they browse?)
-                - Crowd density (how packed is each zone?)
-                - Emotion recognition (are customers happy?)
-                - Fire/smoke detection (safety!)
-                - Checkout queues (how long is the wait?)
-  6. PERSIST  → Saves results to database & pushes real-time alerts via WebSocket
+    dispatcher task (4 Hz) ──▶ on_results callbacks (persistence, WebSocket, plugins)
+    event persister (1 Hz) ──▶ zones_repo.persist_events (zone/queue/fire/vibe/… rows)
 
-  All cameras run in PARALLEL — synchronized by a central clock.
-  Cross-camera identity matching happens continuously via the Re-ID gallery.
+Models are loaded once in ``start()`` and never unloaded. Under memory
+pressure the per-camera FPS is lowered instead. A missing model logs an error
+and disables only its feature. A failing camera only affects itself.
 
-GLOBAL ID & CROSS-CAMERA DATA (how the store gap is filled):
-  - Each camera has its own ByteTrack tracker → local track IDs (1, 2, 3…) per feed.
-  - One shared Re-ID gallery (in memory, optionally pgvector in DB): 512-d embedding per person.
-  - For every detected person, we crop the bounding box, extract an embedding (Torchreid), and
-    search the gallery by cosine similarity. If similarity ≥ threshold → same global_id (e.g. PERSON-00042).
-    If no match → new global_id, and we add that embedding to the gallery.
-  - So: same person on Cam 1 (entrance) and Cam 2 (aisle) gets the same global_id. Data from every
-    camera is merged in global_state: active_tracks[global_id] = { camera_id, last_seen, bbox };
-    zone_occupancy[zone] = count; vibe_score aggregates all cameras. The dashboard/API can answer
-    “where is PERSON-00042?” or “how many unique people in the store?” from this shared state.
-
-WHAT YOU NEED:
-  - Camera RTSP URLs (from store IP cameras)
-  - OR just use a video file for testing: pipeline.add_camera(1, "test_video.mp4")
-  - GPU recommended for real-time (but CPU works at ~5-8 FPS per camera)
+The public surface (add_camera, remove_camera, start, stop, get_status,
+get_latest_results, get_latest_annotated_jpeg, on_results, on_lifecycle,
+recording, get_analytics_snapshot, …) is kept compatible with the old
+lock-step pipeline.
 """
 
+from __future__ import annotations
+
 import asyncio
-import time
+import dataclasses
 import json
-import numpy as np
-import cv2
-from typing import Dict, List, Optional, Any, Callable, Tuple, Union
+import threading
+import time
+from collections import Counter, OrderedDict, deque
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from loguru import logger
-import threading
 from enum import Enum
-
-# AI Modules
-from app.ai.detector import PersonDetector, BBox
-from app.ai.tracker import MultiObjectTracker
-from app.ai.reid import PersonReID
-from app.ai.emotion import EmotionRecognizer
-from app.ai.fire_detector import FireSmokeDetector  # alias for FireDetector
-from app.ai.crowd_density import CrowdDensityEstimator
-from app.ai.shelf_analytics import ShelfEngagementTracker  # alias for ShelfAnalytics
-from app.ai.checkout_analytics import CheckoutAnalyzer  # alias for CheckoutAnalytics
-from app.ai.store_vibe import StoreVibeEngine
-
-# Stream Manager
-from app.services.stream_manager import StreamManager, StreamConfig, StreamType
-from app.config import settings
 from pathlib import Path
+from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
+
+import cv2
+import numpy as np
+from loguru import logger
+
+from app.ai.demographics import DemographicsClassifier, VisitAggregator, match_faces_to_tracks
+from app.ai.detector import Detections, PersonDetector, SpecialistDetector, resolve_device
+from app.ai.reid import PersonReID, QualityConfig, box_iou_matrix, crop_quality
+from app.ai.tracker import PersonTracker, TrackerOutput
+from app.analytics.engine import TrackObs, get_engine
+from app.analytics import definitions as zdefs
+from app.config import settings
+from app.security.input_safety import redact_source, validate_camera_source
+from app.services.event_bus import publish_local, subscribe_local, unsubscribe_local
+from app.services.stream_manager import FrameRing, StreamConfig, StreamManager, StreamType
+from app.services.track_coordinator import CoordinatorConfig, TrackCoordinator, parse_links
+
+try:
+    import psutil
+except Exception:  # pragma: no cover - psutil is in requirements
+    psutil = None
+
+CALLBACK_HZ = 4.0             # on_results callbacks per second (results are merged in between)
+VIEWER_TTL_S = 5.0            # render a feed only if someone fetched a frame this recently
+REID_REFRESH_S = 10.0         # re-announce an ongoing (camera, global_id) presence to callbacks
+OVERLAY_TTL_S = 3.0           # specialist boxes stay on the annotated frame this long
+THUMB_H = 160                 # person thumbnail height (px) for Re-ID search results
+THUMB_CAP = 2000              # identities with a thumbnail kept in memory (LRU, ~5 KB each)
+STAGES = ("frame_age", "queue", "detect", "track", "reid", "embed", "analytics", "total", "render", "fire", "product", "emotion")
+BROADCAST_EVENT_TYPES = {"alert", "crowd_level", "line_cross", "queue_wait", "queue_abandon", "fire"}
+REDIS_TRACK_STREAM = "tracks.events"
+REDIS_ASSIGN_STREAM = "tracks.assignments"
+RING_SLACK_S = 6.0            # evidence ring keeps PRE_S + POST_S + this many seconds
+RECORDER_CODECS = ("avc1", "mp4v")  # H.264 first (browser-playable); mp4v when OpenCV has no H.264 encoder
+DEMOGRAPHICS_STALE_S = 600.0  # forget a track's face readings if its visit never finished
+
+
+def open_video_writer(path: Path, fps: float, size: Tuple[int, int]) -> Tuple[Optional[Any], Optional[str]]:
+    """First codec in RECORDER_CODECS that opens a writer; (None, None) when none does."""
+    for codec in RECORDER_CODECS:
+        writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*codec), float(fps), (int(size[0]), int(size[1])))
+        if writer.isOpened():
+            return writer, codec
+        writer.release()
+        Path(path).unlink(missing_ok=True)
+    return None, None
+
+
+def video_readable(path: Path) -> bool:
+    cap = cv2.VideoCapture(str(path))
+    try:
+        ok, frame = cap.read() if cap.isOpened() else (False, None)
+        return bool(ok and frame is not None)
+    finally:
+        cap.release()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Public data types (kept compatible with the previous pipeline)
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 class PipelineState(str, Enum):
@@ -78,7 +114,8 @@ class PipelineState(str, Enum):
 
 @dataclass
 class CameraResult:
-    """Results from processing a single camera frame."""
+    """Result of one processed frame. ``detections``/``tracks`` hold confirmed people only."""
+
     camera_id: int
     timestamp: float
     frame_number: int
@@ -92,367 +129,659 @@ class CameraResult:
     checkout_data: Dict[str, Any] = field(default_factory=dict)
     processing_time_ms: float = 0.0
     model_status: Dict[str, Any] = field(default_factory=dict)
+    # new in the rebuilt pipeline
+    frame_wh: Tuple[int, int] = (0, 0)
+    tentative_count: int = 0
+    events: List[Dict[str, Any]] = field(default_factory=list)
+    product_detections: List[Dict[str, Any]] = field(default_factory=list)
+    fire_detections: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
 class GlobalState:
-    """
-    Shared state across ALL cameras — this is the magic of synchronization.
-    
-    The Re-ID gallery is GLOBAL: when Cam1 sees a person, their embedding
-    goes into the shared gallery. When Cam2 sees someone similar, it finds
-    the match. This gives cross-camera tracking.
-    """
     total_persons_tracked: int = 0
-    active_tracks: Dict[str, Dict[str, Any]] = field(default_factory=dict)  # global_id (e.g. PERSON-00042) → info
-    zone_occupancy: Dict[str, int] = field(default_factory=dict)  # zone → person count
+    active_tracks: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    zone_occupancy: Dict[str, int] = field(default_factory=dict)
     fire_alert_active: bool = False
     vibe_score: float = 0.0
     last_updated: float = 0.0
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Inference worker: one thread owns every model call
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class _Job:
+    __slots__ = ("kind", "payload", "loop", "future", "t_submit")
+
+    def __init__(self, kind: str, payload: Any, loop: asyncio.AbstractEventLoop, future: asyncio.Future):
+        self.kind = kind
+        self.payload = payload
+        self.loop = loop
+        self.future = future
+        self.t_submit = time.perf_counter()
+
+
+class InferenceWorker:
+    """Priority queues + one thread. Person detection (priority 0) is batched across
+    cameras; Re-ID embedding (1) and specialist models (2) run one job at a time.
+
+    Strict priority would starve fire/emotion/product whenever detection saturates the
+    worker (measured on CPU: zero fire runs in 30 s with two cameras), so a lower-priority
+    job that has waited longer than ``STARVE_S[prio]`` is served next. Detection keeps
+    most of the worker; every queued specialist still runs within about a second.
+    """
+
+    PRIO_DETECT, PRIO_EMBED, PRIO_SPECIALIST = 0, 1, 2
+    STARVE_S = {1: 0.5, 2: 1.0}
+
+    def __init__(self, detector: PersonDetector, max_batch: int = 8):
+        self.detector = detector
+        self.max_batch = max(1, int(max_batch))
+        self._qs: Dict[int, Deque[_Job]] = {p: deque() for p in (self.PRIO_DETECT, self.PRIO_EMBED, self.PRIO_SPECIALIST)}
+        self._cv = threading.Condition()
+        self.starved_served = Counter()
+        self._thread: Optional[threading.Thread] = None
+        self._running = False
+        self.batch_sizes: Deque[int] = deque(maxlen=300)
+        self.busy_ms: Deque[Tuple[float, float]] = deque(maxlen=600)  # (end time, ms busy)
+        self.jobs = Counter()
+        self.errors = Counter()
+
+    @property
+    def alive(self) -> bool:
+        return bool(self._thread and self._thread.is_alive())
+
+    def start(self) -> None:
+        if self.alive:
+            return
+        self._running = True
+        self._thread = threading.Thread(target=self._loop, name="inference-worker", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        with self._cv:
+            self._running = False
+            self._cv.notify_all()
+        if self._thread:
+            self._thread.join(timeout=10)
+        with self._cv:  # fail whatever is still queued
+            left = [j for q in self._qs.values() for j in q]
+            for q in self._qs.values():
+                q.clear()
+        for j in left:
+            self._resolve(j, None, RuntimeError("inference worker stopped"))
+
+    def depth(self) -> int:
+        with self._cv:
+            return sum(len(q) for q in self._qs.values())
+
+    def _submit(self, prio: int, kind: str, payload: Any) -> asyncio.Future:
+        loop = asyncio.get_running_loop()
+        fut = loop.create_future()
+        if not self.alive:
+            fut.set_exception(RuntimeError("inference worker not running"))
+            return fut
+        prio = prio if prio in self._qs else self.PRIO_SPECIALIST
+        with self._cv:
+            self._qs[prio].append(_Job(kind, payload, loop, fut))
+            self._cv.notify()
+        return fut
+
+    async def detect(self, frame: np.ndarray) -> Tuple[Detections, float, float]:
+        """``(detections, queue_wait_ms, batch_infer_ms)``"""
+        return await self._submit(self.PRIO_DETECT, "detect", frame)
+
+    async def run(self, fn: Callable, *args, prio: int = 1) -> Tuple[Any, float, float]:
+        """Run ``fn(*args)`` on the worker thread: ``(result, queue_wait_ms, run_ms)``."""
+        return await self._submit(prio, "call", (fn, args))
+
+    @staticmethod
+    def _resolve(job: _Job, result: Any, exc: Optional[BaseException]) -> None:
+        def _set() -> None:
+            if job.future.done():
+                return
+            if exc is not None:
+                job.future.set_exception(exc)
+            else:
+                job.future.set_result(result)
+
+        try:
+            job.loop.call_soon_threadsafe(_set)
+        except RuntimeError:  # event loop already closed
+            pass
+
+    def _next(self) -> Optional[List[_Job]]:
+        """Next unit of work: a detect batch or one call. ``None`` once stopped and drained of the loop."""
+        with self._cv:
+            while self._running and not any(self._qs.values()):
+                self._cv.wait(timeout=0.5)
+            if not self._running:
+                return None
+            now = time.perf_counter()
+            starved = [
+                (now - q[0].t_submit - self.STARVE_S[p], p)
+                for p, q in self._qs.items() if p in self.STARVE_S and q and now - q[0].t_submit > self.STARVE_S[p]
+            ]
+            if starved:
+                p = max(starved)[1]
+                self.starved_served[p] += 1
+                return [self._qs[p].popleft()]
+            for p in sorted(self._qs):
+                q = self._qs[p]
+                if not q:
+                    continue
+                if p != self.PRIO_DETECT:
+                    return [q.popleft()]
+                batch = []
+                while q and len(batch) < self.max_batch:
+                    batch.append(q.popleft())
+                return batch
+            return []
+
+    def _loop(self) -> None:
+        while True:
+            jobs = self._next()
+            if jobs is None:
+                break
+            if not jobs:
+                continue
+            if jobs[0].kind == "detect":
+                self._run_detect(jobs)
+            else:
+                self._run_call(jobs[0])
+
+    def _run_detect(self, batch: List[_Job]) -> None:
+        t0 = time.perf_counter()
+        try:
+            dets = self.detector.predict_batch([j.payload for j in batch])
+            exc = None
+        except Exception as e:  # pragma: no cover - model specific
+            dets, exc = None, e
+            self.errors["detect"] += 1
+            logger.warning(f"Person detection failed for a batch of {len(batch)}: {e}")
+        ms = (time.perf_counter() - t0) * 1000.0
+        self.batch_sizes.append(len(batch))
+        self.busy_ms.append((time.time(), ms))
+        self.jobs["detect"] += len(batch)
+        for i, j in enumerate(batch):
+            wait = (t0 - j.t_submit) * 1000.0
+            self._resolve(j, None if exc else (dets[i], wait, ms), exc)
+
+    def _run_call(self, job: _Job) -> None:
+        fn, args = job.payload
+        t0 = time.perf_counter()
+        name = getattr(fn, "__qualname__", "call")
+        try:
+            res, exc = fn(*args), None
+        except Exception as e:
+            res, exc = None, e
+            self.errors[name] += 1
+        ms = (time.perf_counter() - t0) * 1000.0
+        self.busy_ms.append((time.time(), ms))
+        self.jobs[name] += 1
+        self._resolve(job, None if exc else (res, (t0 - job.t_submit) * 1000.0, ms), exc)
+
+    def stats(self) -> Dict[str, Any]:
+        now = time.time()
+        recent = [ms for t, ms in self.busy_ms if now - t <= 10.0]
+        bs = list(self.batch_sizes)
+        return {
+            "alive": self.alive,
+            "queue_depth": self.depth(),
+            "max_batch": self.max_batch,
+            "avg_detect_batch": round(sum(bs) / len(bs), 2) if bs else None,
+            "utilisation_10s": round(min(1.0, sum(recent) / 10_000.0), 3),
+            "jobs": dict(self.jobs),
+            "starved_served": {str(k): v for k, v in self.starved_served.items()},
+            "errors": dict(self.errors),
+        }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Per-camera state
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _pct(values, q: float) -> Optional[float]:
+    if not values:
+        return None
+    v = sorted(values)
+    return round(float(v[min(len(v) - 1, int(q * (len(v) - 1) + 0.5))]), 1)
+
+
+@dataclass
+class _Cam:
+    camera_id: int
+    source: str
+    stream_type: str
+    zone: str
+    fps_target: float
+    enable_reid: bool
+    requested_model: Optional[str]
+    tracker: PersonTracker
+    started_ts: float = field(default_factory=time.time)
+    task: Optional[asyncio.Task] = None
+    epoch: int = -1
+    last_seq: int = 0
+    frame_number: int = 0
+    frames_processed: int = 0
+    detections_total: int = 0
+    proc_times: Deque[float] = field(default_factory=lambda: deque(maxlen=30))
+    fps_last_set: float = 0.0
+    stages: Dict[str, Deque[float]] = field(default_factory=lambda: {s: deque(maxlen=120) for s in STAGES})
+    errors: Deque[Tuple[float, str]] = field(default_factory=lambda: deque(maxlen=200))
+    last_frame_ts: Optional[float] = None
+    last_result: Optional[CameraResult] = None
+    result_seq: int = 0
+    dispatched_seq: int = 0
+    confirmed_now: int = 0
+    # pending for the next callback dispatch
+    pending_fire: List[Dict[str, Any]] = field(default_factory=list)
+    pending_reid: List[Dict[str, Any]] = field(default_factory=list)
+    pending_events: List[Dict[str, Any]] = field(default_factory=list)
+    gid_emit_ts: Dict[str, float] = field(default_factory=dict)
+    # best embedded crop per live track: tid -> (quality score, JPEG); promoted to its global ID
+    track_thumbs: Dict[int, Tuple[float, bytes]] = field(default_factory=dict)
+    # specialists
+    reid_busy: bool = False  # one embedding batch in flight per camera
+    fire_busy: bool = False
+    product_busy: bool = False
+    emotion_busy: bool = False
+    last_fire_frame: int = -(10 ** 9)
+    last_product_ts: float = 0.0
+    last_emotion_frame: int = -(10 ** 9)
+    fire_boxes: List[Dict[str, Any]] = field(default_factory=list)
+    fire_ts: float = 0.0
+    fire_active: bool = False
+    product_boxes: List[Dict[str, Any]] = field(default_factory=list)
+    product_ts: float = 0.0
+    faces: List[Dict[str, Any]] = field(default_factory=list)
+    faces_ts: float = 0.0
+    # rendering
+    zones: List[dict] = field(default_factory=list)
+    frame: Optional[np.ndarray] = None
+    overlay: Optional[Dict[str, Any]] = None
+    jpeg: Optional[bytes] = None
+    jpeg_seq: int = 0
+    render_busy: bool = False
+    render_skipped: int = 0
+    viewer_ts: float = 0.0
+    fps_scale: float = 1.0
+    # finite sources
+    loop: bool = False
+    finished: bool = False
+    finished_at: Optional[float] = None
+    # evidence pre-roll (None when evidence capture is unavailable/disabled)
+    ring: Optional[FrameRing] = None
+
+    def stage(self, name: str, ms: float) -> None:
+        self.stages[name].append(float(ms))
+
+    def error(self, where: str, exc: BaseException) -> None:
+        msg = f"{where}: {type(exc).__name__}: {exc}"
+        self.errors.append((time.time(), msg))
+        n = self.errors_last_min()
+        if n == 1 or n % 20 == 0:
+            logger.warning(f"[Cam {self.camera_id}] {msg} (errors in last minute: {n})")
+
+    def errors_last_min(self) -> int:
+        cut = time.time() - 60.0
+        return sum(1 for t, _ in self.errors if t >= cut)
+
+    def processed_fps(self) -> float:
+        p = self.proc_times
+        if len(p) < 2 or p[-1] <= p[0]:
+            return 0.0
+        # stale: nothing processed for a while means 0 fps, not the last rate
+        if time.time() - p[-1] > 5.0:
+            return 0.0
+        return round((len(p) - 1) / (p[-1] - p[0]), 2)
+
+
+def _gid_color(key: Any) -> Tuple[int, int, int]:
+    h = (hash(str(key)) * 2654435761) & 0xFFFFFFFF
+    return (64 + (h & 0x7F), 64 + ((h >> 8) & 0x7F), 64 + ((h >> 16) & 0x7F))
+
+
+def _merge_results(old: Dict[int, CameraResult], new: Dict[int, CameraResult]) -> Dict[int, CameraResult]:
+    """Latest result per camera, with list fields of both kept (bounded)."""
+    out = dict(old)
+    for cam, r in new.items():
+        prev = out.get(cam)
+        if prev is None:
+            out[cam] = r
+            continue
+        out[cam] = dataclasses.replace(
+            r,
+            fire_alerts=(prev.fire_alerts + r.fire_alerts)[-200:],
+            reid_matches=(prev.reid_matches + r.reid_matches)[-2000:],
+            events=(prev.events + r.events)[-2000:],
+        )
+    return out
+
+
+@dataclass
+class _CallbackSlot:
+    fn: Callable
+    task: Optional[asyncio.Task] = None
+    backlog: Optional[Dict[int, CameraResult]] = None
+    busy_skips: int = 0
+    slow_calls: int = 0
+    failures: int = 0
+    last_ms: Optional[float] = None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pipeline
+# ─────────────────────────────────────────────────────────────────────────────
+
+
 class ProcessingPipeline:
-    """
-    Multi-camera synchronized processing pipeline.
-    
-    Architecture:
-    ┌──────────────────────────────────────────────────────────────────┐
-    │                     PROCESSING PIPELINE                         │
-    │                                                                  │
-    │  ┌─────────┐  ┌─────────┐  ┌─────────┐                        │
-    │  │  Cam 1  │  │  Cam 2  │  │  Cam N  │   ← Parallel capture   │
-    │  └────┬────┘  └────┬────┘  └────┬────┘                        │
-    │       │            │            │                              │
-    │       ▼            ▼            ▼                              │
-    │  ┌─────────────────────────────────────┐                      │
-    │  │   YOLO Detection (batched/parallel) │  ← GPU-accelerated   │
-    │  └─────────────────┬───────────────────┘                      │
-    │                    │                                           │
-    │       ┌────────────┼────────────┐                              │
-    │       ▼            ▼            ▼                              │
-    │  ┌─────────┐  ┌─────────┐  ┌─────────┐                      │
-    │  │ Tracker │  │ Tracker │  │ Tracker │  ← Per-camera          │
-    │  └────┬────┘  └────┬────┘  └────┬────┘                        │
-    │       │            │            │                              │
-    │       ▼            ▼            ▼                              │
-    │  ┌─────────────────────────────────────┐                      │
-    │  │   GLOBAL Re-ID Gallery (shared)     │  ← Cross-camera      │
-    │  │   Matches identities across cameras │    identity matching  │
-    │  └─────────────────┬───────────────────┘                      │
-    │                    │                                           │
-    │       ┌────────────┼────────────┐                              │
-    │       ▼            ▼            ▼                              │
-    │  ┌─────────┐ ┌──────────┐ ┌─────────┐                        │
-    │  │ Emotion │ │   Fire   │ │  Shelf  │  ← Parallel analytics  │
-    │  │ + Demo  │ │  Detect  │ │ + Crowd │                        │
-    │  └─────────┘ └──────────┘ └─────────┘                        │
-    │                    │                                           │
-    │                    ▼                                           │
-    │  ┌─────────────────────────────────────┐                      │
-    │  │   Store Vibe Engine (aggregator)    │  ← Global score      │
-    │  └─────────────────┬───────────────────┘                      │
-    │                    │                                           │
-    │                    ▼                                           │
-    │             DB + WebSocket Push                                │
-    └──────────────────────────────────────────────────────────────────┘
-    """
+    """Multi-camera detection → tracking → Re-ID → analytics pipeline."""
 
     def __init__(
         self,
-        detector_model: str = "yolov8n.pt",
-        reid_model: str = "osnet_x1_0",
-        fire_model: str = "yolov8n.pt",
-        device: str = "auto",
-        confidence: float = 0.5,
-        processing_fps: int = 15,     # How many frames/sec to process per camera
-        max_cameras: int = 16,
-        frame_buffer_size: int = 2,
-        default_skip_frames: int = 1,
-        reid_threshold: float = 0.6,
-        reid_embeddings_per_id: int = 5,
-        enable_emotions: bool = True,
-        enable_fire: bool = True,
-        enable_shelf: bool = True,
-        enable_checkout: bool = True,
+        detector_model: Optional[str] = None,
+        reid_model: Optional[str] = None,
+        fire_model: Optional[str] = None,
+        confidence: Optional[float] = None,
+        device: Optional[str] = None,
+        processing_fps: Optional[int] = None,
+        max_cameras: Optional[int] = None,
+        frame_buffer_size: Optional[int] = None,
+        default_skip_frames: Optional[int] = None,
+        reid_threshold: Optional[float] = None,
+        reid_embeddings_per_id: Optional[int] = None,
+        **_ignored: Any,
     ):
+        # Old knobs that no longer apply: detector_model/confidence (one person model chosen by
+        # device, conf 0.1 for ByteTrack), default_skip_frames (FPS is the only decimation),
+        # reid_threshold/reid_embeddings_per_id (REID_T_MATCH / REID_EMBEDDINGS_PER_ID).
+        self.device = resolve_device(device or settings.DEVICE)
+        self.processing_fps = max(1, int(processing_fps or settings.PROCESSING_FPS))
+        self.max_cameras = int(max_cameras or settings.MAX_CAMERAS)
+        self.frame_buffer_size = int(frame_buffer_size or settings.FRAME_BUFFER_SIZE)
+        self.default_skip_frames = 0
+        self._detector_model, self._person_imgsz = settings.person_model_for(self.device)
+        self._reid_arch = reid_model or settings.REID_MODEL
+        self._fire_model_path = fire_model or settings.FIRE_MODEL_PATH
+
         self.state = PipelineState.IDLE
-        self.processing_fps = processing_fps
-        self.max_cameras = max(1, max_cameras)
-        self.frame_buffer_size = max(1, frame_buffer_size)
-        self.default_skip_frames = max(0, default_skip_frames)
-        self._camera_processor_limit = max(1, settings.MAX_PARALLEL_CAMERA_PROCESSORS)
-        self._max_reid_per_frame = max(0, settings.MAX_REID_DETECTIONS_PER_FRAME)
-        self._heavy_analytics_interval = max(1, settings.HEAVY_ANALYTICS_INTERVAL)
-        self._adaptive_gating = bool(settings.ENABLE_ADAPTIVE_MODEL_GATING)
-        self._auto_camera_roles = bool(settings.AUTO_CAMERA_ROLE_DETECTION)
-        self._reid_interval = max(1, settings.REID_INTERVAL_FRAMES)
-        self._fire_active_interval = max(1, settings.FIRE_ACTIVE_INTERVAL_FRAMES)
-        self._fire_idle_interval = max(self._fire_active_interval, settings.FIRE_IDLE_INTERVAL_FRAMES)
-        self._shelf_interval = max(1, settings.SHELF_ANALYTICS_INTERVAL_FRAMES)
-        self._emotion_interval = max(1, settings.EMOTION_ANALYTICS_INTERVAL_FRAMES)
-        self._checkout_interval = max(1, settings.CHECKOUT_ANALYTICS_INTERVAL_FRAMES)
-        self._checkout_zone_keywords = self._parse_keywords(settings.CHECKOUT_ZONE_KEYWORDS)
-        self._shelf_zone_keywords = self._parse_keywords(settings.SHELF_ZONE_KEYWORDS)
-        self._entrance_zone_keywords = self._parse_keywords(settings.ENTRANCE_ZONE_KEYWORDS)
-        self._safety_zone_keywords = self._parse_keywords(settings.SAFETY_ZONE_KEYWORDS)
-        self._callback_timeout = max(0.1, settings.CALLBACK_TIMEOUT_MS / 1000)
+        self.stream_manager = StreamManager()
         self.global_state = GlobalState()
+
+        # models (loaded once in start(), never unloaded)
+        self.detector: Optional[PersonDetector] = None
+        self.reid: Optional[PersonReID] = None
+        self.fire_model: Optional[SpecialistDetector] = None
+        self.product_model: Optional[SpecialistDetector] = None
+        self.emotion = None
+        self.demographics: Optional[DemographicsClassifier] = None
+        self._demo_visits = VisitAggregator()
+        self._demo_rows: Deque[Dict[str, Any]] = deque(maxlen=10_000)
+        self._demo_written = 0
+        self._demo_skipped_cams: set = set()
+        self._evidence_capture = self._load_evidence()
+        self._ring_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ring")
+        self._model_errors: Dict[str, str] = {}
+        self._models_loaded = False
+        self._load_lock: Optional[asyncio.Lock] = None
+        self._worker: Optional[InferenceWorker] = None
+        self._render_pool = ThreadPoolExecutor(
+            max_workers=max(1, int(settings.PIPELINE_RENDER_THREADS)), thread_name_prefix="render"
+        )
+
+        self.coordinator = TrackCoordinator(self._coordinator_config())
+        self._quality = QualityConfig.from_settings()
+        self._load_topology_from_settings()
+        self.engine = get_engine()
+
+        self._cams: Dict[int, _Cam] = {}
+        self._callbacks: List[_CallbackSlot] = []
+        self._lifecycle_hooks: List[Callable] = []
+        self._tasks: set = set()
+        self._bg_tasks: List[asyncio.Task] = []
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._broadcast = None
+        self._bus = None
+        self._bus_queue: Deque[Tuple[str, str, Dict[str, Any]]] = deque(maxlen=5000)
+
+        self._event_buffer: Deque[Dict[str, Any]] = deque(maxlen=50_000)
+        self._events_dropped = 0
+        self._events_persisted = 0
+        self._fire_history: Deque[Dict[str, Any]] = deque(maxlen=100)
+        self._gid_last_cam: "OrderedDict[str, int]" = OrderedDict()
+        # gid -> (score, JPEG, camera, ts): best-quality crop per identity, memory only (never persisted)
+        self._gid_thumbs: "OrderedDict[str, Tuple[float, bytes, int, float]]" = OrderedDict()
+        self._reid_gate = Counter()
+        self._total_detections = 0
+        self._mem = {"pct": None, "scale": 1.0, "pressure": False}
+
+        self._recorders: Dict[int, Tuple[Any, Path, threading.Lock]] = {}
+        self._detection_logs: Dict[int, Dict[str, Any]] = {}
+        self._logs_dir = Path(settings.FOOTAGE_DIR).parent / "logs"
+
+        # compat attributes read by other modules
+        self._camera_zones: Dict[int, str] = {}
+        self._camera_models: Dict[int, Tuple[str, ...]] = {}
+        self._detectors: Dict[str, Any] = {}
+        self.crowd = None
+        self.vibe_engine = None
+        self._zones_handler = self._on_zones_changed
+        subscribe_local("zones_changed", self._zones_handler)
+
+    # ── evidence ────────────────────────────────────────────────────
+    @staticmethod
+    def _load_evidence() -> Optional[Callable]:
+        if not settings.EVIDENCE_ENABLED:
+            logger.info("Alert evidence disabled (EVIDENCE_ENABLED=false); no frame ring kept")
+            return None
         try:
-            cv2.setNumThreads(max(1, settings.MAX_CPU_WORKERS))
+            from app.services.evidence import schedule_capture
+        except Exception as e:
+            logger.error(f"Alert evidence unavailable ({e}); alerts are recorded without snapshots/clips")
+            return None
+        return schedule_capture
+
+    def _ring_bytes_per_cam(self) -> int:
+        total = max(1, int(settings.EVIDENCE_RING_TOTAL_MB)) * 1024 * 1024
+        return total // max(1, len(self._cams) or 1)
+
+    def _rebalance_rings(self) -> None:
+        cap = self._ring_bytes_per_cam()
+        for cs in self._cams.values():
+            if cs.ring is not None:
+                cs.ring.set_max_bytes(cap)
+
+    def _new_ring(self) -> Optional[FrameRing]:
+        if self._evidence_capture is None:
+            return None
+        return FrameRing(
+            seconds=float(settings.EVIDENCE_PRE_S) + float(settings.EVIDENCE_POST_S) + RING_SLACK_S,
+            max_bytes=self._ring_bytes_per_cam(),
+            fps=float(settings.EVIDENCE_RING_FPS),
+            max_width=int(settings.EVIDENCE_RING_MAX_WIDTH),
+        )
+
+    def _capture_evidence(self, ev: Dict[str, Any], cs: _Cam) -> None:
+        if self._evidence_capture is None or cs.ring is None:
+            return
+        try:
+            self._evidence_capture(ev, str(cs.camera_id), cs.ring.frames)
+        except Exception as e:  # never let evidence break event handling
+            logger.error(f"[Cam {cs.camera_id}] evidence capture not scheduled: {e}")
+
+    # ── configuration ───────────────────────────────────────────────
+    @staticmethod
+    def _coordinator_config() -> CoordinatorConfig:
+        t_match = float(settings.REID_T_MATCH)
+        return CoordinatorConfig(
+            t_match=t_match,
+            t_update=max(float(settings.REID_T_UPDATE), t_match),
+            top_k=int(settings.REID_TRACKLET_TOP_K),
+            min_crops=int(settings.REID_TRACKLET_MIN_CROPS),
+            max_wait_s=float(settings.REID_TRACKLET_MAX_WAIT_S),
+            max_views=int(settings.REID_EMBEDDINGS_PER_ID),
+            max_identities=int(settings.REID_GALLERY_MAX_IDENTITIES),
+            default_max_transit_s=float(settings.REID_DEFAULT_MAX_TRANSIT_S),
+            reentry_max_s=float(settings.REID_REENTRY_MAX_S),
+            fusion_distance_m=float(settings.REID_FUSION_DISTANCE_M),
+            handoff_bonus=float(settings.REID_HANDOFF_BONUS),
+        )
+
+    def _load_topology_from_settings(self) -> None:
+        raw = (settings.REID_CAMERA_TOPOLOGY or "").strip()
+        if not raw:
+            return
+        try:
+            self.coordinator.set_topology(parse_links(json.loads(raw)))
+        except Exception as e:
+            logger.error(f"REID_CAMERA_TOPOLOGY is invalid, using default gating: {e}")
+
+    async def load_reid_config_from_db(self) -> Dict[str, int]:
+        """Topology links and floor homographies saved via /api/reid (DB wins over the env var)."""
+        try:
+            from app.database import AsyncSessionLocal
+            from app.services.crud import ReIDConfigService
+
+            async with AsyncSessionLocal() as db:
+                links = await ReIDConfigService.list_links(db)
+                calib = await ReIDConfigService.list_calibrations(db)
+        except Exception as e:
+            logger.warning(f"Re-ID topology/calibration not loaded from DB: {e}")
+            return {"links": 0, "calibrated": 0}
+        if links:
+            self.coordinator.set_topology(parse_links(links))
+        n = 0
+        for row in calib:
+            try:
+                self.coordinator.set_calibration(int(row["camera_id"]), row["homography"])
+                n += 1
+            except Exception as e:
+                logger.warning(f"Ignoring calibration of camera {row.get('camera_id')}: {e}")
+        logger.info(f"Re-ID config from DB: {len(links)} topology link(s), {n} calibrated camera(s)")
+        return {"links": len(links), "calibrated": n}
+
+    def attach_broadcast(self, broadcast) -> None:
+        """WebSocket BroadcastService used for zone alerts and cross-camera Re-ID pushes."""
+        self._broadcast = broadcast
+
+    # ── callbacks ───────────────────────────────────────────────────
+    def on_results(self, callback: Callable) -> None:
+        self._callbacks.append(_CallbackSlot(callback))
+
+    def on_lifecycle(self, hook: Callable) -> None:
+        self._lifecycle_hooks.append(hook)
+
+    async def _emit_lifecycle(self, event: str, payload: Dict[str, Any]) -> None:
+        for hook in self._lifecycle_hooks:
+            try:
+                res = hook(event, payload)
+                if asyncio.iscoroutine(res):
+                    await res
+            except Exception as e:
+                logger.debug(f"Lifecycle hook failed for {event}: {e}")
+
+    def _spawn(self, coro) -> Optional[asyncio.Task]:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            coro.close()
+            return None
+        task = loop.create_task(coro)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+        return task
+
+    # ── models ──────────────────────────────────────────────────────
+    def _load_models_sync(self) -> None:
+        try:
+            import torch
+
+            torch.set_num_threads(max(1, int(getattr(settings, "TORCH_THREADS", 0) or torch.get_num_threads())))
         except Exception:
             pass
-
-        # --- Stream Manager (handles all camera connections) ---
-        self.stream_manager = StreamManager()
-
-        # --- AI Modules (shared across all cameras) ---
-        logger.info("Initializing AI modules...")
-
-        self._detector_model = detector_model
-        self._detector_confidence = confidence
-        self._detector_device = device
-        # Cache of detectors by model path (allows per-camera model selection)
-        self._detectors: Dict[str, PersonDetector] = {}
-        self._camera_models: Dict[int, Tuple[str, ...]] = {}  # camera_id -> one or more model paths
-        # Model inference lock: prevents GPU contention when multiple detectors
-        # run in ensemble mode. Only one model forward pass at a time.
-        self._model_inference_lock = threading.Lock()
-        # Detectors are loaded lazily by the camera assignment. This prevents
-        # the default weight from staying resident when a feed uses a different
-        # single selected weight.
-        self.detector: Optional[PersonDetector] = None
-        # Per-camera trackers: each feed has its own ByteTrack state (local track IDs per camera).
-        # Global identity across cameras is resolved by Re-ID, not by the tracker.
-        self._trackers: Dict[int, MultiObjectTracker] = {}
-        self.reid = PersonReID(
-            model_name=reid_model,
-            device=device,
-            similarity_threshold=reid_threshold,
-            max_embeddings_per_id=reid_embeddings_per_id,
-            max_identities=max(100, settings.REID_GALLERY_MAX_IDENTITIES),
-        )
-        # Temporal consistency: (camera_id, track_id) -> last global_id (avoids flicker when face not visible)
-        self._last_global_by_track: Dict[Tuple[int, int], str] = {}
-        self._last_reid_frame_by_track: Dict[Tuple[int, int], int] = {}
-        self._recent_reid_memory: List[Dict[str, Any]] = []
-
-        # --- Disappeared persons pool (blind-spot recovery) ---
-        # When a tracked person stops being seen, they move here.
-        # Checked during _assign_global_id before creating a new ID.
-        # Entries: {global_id, embedding, last_seen, last_camera_id, last_bbox}
-        self._disappeared_pool: Dict[str, Dict[str, Any]] = {}
-        self._blind_spot_timeout = max(10.0, settings.REID_BLIND_SPOT_TIMEOUT_S)
-        self._ensemble_min_agreement = max(1, settings.ENSEMBLE_MIN_MODEL_AGREEMENT)
-
-        # Optional modules
-        self._enable_emotions = enable_emotions
-        self._enable_fire = enable_fire
-        self._enable_shelf = enable_shelf
-        self._enable_checkout = enable_checkout
-
-        self.emotion = EmotionRecognizer() if enable_emotions else None
-        self.fire_detector = FireSmokeDetector(model_path=fire_model) if enable_fire else None
-        self.shelf_tracker = ShelfEngagementTracker() if enable_shelf else None
-        self.checkout = CheckoutAnalyzer() if enable_checkout else None
-        self.crowd = CrowdDensityEstimator()
-        self.vibe_engine = StoreVibeEngine()
-
-        # --- Processing state ---
-        self._processing_task: Optional[asyncio.Task] = None
-        self._frame_counts: Dict[int, int] = {}
-        self._results_buffer: Dict[int, CameraResult] = {}
-        self._callbacks: List[Callable] = []  # Real-time result callbacks
-        self._callback_queue: Optional[asyncio.Queue] = None
-        self._callback_worker_task: Optional[asyncio.Task] = None
-        self._callback_dropped: int = 0
-        self._lock = asyncio.Lock()
-        # Latest annotated frame (JPEG bytes) per camera for live MJPEG stream
-        self._latest_annotated_jpeg: Dict[int, bytes] = {}
-        self._jpeg_lock = threading.Lock()
-        # Per-camera recording: camera_id -> (VideoWriter, output_path)
-        self._recorders: Dict[int, tuple] = {}
-        # Per-camera detection logs: camera_id -> {"log_path": Path, "frames": []}
-        self._detection_logs: Dict[int, Dict[str, Any]] = {}
-        # Ensure logs directory exists
-        self._logs_dir = Path("storage/logs")
-        self._logs_dir.mkdir(parents=True, exist_ok=True)
-        # camera_id -> zone_name (set at add_camera, used by analytics snapshot)
-        self._camera_zones: Dict[int, str] = {}
-        self._camera_sources: Dict[int, str] = {}
-        self._camera_roles: Dict[int, Dict[str, Any]] = {}
-        self._camera_reid_enabled: Dict[int, bool] = {}
-        self._camera_tracker_modes: Dict[int, str] = {}
-        # Detections counter — powers dashboard "total_detections_today"
-        self._total_detections: int = 0
-        # Last-computed store vibe dict, so routers can serve without recomputing
-        self._latest_vibe: Optional[Dict[str, Any]] = None
-        # Re-ID embeddings produced during the current tick — drained by persistence
-        # callback so they land in pgvector. Kept off reid_matches to keep the WS
-        # payload small (each vector is ~2 KB).
-        self._pending_embeddings: List[Dict[str, Any]] = []
-        self._pending_embeddings_lock = threading.Lock()
-        # First-seen timestamps per global_id so journey legs get a real entry_time
-        self._journey_leg_start: Dict[Tuple[str, int, str], float] = {}
-
-        # Lifecycle hooks: external observers (e.g. audit log writer) register
-        # callables that fire on pipeline events. Hooks are async-friendly.
-        self._lifecycle_hooks: List[Callable[[str, Dict[str, Any]], Any]] = []
-
-        logger.info(f"Pipeline initialized | device={device} | max_cameras={self.max_cameras} "
-                     f"| camera_workers={self._camera_processor_limit} "
-                     f"| modules: "
-                     f"emotion={enable_emotions} fire={enable_fire} "
-                     f"shelf={enable_shelf} checkout={enable_checkout}")
-
-    # ─────────────────────────────────────────────────────────────
-    # CAMERA MANAGEMENT
-    # ─────────────────────────────────────────────────────────────
-
-    @staticmethod
-    def _normalize_model_paths(model_path: Optional[Union[str, List[str], Tuple[str, ...]]], fallback: str) -> Tuple[str, ...]:
-        if model_path is None:
-            return (fallback,)
-        if isinstance(model_path, (list, tuple)):
-            paths = [str(p).strip() for p in model_path if str(p).strip()]
-        else:
-            paths = [p.strip() for p in str(model_path).split(",") if p.strip()]
-        return tuple(dict.fromkeys(paths)) or (fallback,)
-
-    @staticmethod
-    def _model_label(model_paths: Tuple[str, ...]) -> str:
-        if len(model_paths) == 1:
-            return model_paths[0]
-        return "ensemble:" + " + ".join(Path(p).name for p in model_paths)
-
-    def _get_or_create_detector(self, model_path: str) -> PersonDetector:
-        """Get cached detector or create new one for the given model path."""
-        if model_path not in self._detectors:
-            logger.info(f"Creating detector for model: {model_path}")
-            self._detectors[model_path] = PersonDetector(
-                model_path=model_path,
-                confidence=self._detector_confidence,
-                device=self._detector_device,
+        try:
+            self.detector = PersonDetector(
+                self._detector_model,
+                conf=settings.PERSON_CONF,
+                iou=settings.PERSON_IOU,
+                imgsz=self._person_imgsz,
+                device=self.device,
+                export=settings.DETECTOR_EXPORT,
             )
-        if model_path == self._detector_model:
-            self.detector = self._detectors[model_path]
-        return self._detectors[model_path]
-
-    def _active_model_paths(self) -> set:
-        active = set()
-        for paths in self._camera_models.values():
-            active.update(paths)
-        return active
-
-    def _prune_unused_detectors(self) -> None:
-        """Unload cached detector weights that are not assigned to any camera."""
-        active = self._active_model_paths()
-        for model_path in list(self._detectors.keys()):
-            if model_path in active:
+            self._detectors = {self.detector.name: self.detector}
+            logger.info(f"Person detector: {self.detector.info()}")
+        except Exception as e:
+            self._model_errors["person"] = str(e)
+            logger.error(f"Person detector failed to load ({self._detector_model}): {e}")
+        self.reid = PersonReID(self._reid_arch, weights=settings.REID_WEIGHTS_PATH, device=self.device)
+        if not self.reid.is_loaded:
+            self._model_errors["reid"] = self.reid.error or "not loaded"
+        for attr, path, conf, label in (
+            ("fire_model", self._fire_model_path, 0.25, "fire"),
+            ("product_model", settings.PRODUCT_MODEL_PATH if settings.PRODUCT_INTERVAL_S > 0 else "", 0.4, "product"),
+        ):
+            if not path:
                 continue
-            detector = self._detectors.pop(model_path)
-            if self.detector is detector:
-                self.detector = None
             try:
-                detector.unload()
-            except Exception as exc:
-                logger.debug(f"Detector unload skipped for {model_path}: {exc}")
-            logger.info(f"Unloaded inactive detector model: {model_path}")
+                setattr(self, attr, SpecialistDetector(path, conf=conf, device=self.device, label=label))
+                logger.info(f"{label} model loaded: {Path(path).name}")
+            except Exception as e:
+                self._model_errors[label] = str(e)
+                logger.error(f"{label} model disabled ({path}): {e}")
+        try:
+            from app.ai.emotion import EmotionRecognizer
 
-    def _detect_with_models(self, frame: np.ndarray, model_paths: Tuple[str, ...]) -> List[Dict[str, Any]]:
-        """Run detection across one or more models with inference lock to prevent GPU contention."""
-        model_paths = self._normalize_model_paths(model_paths, self._detector_model)
-        detections: List[Dict[str, Any]] = []
-        for model_path in model_paths:
-            detector = self._get_or_create_detector(model_path)
-            # Serialize GPU access: prevents OOM and memory fragmentation when
-            # multiple YOLO models run in ensemble mode on the same device.
-            with self._model_inference_lock:
-                raw_dets = detector.detect(frame)
-            for raw in raw_dets:
-                det = self._detection_to_dict(raw)
-                det["model_path"] = model_path
-                detections.append(det)
-        if len(model_paths) <= 1:
-            return detections
-        return self._merge_ensemble_detections(detections, len(model_paths))
+            em = EmotionRecognizer()
+            if em.available:
+                self.emotion = em
+            else:
+                self._model_errors["emotion"] = "face/emotion weights not available"
+                logger.error("Emotion analytics disabled: face/emotion weights not available")
+        except Exception as e:
+            self._model_errors["emotion"] = str(e)
+            logger.error(f"Emotion analytics disabled: {e}")
+        if self.emotion is None:
+            self._model_errors["demographics"] = "needs the face detector of the emotion module"
+        else:
+            demo = DemographicsClassifier()
+            if demo.available:
+                self.demographics = demo
+            else:
+                self._model_errors["demographics"] = "model_not_installed"
 
-    def _merge_ensemble_detections(
-        self,
-        detections: List[Dict[str, Any]],
-        num_models: int = 2,
-    ) -> List[Dict[str, Any]]:
-        """
-        Smart Auto-Ensemble: de-duplicate overlapping boxes from multiple models.
+    async def _ensure_models(self) -> bool:
+        if self._load_lock is None:
+            self._load_lock = asyncio.Lock()
+        async with self._load_lock:
+            if not self._models_loaded:
+                t0 = time.perf_counter()
+                await asyncio.to_thread(self._load_models_sync)
+                self._models_loaded = True
+                logger.info(f"Models loaded in {time.perf_counter() - t0:.1f}s on {self.device}")
+            if self.detector is not None and (self._worker is None or not self._worker.alive):
+                self._worker = InferenceWorker(self.detector, max_batch=max(1, self.max_cameras))
+                self._worker.start()
+        return self.detector is not None
 
-        Key differences from naive NMS:
-        - Uses ENSEMBLE_NMS_IOU_THRESHOLD (default 0.5) instead of intra-model NMS
-          threshold (0.45), reducing false merges of nearby different people.
-        - Confidence-weighted box averaging: merged box geometry is a weighted
-          average of contributing detections, not just the highest-confidence one.
-        - Model agreement tracking: each merged detection records how many models
-          independently detected it (ensemble_agreement count).
-        - ENSEMBLE_MIN_MODEL_AGREEMENT filtering: optionally require N models to
-          agree before accepting a detection (set to 2 for high-precision mode).
-        """
-        if len(detections) <= 1:
-            return detections
+    @property
+    def _reid_ready(self) -> bool:
+        return self.reid is not None and self.reid.is_loaded
 
-        ensemble_iou_th = settings.ENSEMBLE_NMS_IOU_THRESHOLD
-        min_agreement = self._ensemble_min_agreement
-
-        ordered = sorted(detections, key=lambda d: float(d.get("confidence", 0.0)), reverse=True)
-        merged: List[Dict[str, Any]] = []
-
-        for det in ordered:
-            bbox = det.get("bbox") or []
-            if len(bbox) < 4:
-                continue
-            conf = float(det.get("confidence", 0.0))
-            absorbed = False
-            for kept in merged:
-                if str(det.get("class_name", "")).lower() != str(kept.get("class_name", "")).lower():
-                    continue
-                if self._iou(bbox, kept.get("bbox", [])) < ensemble_iou_th:
-                    continue
-
-                # Confidence-weighted box averaging for better geometry
-                kept_conf = float(kept.get("confidence", 0.0))
-                kept_bbox = kept.get("bbox", [])
-                total_conf = kept_conf * kept.get("_merge_count", 1) + conf
-                merge_count = kept.get("_merge_count", 1) + 1
-                w1 = kept_conf * (merge_count - 1) / total_conf
-                w2 = conf / total_conf
-                kept["bbox"] = [
-                    kept_bbox[0] * w1 + bbox[0] * w2,
-                    kept_bbox[1] * w1 + bbox[1] * w2,
-                    kept_bbox[2] * w1 + bbox[2] * w2,
-                    kept_bbox[3] * w1 + bbox[3] * w2,
-                ]
-                kept["_merge_count"] = merge_count
-
-                kept_models = set(kept.get("ensemble_models") or [kept.get("model_path")])
-                kept_models.add(det.get("model_path"))
-                kept["ensemble_models"] = sorted(m for m in kept_models if m)
-                kept["ensemble_agreement"] = len(kept["ensemble_models"])
-                kept["confidence"] = max(kept_conf, conf)
-                absorbed = True
-                break
-            if not absorbed:
-                clone = dict(det)
-                clone["ensemble_models"] = [det.get("model_path")] if det.get("model_path") else []
-                clone["ensemble_agreement"] = 1
-                clone["_merge_count"] = 1
-                merged.append(clone)
-
-        # Filter by minimum model agreement (enterprise precision mode)
-        if min_agreement > 1 and num_models >= min_agreement:
-            merged = [d for d in merged if d.get("ensemble_agreement", 1) >= min_agreement]
-
-        # Clean up internal bookkeeping keys
-        for d in merged:
-            d.pop("_merge_count", None)
-
-        return merged
+    # ── cameras ─────────────────────────────────────────────────────
+    def _new_tracker(self, fps: float) -> PersonTracker:
+        return PersonTracker(
+            fps=fps,
+            track_high_thresh=settings.TRACK_HIGH_THRESH,
+            track_low_thresh=settings.TRACK_LOW_THRESH,
+            new_track_thresh=settings.TRACK_NEW_THRESH,
+            match_thresh=settings.TRACK_MATCH_THRESH,
+            buffer_s=settings.TRACK_BUFFER_S,
+            min_hits=settings.TRACK_MIN_HITS,
+        )
 
     def add_camera(
         self,
@@ -461,162 +790,1088 @@ class ProcessingPipeline:
         stream_type: str = "rtsp",
         zone: str = "default",
         fps: int = settings.PROCESSING_FPS,
-        skip_frames: int = settings.DEFAULT_SKIP_FRAMES,
+        skip_frames: int = 0,
         roi: Optional[Dict] = None,
-        model_path: Optional[Union[str, List[str], Tuple[str, ...]]] = None,
+        model_path: Any = None,
         enable_reid: Optional[bool] = True,
         tracker_mode: str = "bytetrack",
-    ):
+        loop: bool = False,
+    ) -> None:
+        """Register (or replace) a camera. ``source`` is an RTSP/HTTP URL, a file path or a webcam index.
+
+        ``loop`` (files only): replay from the start at end of file as a new timeline. Off (default):
+        the camera stops at end of file and reports ``finished`` in status.
+
+        ``skip_frames``, ``model_path`` and ``tracker_mode`` are accepted for API compatibility:
+        frames are decimated by FPS only, every camera uses the one person detector, and
+        tracking is always ByteTrack.
         """
-        Register a camera for processing.
-        
-        Args:
-            camera_id: Unique identifier
-            source: RTSP URL, file path, or device index
-            stream_type: "rtsp", "http", "file", or "webcam"
-            zone: Which store zone this camera covers (e.g., "entrance", "aisle-1")
-            fps: Camera FPS
-            skip_frames: Process every Nth frame (higher = faster but less accurate)
-            roi: Optional region of interest crop
-        
-        Example:
-            # IP camera
-            pipeline.add_camera(1, "rtsp://admin:pass@192.168.1.10:554/stream", zone="entrance")
-            
-            # Test with video file
-            pipeline.add_camera(1, "test_videos/entrance.mp4", stream_type="file", zone="entrance")
-            
-            # Webcam
-            pipeline.add_camera(1, "0", stream_type="webcam", zone="demo")
-        """
-        replacing_existing = self.stream_manager.has_camera(camera_id)
-        if not replacing_existing and self.stream_manager.total_count >= self.max_cameras:
+        camera_id = int(camera_id)
+        # SSRF / path-traversal guard for every caller (UnsafeInputError is a ValueError -> 400);
+        # done before an existing feed is torn down so a bad replacement leaves it running.
+        source = validate_camera_source(str(source))
+        replacing = camera_id in self._cams or self.stream_manager.has_camera(camera_id)
+        if not replacing and self.stream_manager.total_count >= self.max_cameras:
             raise ValueError(
                 f"Maximum camera limit reached ({self.max_cameras}). "
                 "Increase MAX_CAMERAS or remove an inactive camera."
             )
-        if replacing_existing:
-            self._stop_recording_impl(camera_id)
-            self._results_buffer.pop(camera_id, None)
-            self._trackers.pop(camera_id, None)
-            self._last_global_by_track = {
-                k: v for k, v in self._last_global_by_track.items() if k[0] != camera_id
-            }
-            self._last_reid_frame_by_track = {
-                k: v for k, v in self._last_reid_frame_by_track.items() if k[0] != camera_id
-            }
-            self._recent_reid_memory = [
-                item for item in self._recent_reid_memory
-                if item.get("camera_id") != camera_id
-            ]
-            self._latest_annotated_jpeg.pop(camera_id, None)
-
-        effective_skip_frames = skip_frames if skip_frames is not None else self.default_skip_frames
-        effective_fps = max(1, min(int(fps or self.processing_fps), self.processing_fps))
+        if replacing:
+            self._teardown_camera(camera_id, emit=False)
+        fps_target = float(max(1, min(int(fps or self.processing_fps), self.processing_fps)))
         config = StreamConfig(
             camera_id=camera_id,
             source=source,
             stream_type=StreamType(stream_type),
-            fps_target=effective_fps,
+            fps_target=fps_target * self._mem["scale"],
             buffer_size=self.frame_buffer_size,
-            skip_frames=effective_skip_frames,
+            skip_frames=0,
             roi=roi,
+            loop=bool(loop),
         )
         self.stream_manager.add_camera(config)
-        self._frame_counts[camera_id] = 0
-        self._camera_zones[camera_id] = zone
-        self._camera_sources[camera_id] = str(source)
-        self._camera_roles[camera_id] = self._infer_camera_role(camera_id, zone=zone, source=str(source))
-        self._camera_reid_enabled[camera_id] = bool(enable_reid)
-        role_modules = dict(self._camera_roles[camera_id].get("modules") or {})
-        role_modules["reid"] = bool(enable_reid)
-        self._camera_roles[camera_id]["modules"] = role_modules
-        self._camera_roles[camera_id]["reid_enabled"] = bool(enable_reid)
-        tracker_mode = (tracker_mode or "bytetrack").strip().lower()
-        if tracker_mode not in {"bytetrack", "iou"}:
-            tracker_mode = "bytetrack"
-        self._camera_tracker_modes[camera_id] = tracker_mode
-        # Store model assignment for this camera (default if not specified)
-        effective_models = self._normalize_model_paths(model_path, self._detector_model)
-        self._camera_models[camera_id] = effective_models
-        for effective_model in effective_models:
-            self._get_or_create_detector(effective_model)
-        self._prune_unused_detectors()
-        
-        # One tracker per camera so local track IDs are per-feed; Re-ID assigns global_id across cameras.
-        existing_tracker = self._trackers.get(camera_id)
-        if (
-            existing_tracker is None
-            or getattr(existing_tracker, "model_path", None) != effective_models[0]
-            or replacing_existing
-        ):
-            self._trackers[camera_id] = MultiObjectTracker(
-                model_path=effective_models[0],
-                use_model=False,
-            )
-
-        # Register zone in crowd density (one zone per camera).
-        self.crowd.configure_zone(zone, camera_id=camera_id, max_capacity=50)
-
-        role_info = self._camera_roles.get(camera_id, {})
-        logger.info(
-            f"Camera {camera_id} added -> zone={zone} "
-            f"models={self._model_label(effective_models)} "
-            f"tracker={tracker_mode} reid={self._camera_reid_enabled[camera_id]} "
-            f"role={role_info.get('role')} modules={role_info.get('modules')}"
+        requested = None
+        if model_path:
+            requested = model_path if isinstance(model_path, str) else ",".join(str(m) for m in model_path)
+            if Path(str(requested)).name != Path(self._detector_model).name:
+                logger.info(
+                    f"Camera {camera_id}: per-feed model {requested!r} ignored; "
+                    f"the person stream uses {Path(self._detector_model).name}"
+                )
+        cs = _Cam(
+            camera_id=camera_id,
+            source=str(source),
+            stream_type=str(stream_type),
+            zone=zone or "default",
+            fps_target=fps_target,
+            enable_reid=bool(enable_reid if enable_reid is not None else True),
+            requested_model=requested,
+            tracker=self._new_tracker(fps_target),
+            loop=bool(loop),
         )
-        # Fire-and-forget: audit log this camera addition on the running loop
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                loop.create_task(self._emit_lifecycle("camera_added", {
-                    "camera_id": camera_id, "source": source,
-                    "stream_type": stream_type, "zone": zone,
-                }))
-        except RuntimeError:
-            pass
+        cs.fps_scale = self._mem["scale"]
+        self._cams[camera_id] = cs
+        cs.ring = self._new_ring()
+        self._rebalance_rings()
+        self._camera_zones[camera_id] = cs.zone
+        self._camera_models[camera_id] = (self._detector_model,)
+        logger.info(
+            f"Camera {camera_id} added: {stream_type} zone={cs.zone} fps={fps_target:g} "
+            f"reid={cs.enable_reid} loop={cs.loop} detector={Path(self._detector_model).name}"
+        )
+        if self.state == PipelineState.RUNNING:
+            self.stream_manager.start_camera(camera_id)
+            self._start_camera_task(cs)
+        self._spawn(self._emit_lifecycle("camera_added", {
+            "camera_id": camera_id, "source": redact_source(source), "stream_type": stream_type, "zone": cs.zone,
+        }))
 
-    def remove_camera(self, camera_id: int):
-        """Remove a camera from processing."""
+    def _start_camera_task(self, cs: _Cam) -> None:
+        if cs.task is None or cs.task.done():
+            cs.finished, cs.finished_at = False, None
+            cs.task = self._spawn(self._camera_loop(cs))
+            self._spawn(self._load_zones(cs.camera_id))
+
+    def _teardown_camera(self, camera_id: int, emit: bool = True) -> Optional[str]:
         self._stop_recording_impl(camera_id)
+        cs = self._cams.pop(camera_id, None)
         self.stream_manager.remove_camera(camera_id)
-        self._frame_counts.pop(camera_id, None)
-        self._results_buffer.pop(camera_id, None)
-        self._trackers.pop(camera_id, None)
-        self._camera_models.pop(camera_id, None)  # Clean up model assignment
-        self._prune_unused_detectors()
-        self._camera_sources.pop(camera_id, None)
-        self._camera_roles.pop(camera_id, None)
-        self._camera_reid_enabled.pop(camera_id, None)
-        self._camera_tracker_modes.pop(camera_id, None)
         zone = self._camera_zones.pop(camera_id, None)
-        self._last_global_by_track = {k: v for k, v in self._last_global_by_track.items() if k[0] != camera_id}
-        self._last_reid_frame_by_track = {k: v for k, v in self._last_reid_frame_by_track.items() if k[0] != camera_id}
+        self._camera_models.pop(camera_id, None)
+        if cs is None:
+            return zone
+        if cs.task is not None:
+            cs.task.cancel()
+        now = time.time()
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                loop.create_task(self._emit_lifecycle("camera_removed", {
-                    "camera_id": camera_id, "zone": zone,
-                }))
-        except RuntimeError:
+            lost = cs.tracker.reset()
+            ev = []
+            for e in lost:
+                ev += self.engine.on_track_lost(str(camera_id), now, e.track_id)
+            ev += self.engine.on_camera_stopped(str(camera_id), now)
+            self._queue_events(ev, cs)
+            self._handle_reid_events(self.coordinator.drop_camera(camera_id, now))
+        except Exception as e:
+            logger.warning(f"Camera {camera_id} teardown: {e}")
+        self._demo_visits.drop_camera(str(camera_id))
+        self._rebalance_rings()
+        return zone
+
+    def remove_camera(self, camera_id: int) -> None:
+        camera_id = int(camera_id)
+        zone = self._teardown_camera(camera_id)
+        logger.info(f"Camera {camera_id} removed")
+        self._spawn(self._emit_lifecycle("camera_removed", {"camera_id": camera_id, "zone": zone}))
+
+    # ── zones ───────────────────────────────────────────────────────
+    def _on_zones_changed(self, payload: Dict[str, Any]) -> None:
+        """event_bus "zones_changed" {camera_id}; may be called from any thread."""
+        try:
+            cam = int(payload.get("camera_id"))
+        except (TypeError, ValueError):
+            return
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            return
+        loop.call_soon_threadsafe(lambda: self._spawn(self._load_zones(cam)))
+
+    async def _load_zones(self, camera_id: int) -> None:
+        zones = None
+        try:
+            from app.analytics import zones_repo
+
+            zones = await zones_repo.load_zones(str(camera_id))
+            self.engine.set_zones(str(camera_id), zones)
+        except Exception as e:
+            logger.warning(f"[Cam {camera_id}] zones not loaded from DB: {e}")
+        cs = self._cams.get(camera_id)
+        if cs is not None:
+            cs.zones = self.engine.get_zones(str(camera_id))
+            if zones is not None:
+                logger.info(f"[Cam {camera_id}] {len(cs.zones)} zone(s) active")
+
+    # ── lifecycle ───────────────────────────────────────────────────
+    async def start(self) -> None:
+        if self.state in (PipelineState.RUNNING, PipelineState.STARTING):
+            return
+        if self.stream_manager.total_count <= 0:
+            self.state = PipelineState.IDLE
+            logger.warning("Pipeline start skipped: no cameras registered")
+            return
+        self.state = PipelineState.STARTING
+        self._loop = asyncio.get_running_loop()
+        try:
+            ok = await self._ensure_models()
+        except Exception as e:
+            ok = False
+            self._model_errors["person"] = str(e)
+            logger.error(f"Model loading failed: {e}")
+        if not ok:
+            self.state = PipelineState.ERROR
+            logger.error("Pipeline not started: no person detector (see model errors on /api/pipeline/health)")
+            return
+        self._init_bus()
+        self.stream_manager.start_all()
+        self.state = PipelineState.RUNNING
+        for cs in self._cams.values():
+            self._start_camera_task(cs)
+        self._bg_tasks = [
+            asyncio.create_task(self._dispatch_loop(), name="pipeline-dispatch"),
+            asyncio.create_task(self._persist_loop(), name="pipeline-persist"),
+            asyncio.create_task(self._housekeeping_loop(), name="pipeline-housekeeping"),
+        ]
+        if self._bus is not None:
+            self._bg_tasks.append(asyncio.create_task(self._bus_loop(), name="pipeline-bus"))
+        await self._emit_lifecycle("pipeline_started", {
+            "cameras": self.stream_manager.total_count, "target_fps": self.processing_fps,
+        })
+        logger.info(
+            f"Pipeline running: {len(self._cams)} camera(s), target {self.processing_fps} fps, "
+            f"detector {self.detector.name} ({self.detector.backend}) on {self.device}"
+        )
+
+    async def stop(self) -> None:
+        if self.state not in (PipelineState.STARTING, PipelineState.RUNNING, PipelineState.ERROR):
+            return
+        self.state = PipelineState.STOPPING
+        for cs in self._cams.values():
+            if cs.task is not None:
+                cs.task.cancel()
+        tasks = [cs.task for cs in self._cams.values() if cs.task is not None]
+        await asyncio.gather(*tasks, return_exceptions=True)
+        for cs in self._cams.values():
+            cs.task = None
+        for t in self._bg_tasks:
+            t.cancel()
+        await asyncio.gather(*self._bg_tasks, return_exceptions=True)
+        self._bg_tasks = []
+        for cid in list(self._recorders):
+            self._stop_recording_impl(cid)
+        self.stream_manager.stop_all()
+        # close open dwells/visits so they are not lost, then flush events
+        now = time.time()
+        for cid in list(self._cams):
+            try:
+                self._queue_events(self.engine.on_camera_stopped(str(cid), now))
+                self._handle_reid_events(self.coordinator.drop_camera(cid, now))
+            except Exception as e:
+                logger.debug(f"stop: camera {cid} flush failed: {e}")
+        await self._flush_events()
+        if self._worker is not None:
+            await asyncio.to_thread(self._worker.stop)
+            self._worker = None
+        if self._bus is not None:
+            try:
+                await self._bus.close()
+            except Exception:
+                pass
+            self._bus = None
+        self.state = PipelineState.IDLE
+        await self._emit_lifecycle("pipeline_stopped", {
+            "total_persons_tracked": self.global_state.total_persons_tracked,
+            "total_detections": self._total_detections,
+        })
+        logger.info("Pipeline stopped")
+
+    def shutdown(self) -> None:
+        unsubscribe_local("zones_changed", self._zones_handler)
+        self._render_pool.shutdown(wait=False, cancel_futures=True)
+        self._ring_pool.shutdown(wait=False, cancel_futures=True)
+
+    # ── per-camera processing ───────────────────────────────────────
+    async def _camera_loop(self, cs: _Cam) -> None:
+        cam = cs.camera_id
+        try:
+            while self.state == PipelineState.RUNNING and self._cams.get(cam) is cs:
+                stream = self.stream_manager._streams.get(cam)
+                pkt = stream.get_latest(cs.last_seq) if stream is not None else None
+                if pkt is None:
+                    if stream is not None and stream.finished:
+                        self._finish_camera(cs)
+                        return
+                    await asyncio.sleep(0.01)
+                    continue
+                cs.last_seq = pkt.seq
+                try:
+                    await self._process_frame(cs, pkt)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    cs.error("process", e)
+                    await asyncio.sleep(0.05)
+        except asyncio.CancelledError:
             pass
 
+    def _finish_camera(self, cs: _Cam) -> None:
+        """File source reached its end with loop off: close tracks/visits, keep the camera listed as finished."""
+        cam = cs.camera_id
+        now = time.time()
+        ts = cs.last_frame_ts if cs.last_frame_ts is not None else now
+        try:
+            events: List[Dict[str, Any]] = []
+            reid_events: List[Dict[str, Any]] = []
+            for e in cs.tracker.reset():
+                events += self.engine.on_track_lost(str(cam), ts, e.track_id)
+                if self._reid_ready and cs.enable_reid:
+                    reid_events += self.coordinator.on_track_lost(cam, e.track_id, ts)
+                self._publish_track_event(cam, e, None)
+            events += self.engine.on_camera_stopped(str(cam), ts)
+            self._queue_events(events)
+            self._handle_reid_events(reid_events + self.coordinator.drop_camera(cam, now))
+        except Exception as e:
+            cs.error("finish", e)
+        self._stop_recording_impl(cam)
+        cs.epoch = -1  # a restart is a new timeline
+        cs.confirmed_now = 0
+        cs.finished, cs.finished_at = True, now
+        logger.info(f"[Cam {cam}] source finished after {cs.frames_processed} processed frames (loop off)")
+        self._spawn(self._emit_lifecycle("camera_finished", {
+            "camera_id": cam, "zone": cs.zone, "frames_processed": cs.frames_processed,
+        }))
+
+    async def _process_frame(self, cs: _Cam, pkt) -> None:
+        t_start = time.perf_counter()
+        cam = cs.camera_id
+        frame, ts = pkt.frame, float(pkt.ts)
+        h, w = frame.shape[:2]
+        cs.frame_number += 1
+        cs.last_frame_ts = ts
+        cs.stage("frame_age", (time.time() - ts) * 1000.0)
+        ring = cs.ring
+        if ring is not None and ring.due(ts):
+            ring.busy = True  # at most one queued encode per camera; never blocks this loop
+            try:
+                self._ring_pool.submit(ring.push, frame, ts)
+            except RuntimeError:  # pool shut down
+                ring.busy = False
+        events: List[Dict[str, Any]] = []
+        reid_events: List[Dict[str, Any]] = []
+
+        if pkt.epoch != cs.epoch:  # reconnect or file loop: the old tracks are meaningless
+            if cs.epoch != -1:
+                out_lost = cs.tracker.reset()
+                for e in out_lost:
+                    events += self.engine.on_track_lost(str(cam), ts, e.track_id)
+                    if self._reid_ready and cs.enable_reid:
+                        reid_events += self.coordinator.on_track_lost(cam, e.track_id, ts)
+                    self._publish_track_event(cam, e, None)
+            cs.epoch = pkt.epoch
+
+        # 1. detect (batched across cameras on the inference worker)
+        dets, wait_ms, infer_ms = await self._worker.detect(frame)
+        cs.stage("queue", wait_ms)
+        cs.stage("detect", infer_ms)
+        if self._cams.get(cam) is not cs:
+            return
+
+        # 2. track
+        t = time.perf_counter()
+        out: TrackerOutput = cs.tracker.update(dets.xyxy, dets.conf, ts)
+        cs.proc_times.append(time.time())
+        if time.time() - cs.fps_last_set >= 2.0 and len(cs.proc_times) >= 5:
+            measured = cs.processed_fps()
+            if measured > 0:
+                cs.tracker.set_fps(measured)
+            cs.fps_last_set = time.time()
+        confirmed = out.confirmed
+        lost = [e for e in out.events if e.type == "track_lost"]
+        cs.stage("track", (time.perf_counter() - t) * 1000.0)
+
+        # 3. Re-ID (lost tracklets are finalised before new ones are matched)
+        t = time.perf_counter()
+        reid_on = self._reid_ready and cs.enable_reid
+        for e in lost:
+            if reid_on:
+                reid_events += self.coordinator.on_track_lost(cam, e.track_id, ts)
+        if reid_on:
+            reid_events += await self._reid_step(cs, frame, (w, h), dets, out, ts)
+        if self._cams.get(cam) is not cs:
+            return
+        gids = {tr.track_id: self.coordinator.global_id(cam, tr.track_id) for tr in confirmed} if reid_on else {}
+        cs.stage("reid", (time.perf_counter() - t) * 1000.0)
+
+        # 4. analytics on confirmed tracks
+        t = time.perf_counter()
+        for e in lost:
+            events += self.engine.on_track_lost(str(cam), ts, e.track_id)
+        obs = [
+            TrackObs(tr.track_id, gids.get(tr.track_id), tuple(float(v) for v in tr.xyxy), float(tr.confidence))
+            for tr in confirmed
+        ]
+        events += self.engine.on_tracks(str(cam), ts, (w, h), obs)
+        for e in out.events:
+            if e.type != "track_updated" or e.track.get("state") == "confirmed":
+                self._publish_track_event(cam, e, gids.get(e.track_id))
+        self._handle_reid_events(reid_events)
+        self._queue_events(events)
+        cs.stage("analytics", (time.perf_counter() - t) * 1000.0)
+
+        # 5. specialists on their own cadence (never block this frame)
+        self._schedule_specialists(cs, frame, ts, has_people=bool(confirmed),
+                                   track_boxes={int(tr.track_id): tuple(float(v) for v in tr.xyxy) for tr in confirmed})
+
+        # 6. result
+        tracks_out = []
+        for tr in confirmed:
+            gid = gids.get(tr.track_id)
+            info = self.coordinator.tracklet_info(cam, tr.track_id) if reid_on else None
+            tracks_out.append({
+                "track_id": int(tr.track_id),
+                "global_id": gid,
+                "bbox": [round(v, 1) for v in tr.bbox_xywh],
+                "confidence": round(float(tr.confidence), 3),
+                "class_name": "person",
+                "zone": cs.zone,
+                "state": tr.state,
+                "hits": int(tr.hits),
+                "first_seen": tr.first_ts,
+                "similarity": info.get("similarity") if info else None,
+                "reid_reason": info.get("reason") if info else None,
+            })
+            if gid and ts - cs.gid_emit_ts.get(gid, 0.0) >= REID_REFRESH_S:
+                cs.gid_emit_ts[gid] = ts
+                cs.pending_reid.append({
+                    "global_id": gid, "camera_id": cam, "track_id": int(tr.track_id),
+                    "bbox": [round(v, 1) for v in tr.bbox_xywh], "timestamp": ts, "source": "refresh",
+                    "similarity": info.get("similarity") if info else None,
+                })
+        cs.frames_processed += 1
+        cs.detections_total += len(tracks_out)
+        cs.confirmed_now = len(tracks_out)
+        self._total_detections += len(tracks_out)
+        frame_alerts = [ev for ev in events if ev.get("type") == "fire"]
+        result = CameraResult(
+            camera_id=cam,
+            timestamp=ts,
+            frame_number=cs.frame_number,
+            detections=tracks_out,
+            tracks=tracks_out,
+            reid_matches=[m for m in cs.pending_reid if m.get("timestamp") == ts],
+            emotions=self._emotion_view(cs, ts),
+            fire_alerts=[self._fire_alert(cs, ev) for ev in frame_alerts if self._ev_field(ev, "action") in ("start", "reopen")],
+            crowd_status={"zone": cs.zone, "person_count": len(tracks_out), "camera_id": cam},
+            processing_time_ms=round((time.perf_counter() - t_start) * 1000.0, 1),
+            model_status=self._model_status(cs),
+            frame_wh=(int(w), int(h)),
+            tentative_count=len(out.tracks) - len(confirmed),
+            events=events,
+            product_detections=list(cs.product_boxes) if ts - cs.product_ts <= max(OVERLAY_TTL_S, settings.PRODUCT_INTERVAL_S * 2) else [],
+            fire_detections=list(cs.fire_boxes) if ts - cs.fire_ts <= OVERLAY_TTL_S else [],
+        )
+        cs.last_result = result
+        cs.result_seq += 1
+        if cam in self._detection_logs:
+            self._log_detections(cs, result)
+
+        # 7. render only for viewers / recording
+        cs.frame = frame
+        cs.overlay = self._overlay(cs, confirmed, gids, ts)
+        cs.stage("total", (time.perf_counter() - t_start) * 1000.0)
+        self._maybe_render(cs)
+
+    async def _reid_step(self, cs: _Cam, frame: np.ndarray, wh: Tuple[int, int], dets: Detections,
+                         out: TrackerOutput, ts: float) -> List[Dict[str, Any]]:
+        cam = cs.camera_id
+        confirmed = out.confirmed
+        if not confirmed:
+            return self.coordinator.step(ts)
+        boxes = np.array([tr.xyxy for tr in confirmed], np.float32).reshape(-1, 4)
+        others = dets.xyxy.reshape(-1, 4).astype(np.float32)
+        iou = box_iou_matrix(boxes, others) if len(others) else np.zeros((len(boxes), 0), np.float32)
+        if iou.size:
+            iou[:, dets.conf < 0.25] = 0.0  # ignore boxes too weak to be people
+        cands = []
+        for i, tr in enumerate(confirmed):
+            if cs.reid_busy:  # previous batch still computing: no new crops this frame
+                break
+            if not self.coordinator.wants_embedding(cam, tr.track_id, ts):
+                continue
+            row = iou[i].copy() if iou.size else np.zeros(0)
+            if 0 <= tr.det_index < row.shape[0]:
+                row[tr.det_index] = 0.0
+            ok, reason, score = crop_quality(tr.xyxy, tr.confidence, wh, float(row.max()) if row.size else 0.0, self._quality)
+            self._reid_gate[reason] += 1
+            if ok:
+                cands.append((score, tr))
+        self.coordinator.observe(
+            cam, ts, [(tr.track_id, tr.bbox_xywh, float(tr.confidence), tr.foot_point) for tr in confirmed], {}
+        )
+        if cands:
+            # Embedding (~350 ms/batch on CPU) runs off the frame loop: the camera keeps detecting and
+            # tracking while it computes, and the crops join their tracklets when it finishes.
+            cands.sort(key=lambda c: -c[0])
+            cands = cands[: max(1, int(settings.MAX_REID_DETECTIONS_PER_FRAME))]
+            H, W = frame.shape[:2]
+            crops = []
+            for _s, tr in cands:
+                x1, y1, x2, y2 = (int(round(v)) for v in tr.xyxy)
+                crops.append(frame[max(0, y1):min(H, y2), max(0, x1):min(W, x2)].copy())
+            cs.reid_busy = True
+            self._spawn(self._run_embed(cs, ts, [(float(s), tr.track_id) for s, tr in cands], crops))
+        return self.coordinator.step(ts)
+
+    async def _run_embed(self, cs: _Cam, ts: float, cands: List[Tuple[float, int]], crops: List[np.ndarray]) -> None:
+        try:
+            embs, _w, ms = await self._worker.run(self.reid.extract_batch, crops, prio=InferenceWorker.PRIO_EMBED)
+            cs.stage("embed", ms)
+            if self._cams.get(cs.camera_id) is not cs or embs is None:
+                return
+            # tracks that ended while the batch ran were already finalised; their crops are dropped
+            self._note_thumbs(cs, ts, cands, crops)
+            self.coordinator.add_embeddings(cs.camera_id, ts, {tid: (s, e) for (s, tid), e in zip(cands, embs)})
+            self._handle_reid_events(self.coordinator.step(max(ts, cs.last_frame_ts)))
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            cs.error("reid", e)
+        finally:
+            cs.reid_busy = False
+
+    # ── person thumbnails (for "find this person") ──────────────────
+    def _note_thumbs(self, cs: _Cam, ts: float, cands: List[Tuple[float, int]], crops: List[np.ndarray]) -> None:
+        """Keep the highest-quality crop seen for each track (only crops that passed the Re-ID quality
+        gate reach here); promote it to the track's global ID when it has one."""
+        for (score, tid), crop in zip(cands, crops):
+            old = cs.track_thumbs.get(tid)
+            if (old is not None and score <= old[0]) or crop.size == 0:
+                continue
+            h, w = crop.shape[:2]
+            scale = THUMB_H / float(h)
+            small = cv2.resize(crop, (max(1, int(round(w * scale))), THUMB_H), interpolation=cv2.INTER_AREA)
+            ok, buf = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 82])
+            if not ok:
+                continue
+            cs.track_thumbs[tid] = (float(score), buf.tobytes())
+            gid = self.coordinator.global_id(cs.camera_id, tid)
+            if gid:
+                self._promote_thumb(gid, cs, tid, ts)
+        while len(cs.track_thumbs) > 512:
+            cs.track_thumbs.pop(next(iter(cs.track_thumbs)))
+
+    def _promote_thumb(self, gid: str, cs: _Cam, tid: int, ts: float) -> None:
+        t = cs.track_thumbs.get(tid)
+        if t is None:
+            return
+        cur = self._gid_thumbs.get(gid)
+        if cur is None or t[0] > cur[0]:
+            self._gid_thumbs[gid] = (t[0], t[1], cs.camera_id, ts)
+        self._gid_thumbs.move_to_end(gid)
+        while len(self._gid_thumbs) > THUMB_CAP:
+            self._gid_thumbs.popitem(last=False)
+
+    def person_thumb(self, gid: str) -> Optional[Tuple[bytes, int, float]]:
+        """Best crop for a global ID: (JPEG, camera_id, ts), or None when none is in memory."""
+        t = self._gid_thumbs.get(str(gid))
+        return (t[1], t[2], t[3]) if t is not None else None
+
+    # ── specialists ─────────────────────────────────────────────────
+    def _schedule_specialists(self, cs: _Cam, frame: np.ndarray, ts: float, has_people: bool,
+                              track_boxes: Optional[Dict[int, Tuple[float, ...]]] = None) -> None:
+        if self.fire_model is not None and not cs.fire_busy and \
+                cs.frame_number - cs.last_fire_frame >= max(1, int(settings.FIRE_INTERVAL_FRAMES)):
+            cs.fire_busy, cs.last_fire_frame = True, cs.frame_number
+            self._spawn(self._run_fire(cs, frame, ts))
+        if self.product_model is not None and not cs.product_busy and settings.PRODUCT_INTERVAL_S > 0 and \
+                ts - cs.last_product_ts >= settings.PRODUCT_INTERVAL_S:
+            cs.product_busy, cs.last_product_ts = True, ts
+            self._spawn(self._run_product(cs, frame, ts))
+        if self.emotion is not None and has_people and not cs.emotion_busy and \
+                cs.frame_number - cs.last_emotion_frame >= max(1, int(settings.EMOTION_ANALYTICS_INTERVAL_FRAMES)):
+            cs.emotion_busy, cs.last_emotion_frame = True, cs.frame_number
+            self._spawn(self._run_emotion(cs, frame, ts, track_boxes or {}))
+
+    async def _run_fire(self, cs: _Cam, frame: np.ndarray, ts: float) -> None:
+        try:
+            res, _w, ms = await self._worker.run(self.fire_model.predict_batch, [frame], prio=InferenceWorker.PRIO_SPECIALIST)
+            cs.stage("fire", ms)
+            if self._cams.get(cs.camera_id) is not cs:
+                return
+            boxes = res[0] if res else []
+            # Overlay only what can count towards an alert: sub-threshold boxes (red signage,
+            # warm lighting) would read as fire to an operator although no alert can follow.
+            fh, fw = frame.shape[:2]
+            cs.fire_boxes = [b for b in boxes if zdefs.fire_qualifies(b["xyxy"], b["confidence"], (fw, fh))]
+            cs.fire_ts = ts
+            events = self.engine.on_fire(
+                str(cs.camera_id), ts,
+                [(tuple(float(v) for v in b["xyxy"]), float(b["confidence"]), str(b["class_name"])) for b in boxes],
+            )
+            self._queue_events(events)
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            cs.error("fire", e)
+        finally:
+            cs.fire_busy = False
+
+    async def _run_product(self, cs: _Cam, frame: np.ndarray, ts: float) -> None:
+        try:
+            res, _w, ms = await self._worker.run(self.product_model.predict_batch, [frame], prio=InferenceWorker.PRIO_SPECIALIST)
+            cs.stage("product", ms)
+            cs.product_boxes, cs.product_ts = (res[0] if res else []), ts
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            cs.error("product", e)
+        finally:
+            cs.product_busy = False
+
+    def _faces_job(self, frame: np.ndarray, cam: int, zone: str,
+                   track_boxes: Dict[int, Tuple[float, ...]]) -> Tuple[List[Dict[str, Any]], List[Tuple[int, Any, Any]]]:
+        """Emotion faces, then age/gender for faces that belong to exactly one confirmed track whose
+        visit still wants readings. Runs on the inference worker thread."""
+        faces = self.emotion.analyze_frame(frame, cam, zone) or []
+        readings: List[Tuple[int, Any, Any]] = []
+        if self.demographics is None or not faces or not track_boxes:
+            return faces, readings
+        key = str(cam)
+        owner = match_faces_to_tracks([f["bbox"] for f in faces], track_boxes)
+        picks = [(i, tid) for i, tid in owner.items() if self._demo_visits.wants(key, tid)]
+        if not picks:
+            return faces, readings
+        crops, kept = [], []
+        for i, tid in picks:
+            x1, y1, x2, y2 = (int(v) for v in faces[i]["bbox"])
+            crop = frame[y1:y2, x1:x2]
+            if crop.size:
+                crops.append(crop)
+                kept.append((i, tid))
+        picks = kept
+        res = self.demographics.classify(crops)
+        if res is not None:
+            for (_i, tid), g, a in zip(picks, res[0], res[1]):
+                readings.append((tid, g, a))
+        return faces, readings
+
+    async def _run_emotion(self, cs: _Cam, frame: np.ndarray, ts: float,
+                           track_boxes: Optional[Dict[int, Tuple[float, ...]]] = None) -> None:
+        try:
+            res, _w, ms = await self._worker.run(
+                self._faces_job, frame, cs.camera_id, cs.zone, track_boxes or {}, prio=InferenceWorker.PRIO_SPECIALIST
+            )
+            cs.stage("emotion", ms)
+            if self._cams.get(cs.camera_id) is not cs:
+                return
+            faces, readings = res if res else ([], [])
+            for tid, g, a in readings:
+                self._demo_visits.add(str(cs.camera_id), tid, g, a, ts)
+            cs.faces, cs.faces_ts = faces, ts
+            events = self.engine.on_faces(
+                str(cs.camera_id), ts,
+                [(tuple(float(v) for v in f["bbox"]), str(f["dominant_emotion"]), float(f["confidence"])) for f in faces],
+            )
+            self._queue_events(events)
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            cs.error("emotion", e)
+        finally:
+            cs.emotion_busy = False
+
+    @staticmethod
+    def _emotion_view(cs: _Cam, ts: float) -> Dict[str, Any]:
+        if not cs.faces or ts - cs.faces_ts > 30.0:
+            return {}
+        counts = Counter(f["dominant_emotion"] for f in cs.faces)
+        return {"faces": cs.faces, "counts": dict(counts), "ts": cs.faces_ts}
+
+    # ── events ──────────────────────────────────────────────────────
+    @staticmethod
+    def _ev_field(ev: Dict[str, Any], key: str) -> Any:
+        """Engine events keep their details in ev["payload"]; fall back to the top level."""
+        payload = ev.get("payload")
+        if isinstance(payload, dict) and key in payload:
+            return payload[key]
+        return ev.get(key)
+
+    def _fire_alert(self, cs: _Cam, ev: Dict[str, Any]) -> Dict[str, Any]:
+        f = self._ev_field
+        cls = str(f(ev, "class_name") or "fire").lower()
+        return {
+            "type": cls, "alert_type": cls, "confidence": f(ev, "peak_conf"), "zone": cs.zone,
+            "bbox": f(ev, "bbox_xywh"), "action": f(ev, "action"), "incident_key": f(ev, "incident_key"),
+            "camera_id": cs.camera_id, "timestamp": ev.get("ts"),
+        }
+
+    def _finish_visit_demographics(self, cs: _Cam, ev: Dict[str, Any]) -> None:
+        try:
+            tid = int(ev.get("track_id"))
+        except (TypeError, ValueError):
+            return
+        res = self._demo_visits.finish(str(cs.camera_id), tid)
+        if res is None:
+            return
+        payload = ev.get("payload") or {}
+        first = payload.get("first_seen", res["first_ts"])
+        last = payload.get("last_seen", ev.get("ts", res["last_ts"]))
+        self._demo_rows.append({
+            "camera_id": cs.camera_id, "zone": cs.zone, "track_id": tid, "global_id": ev.get("global_id"),
+            "age_band": res["age_band"], "gender": res["gender"], "confidence": round(res["age_conf"], 4),
+            "sample_count": res["sample_count"],
+            "visit_start": datetime.fromtimestamp(float(first), timezone.utc),
+            "visit_end": datetime.fromtimestamp(float(last), timezone.utc),
+        })
+
+    def _queue_events(self, events: List[Dict[str, Any]], cs_hint: Optional[_Cam] = None) -> None:
+        for ev in events or []:
+            if len(self._event_buffer) == self._event_buffer.maxlen:
+                self._events_dropped += 1
+            self._event_buffer.append(ev)
+            try:
+                cam = int(ev.get("camera_id"))
+            except (TypeError, ValueError):
+                cam = None
+            cs = self._cams.get(cam) if cam is not None else None
+            if cs is None and cs_hint is not None and cs_hint.camera_id == cam:
+                cs = cs_hint  # camera being torn down
+            if cs is not None:
+                cs.pending_events.append(ev)
+                if len(cs.pending_events) > 2000:
+                    del cs.pending_events[:-2000]
+            etype = ev.get("type")
+            action = self._ev_field(ev, "action")
+            if etype == "fire" and cs is not None:
+                if action in ("start", "reopen"):
+                    alert = self._fire_alert(cs, ev)
+                    cs.fire_active = True
+                    cs.pending_fire.append(alert)
+                    self._fire_history.append(alert)
+                    logger.warning(f"[Cam {cs.camera_id}] {alert['alert_type']} alert ({action}) conf={alert['confidence']}")
+                    if action == "start":
+                        self._capture_evidence(ev, cs)
+                elif action == "clear":
+                    cs.fire_active = False
+            elif etype == "alert" and cs is not None and action in (None, "open"):
+                self._capture_evidence(ev, cs)
+            elif etype == "track_visit" and cs is not None and self.demographics is not None:
+                self._finish_visit_demographics(cs, ev)
+            publish_local("analytics_event", ev)
+            if self._broadcast is not None and etype in BROADCAST_EVENT_TYPES:
+                channel = "alerts" if etype in ("alert", "fire", "crowd_level") else "analytics"
+                self._spawn(self._broadcast.broadcast(channel, f"analytics_{etype}", ev))
+
+    def _publish_track_event(self, cam: int, e, gid: Optional[str]) -> None:
+        payload = {"type": e.type, "camera_id": cam, "track_id": int(e.track_id), "ts": e.ts,
+                   "global_id": gid, "track": e.track}
+        publish_local("track_event", payload)
+        if self._bus is not None and e.type in ("track_confirmed", "track_lost"):
+            self._bus_queue.append((REDIS_TRACK_STREAM, f"{cam}:{e.track_id}", payload))
+
+    def _handle_reid_events(self, events: List[Dict[str, Any]]) -> None:
+        for ev in events or []:
+            publish_local("reid_event", ev)
+            if self._bus is not None:
+                self._bus_queue.append((REDIS_ASSIGN_STREAM, str(ev.get("global_id")), ev))
+            if ev.get("type") != "reid_assigned":
+                if ev.get("type") == "reid_track_ended":
+                    cs = self._cams.get(int(ev.get("camera_id", -1)))
+                    if cs is not None:
+                        cs.gid_emit_ts.pop(ev.get("global_id"), None)
+                        if ev.get("track_id") is not None:
+                            cs.track_thumbs.pop(int(ev.get("track_id")), None)
+                continue
+            gid, cam = ev.get("global_id"), int(ev.get("camera_id"))
+            prev = self._gid_last_cam.get(gid)
+            self._gid_last_cam[gid] = cam
+            self._gid_last_cam.move_to_end(gid)
+            while len(self._gid_last_cam) > 10_000:
+                self._gid_last_cam.popitem(last=False)
+            cs = self._cams.get(cam)
+            if cs is None:
+                continue
+            tr = cs.tracker.get_track(int(ev.get("track_id")))
+            bbox = [round(v, 1) for v in tr.bbox_xywh] if tr is not None else None
+            cs.gid_emit_ts[gid] = float(ev.get("ts") or time.time())
+            self._promote_thumb(gid, cs, int(ev.get("track_id")), float(ev.get("ts") or time.time()))
+            cs.pending_reid.append({
+                "global_id": gid, "camera_id": cam, "track_id": int(ev.get("track_id")), "bbox": bbox,
+                "timestamp": ev.get("ts"), "source": ev.get("reason"), "similarity": ev.get("similarity"),
+            })
+            if len(cs.pending_reid) > 2000:
+                del cs.pending_reid[:-2000]
+            if prev is not None and prev != cam and ev.get("reason") != "new" and self._broadcast is not None:
+                self._spawn(self._broadcast.push_reid_match(gid, cam, prev, ev.get("similarity"), ev.get("reason")))
+
+    # ── background loops ────────────────────────────────────────────
+    async def _dispatch_loop(self) -> None:
+        period = 1.0 / CALLBACK_HZ
+        hard_timeout = max(10.0, 10 * settings.CALLBACK_TIMEOUT_MS / 1000.0)
+        while True:
+            try:
+                await asyncio.sleep(period)
+                batch: Dict[int, CameraResult] = {}
+                for cam, cs in list(self._cams.items()):
+                    if cs.last_result is None:
+                        continue
+                    if cs.result_seq == cs.dispatched_seq and not (cs.pending_fire or cs.pending_reid or cs.pending_events):
+                        continue
+                    cs.dispatched_seq = cs.result_seq
+                    batch[cam] = dataclasses.replace(
+                        cs.last_result,
+                        fire_alerts=cs.pending_fire, reid_matches=cs.pending_reid, events=cs.pending_events,
+                    )
+                    cs.pending_fire, cs.pending_reid, cs.pending_events = [], [], []
+                self._update_global_state()
+                if not batch:
+                    continue
+                for slot in self._callbacks:
+                    if slot.task is not None and not slot.task.done():
+                        slot.backlog = _merge_results(slot.backlog or {}, batch)
+                        slot.busy_skips += 1
+                        continue
+                    payload = _merge_results(slot.backlog, batch) if slot.backlog else batch
+                    slot.backlog = None
+                    slot.task = asyncio.create_task(self._invoke(slot, payload, hard_timeout))
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning(f"Pipeline dispatcher error: {e}")
+
+    async def _invoke(self, slot: _CallbackSlot, payload: Dict[int, CameraResult], hard_timeout: float) -> None:
+        t0 = time.perf_counter()
+        try:
+            res = slot.fn(payload, self.global_state)
+            if asyncio.iscoroutine(res):
+                await asyncio.wait_for(res, timeout=hard_timeout)
+        except asyncio.TimeoutError:
+            slot.failures += 1
+            logger.warning(f"Pipeline callback {getattr(slot.fn, '__qualname__', slot.fn)} hung > {hard_timeout:.0f}s; cancelled")
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            slot.failures += 1
+            if slot.failures == 1 or slot.failures % 50 == 0:
+                logger.error(f"Pipeline callback {getattr(slot.fn, '__qualname__', slot.fn)} failed: {e} (x{slot.failures})")
+        ms = (time.perf_counter() - t0) * 1000.0
+        slot.last_ms = round(ms, 1)
+        if ms > settings.CALLBACK_TIMEOUT_MS:
+            slot.slow_calls += 1
+
+    def _update_global_state(self) -> None:
+        gs = self.global_state
+        active = {}
+        for a in self.coordinator.active():
+            active[a["global_id"]] = {
+                "camera_id": a["camera_id"], "track_id": a["track_id"], "bbox": a["bbox"],
+                "last_seen": a["last_seen"], "similarity": a["similarity"],
+            }
+        gs.active_tracks = active
+        occ: Dict[str, int] = {}
+        for cs in self._cams.values():
+            occ[cs.zone] = occ.get(cs.zone, 0) + cs.confirmed_now
+        gs.zone_occupancy = occ
+        gs.total_persons_tracked = int(self.coordinator.gallery.counter)
+        gs.fire_alert_active = any(cs.fire_active for cs in self._cams.values())
+        vibe = self.engine.latest_vibe()
+        gs.vibe_score = float(vibe.get("score") or 0.0) if vibe else 0.0
+        gs.last_updated = time.time()
+
+    async def _flush_demographics(self) -> None:
+        """One DemographicSnapshot row per finished visit; cameras missing from the cameras table are skipped."""
+        if not self._demo_rows:
+            return
+        rows = list(self._demo_rows)
+        self._demo_rows.clear()
+        try:
+            from sqlalchemy import select
+
+            from app.database import AsyncSessionLocal
+            from app.models.analytics import DemographicSnapshot
+            from app.models.camera import Camera
+
+            async with AsyncSessionLocal() as session:
+                cams = {r["camera_id"] for r in rows}
+                known = set((await session.execute(select(Camera.id).where(Camera.id.in_(cams)))).scalars().all())
+                for cid in cams - known:
+                    if cid not in self._demo_skipped_cams:
+                        self._demo_skipped_cams.add(cid)
+                        logger.warning(f"[Cam {cid}] not in the cameras table; its demographic visits are not stored")
+                n = 0
+                for r in rows:
+                    if r["camera_id"] not in known:
+                        continue
+                    session.add(DemographicSnapshot(
+                        camera_id=r["camera_id"], zone=r["zone"], track_id=r["track_id"], global_id=r["global_id"],
+                        age_band=r["age_band"], age_group=r["age_band"], gender=r["gender"],
+                        estimated_gender=r["gender"], confidence=r["confidence"], sample_count=r["sample_count"],
+                        count=1, visit_start=r["visit_start"], visit_end=r["visit_end"], timestamp=r["visit_end"],
+                    ))
+                    n += 1
+                if n:
+                    await session.commit()
+                    self._demo_written += n
+        except Exception as e:
+            logger.warning(f"Demographic visits not persisted ({len(rows)}): {e}")
+
+    async def _flush_events(self) -> None:
+        await self._flush_demographics()
+        if not self._event_buffer:
+            return
+        batch = list(self._event_buffer)
+        self._event_buffer.clear()
+        try:
+            from app.analytics import zones_repo
+
+            await zones_repo.persist_events(batch)
+            self._events_persisted += len(batch)
+        except Exception as e:  # persist_events never raises; import errors might
+            logger.warning(f"Analytics events not persisted ({len(batch)}): {e}")
+
+    async def _persist_loop(self) -> None:
+        while True:
+            try:
+                await asyncio.sleep(1.0)
+                await self._flush_events()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning(f"Event persister error: {e}")
+
+    def _init_bus(self) -> None:
+        if self._bus is not None:
+            return
+        try:
+            from app.services.event_bus import RedisStreamBus, aioredis
+
+            if aioredis is not None and settings.REDIS_URL:
+                self._bus = RedisStreamBus(settings.REDIS_URL)
+        except Exception as e:
+            logger.info(f"Track events not mirrored to Redis: {e}")
+            self._bus = None
+
+    async def _bus_loop(self) -> None:
+        while True:
+            try:
+                await asyncio.sleep(0.5)
+                while self._bus_queue and self._bus is not None:
+                    stream, key, payload = self._bus_queue.popleft()
+                    await self._bus.publish(stream, key, payload)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.debug(f"Redis mirror error: {e}")
+
+    async def _housekeeping_loop(self) -> None:
+        while True:
+            try:
+                await asyncio.sleep(5.0)
+                now = time.time()
+                self.coordinator.maintain(now)
+                for cs in self._cams.values():
+                    stale = [g for g, t in cs.gid_emit_ts.items() if now - t > 120.0]
+                    for g in stale:
+                        cs.gid_emit_ts.pop(g, None)
+                self._demo_visits.prune(DEMOGRAPHICS_STALE_S, now)
+                self._check_memory()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning(f"Pipeline housekeeping error: {e}")
+
+    def _check_memory(self) -> None:
+        if psutil is None:
+            return
+        pct = float(psutil.virtual_memory().percent)
+        limit = float(settings.MEMORY_PRESSURE_PCT)
+        scale = self._mem["scale"]
+        if pct >= limit and scale > 0.2:
+            scale = max(0.2, scale * 0.7)
+        elif pct < limit - 10.0 and scale < 1.0:
+            scale = min(1.0, scale / 0.7)
+        if scale != self._mem["scale"]:
+            logger.warning(f"Memory {pct:.0f}% (limit {limit:.0f}%): processing FPS scaled to {scale:.2f}x")
+            for cs in self._cams.values():
+                cs.fps_scale = scale
+                stream = self.stream_manager._streams.get(cs.camera_id)
+                if stream is not None:
+                    stream.set_fps_target(max(1.0, cs.fps_target * scale))
+        self._mem = {"pct": pct, "scale": scale, "pressure": scale < 1.0}
+
+    # ── rendering ───────────────────────────────────────────────────
+    def _overlay(self, cs: _Cam, confirmed, gids: Dict[int, Optional[str]], ts: float) -> Dict[str, Any]:
+        return {
+            "tracks": [(tuple(tr.xyxy), tr.track_id, gids.get(tr.track_id)) for tr in confirmed],
+            "fire": [(b["xyxy"], b["class_name"], b["confidence"]) for b in cs.fire_boxes] if ts - cs.fire_ts <= OVERLAY_TTL_S else [],
+            "fire_active": cs.fire_active,
+            "products": [b["xyxy"] for b in cs.product_boxes] if ts - cs.product_ts <= max(OVERLAY_TTL_S, settings.PRODUCT_INTERVAL_S * 1.5) else [],
+            "zones": cs.zones,
+            "fps": cs.processed_fps(),
+            "ts": ts,
+        }
+
+    @staticmethod
+    def _draw(frame: np.ndarray, ov: Dict[str, Any]) -> np.ndarray:
+        img = frame.copy()
+        h, w = img.shape[:2]
+        th = max(1, int(round(min(w, h) / 360)))
+        fs = max(0.4, min(w, h) / 900)
+        for z in ov.get("zones") or []:
+            pts = np.array([[int(x * w), int(y * h)] for x, y in z.get("points") or []], np.int32)
+            if len(pts) < 2:
+                continue
+            ztype = z.get("zone_type")
+            col = (0, 200, 255) if ztype == "entry_line" else (60, 60, 255) if ztype == "restricted" else (255, 200, 0)
+            cv2.polylines(img, [pts], z.get("zone_type") != "entry_line", col, th, cv2.LINE_AA)
+            cv2.putText(img, str(z.get("name", "")), tuple(int(v) for v in pts[0]), cv2.FONT_HERSHEY_SIMPLEX,
+                        fs * 0.8, col, th, cv2.LINE_AA)
+        for xyxy in ov.get("products") or []:
+            x1, y1, x2, y2 = (int(v) for v in xyxy)
+            cv2.rectangle(img, (x1, y1), (x2, y2), (200, 200, 200), 1)
+        for (x1, y1, x2, y2), tid, gid in ov.get("tracks") or []:
+            col = _gid_color(gid or f"t{tid}")
+            p1, p2 = (int(x1), int(y1)), (int(x2), int(y2))
+            cv2.rectangle(img, p1, p2, col, th + 1)
+            label = f"{gid}" if gid else f"#{tid}"
+            (tw, tht), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, fs, th)
+            ty = max(tht + 4, p1[1])
+            cv2.rectangle(img, (p1[0], ty - tht - 6), (p1[0] + tw + 6, ty), col, -1)
+            cv2.putText(img, label, (p1[0] + 3, ty - 4), cv2.FONT_HERSHEY_SIMPLEX, fs, (255, 255, 255), th, cv2.LINE_AA)
+        for xyxy, cls, conf in ov.get("fire") or []:
+            x1, y1, x2, y2 = (int(v) for v in xyxy)
+            cv2.rectangle(img, (x1, y1), (x2, y2), (0, 0, 255), th + 1)
+            cv2.putText(img, f"{cls} {conf:.2f}", (x1, max(12, y1 - 4)), cv2.FONT_HERSHEY_SIMPLEX, fs, (0, 0, 255), th, cv2.LINE_AA)
+        hud = f"people {len(ov.get('tracks') or [])}  {ov.get('fps', 0):.1f} fps"
+        if ov.get("fire_active"):
+            hud += "  FIRE/SMOKE ALERT"
+        cv2.putText(img, hud, (8, int(24 * fs * 1.6)), cv2.FONT_HERSHEY_SIMPLEX, fs * 1.1, (0, 0, 0), th + 2, cv2.LINE_AA)
+        cv2.putText(img, hud, (8, int(24 * fs * 1.6)), cv2.FONT_HERSHEY_SIMPLEX, fs * 1.1,
+                    (0, 0, 255) if ov.get("fire_active") else (255, 255, 255), th, cv2.LINE_AA)
+        return img
+
+    def _render_job(self, cam: int, frame: np.ndarray, ov: Dict[str, Any], encode: bool) -> Tuple[Optional[bytes], float]:
+        t0 = time.perf_counter()
+        img = self._draw(frame, ov)
+        rec = self._recorders.get(cam)
+        if rec is not None:
+            writer, _path, lock = rec[:3]
+            with lock:
+                size = rec[3] if len(rec) > 3 else None
+                if size and (img.shape[1], img.shape[0]) != size:
+                    writer.write(cv2.resize(img, size))
+                else:
+                    writer.write(img)
+        jpeg = None
+        if encode:
+            ok, buf = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+            jpeg = buf.tobytes() if ok else None
+        return jpeg, (time.perf_counter() - t0) * 1000.0
+
+    def _maybe_render(self, cs: _Cam) -> None:
+        watching = time.time() - cs.viewer_ts < VIEWER_TTL_S
+        recording = cs.camera_id in self._recorders
+        if not (watching or recording) or cs.frame is None:
+            return
+        if cs.render_busy:
+            cs.render_skipped += 1
+            return
+        cs.render_busy = True
+        fut = asyncio.get_running_loop().run_in_executor(
+            self._render_pool, self._render_job, cs.camera_id, cs.frame, cs.overlay, watching
+        )
+
+        def _done(f) -> None:
+            cs.render_busy = False
+            try:
+                jpeg, ms = f.result()
+            except Exception as e:
+                cs.error("render", e)
+                return
+            cs.stage("render", ms)
+            if jpeg is not None:
+                cs.jpeg = jpeg
+                cs.jpeg_seq += 1
+
+        fut.add_done_callback(_done)
+
+    def get_latest_annotated_jpeg(self, camera_id: int) -> Optional[bytes]:
+        """Newest annotated JPEG; marks the feed as watched so rendering continues."""
+        got = self.get_latest_annotated_jpeg_seq(camera_id, 0)
+        return got[1] if got else None
+
+    def get_latest_clean_jpeg(self, camera_id: int) -> Optional[bytes]:
+        """Newest raw frame without overlays (background for heatmaps / zone drawing)."""
+        cs = self._cams.get(int(camera_id))
+        frame = cs.frame if cs is not None else None
+        if frame is None:
+            return None
+        ok, buf = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+        return buf.tobytes() if ok else None
+
+    def get_latest_annotated_jpeg_seq(self, camera_id: int, after_seq: int = 0) -> Optional[Tuple[int, bytes]]:
+        """``(seq, jpeg)`` if a frame newer than ``after_seq`` exists (for MJPEG without duplicates)."""
+        cs = self._cams.get(int(camera_id))
+        if cs is None:
+            return None
+        cs.viewer_ts = time.time()
+        if cs.jpeg is None and cs.frame is not None and cs.overlay is not None:
+            try:
+                img = self._draw(cs.frame, cs.overlay)
+                ok, buf = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+                if ok:
+                    cs.jpeg, cs.jpeg_seq = buf.tobytes(), cs.jpeg_seq + 1
+            except Exception as e:
+                cs.error("render", e)
+        if cs.jpeg is None or cs.jpeg_seq <= after_seq:
+            return None
+        return cs.jpeg_seq, cs.jpeg
+
+    # ── recording ───────────────────────────────────────────────────
     def _stop_recording_impl(self, camera_id: int) -> Optional[str]:
-        """Stop recording for a camera; return saved file path or None."""
         rec = self._recorders.pop(camera_id, None)
         if not rec:
             return None
-        writer, path = rec
-        try:
-            writer.release()
-        except Exception:
-            pass
-        # Flush detection log to JSON
+        writer, path, lock = rec[0], rec[1], rec[2]
+        with lock:
+            try:
+                writer.release()
+            except Exception:
+                pass
+        if not video_readable(path):
+            logger.error(f"Recording {path} cannot be read back (empty or unsupported codec)")
         self._flush_detection_log(camera_id)
         return str(path)
 
-    def _flush_detection_log(self, camera_id: int):
-        """Write accumulated detection log frames to a JSON file."""
+    def _flush_detection_log(self, camera_id: int) -> None:
         log_data = self._detection_logs.pop(camera_id, None)
         if not log_data:
             return
@@ -627,50 +1882,64 @@ class ProcessingPipeline:
         log_data["total_frames"] = len(log_data.get("frames", []))
         try:
             with open(str(log_path), "w", encoding="utf-8") as f:
-                json.dump(log_data, f, indent=2, default=str)
+                json.dump(log_data, f, default=str)
             logger.info(f"Detection log saved: {log_path} ({log_data['total_frames']} frames)")
         except Exception as e:
             logger.error(f"Failed to save detection log: {e}")
 
+    def _log_detections(self, cs: _Cam, r: CameraResult) -> None:
+        log = self._detection_logs.get(cs.camera_id)
+        if log is None or len(log["frames"]) >= 200_000:
+            return
+        log["frames"].append({
+            "frame_number": r.frame_number,
+            "timestamp": r.timestamp,
+            "detection_count": len(r.tracks),
+            "detections": [
+                {"track_id": t["track_id"], "class_name": "person", "confidence": t["confidence"],
+                 "bbox": t["bbox"], "global_id": t["global_id"], "region": cs.zone}
+                for t in r.tracks
+            ],
+        })
+
     def start_recording(self, camera_id: int) -> Dict[str, Any]:
-        """
-        Start recording this camera's annotated feed to storage/footage.
-        Requires the camera to be active and pipeline running.
-        """
+        """Record this camera's annotated feed (processed frames) to FOOTAGE_DIR + a JSON detection log."""
+        camera_id = int(camera_id)
         if camera_id in self._recorders:
             return {"recording": True, "message": f"Camera {camera_id} already recording"}
+        cs = self._cams.get(camera_id)
+        if cs is None:
+            return {"recording": False, "error": f"Camera {camera_id} is not active"}
         stats = self.stream_manager.get_stats(camera_id)
-        w, h = (stats.resolution if stats and stats.resolution[0] else (1280, 720))[:2]
+        w, h = (stats.resolution if stats and stats.resolution and stats.resolution[0] else (0, 0))[:2]
+        if cs.frame is not None:
+            h, w = cs.frame.shape[:2]
         if w <= 0 or h <= 0:
-            w, h = 1280, 720
+            return {"recording": False, "error": "Camera has no frames yet; try again in a moment"}
         footage_dir = Path(settings.FOOTAGE_DIR)
         footage_dir.mkdir(parents=True, exist_ok=True)
         out_path = footage_dir / f"camera_{camera_id}_{int(time.time())}.mp4"
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        writer = cv2.VideoWriter(str(out_path), fourcc, max(1, self.processing_fps), (int(w), int(h)))
-        if not writer.isOpened():
-            logger.error(f"Failed to create recorder for camera {camera_id}")
+        fps = max(1.0, cs.processed_fps() or cs.fps_target)
+        writer, codec = open_video_writer(out_path, fps, (int(w), int(h)))
+        if writer is None:
+            logger.error(f"Failed to create recorder for camera {camera_id} (tried {', '.join(RECORDER_CODECS)})")
             return {"recording": False, "error": "Failed to create video file"}
-        self._recorders[camera_id] = (writer, out_path)
-        # Start detection log with same name as video but .json in storage/logs
+        logger.info(f"Camera {camera_id} recorder codec: {codec}")
+        self._recorders[camera_id] = (writer, out_path, threading.Lock(), (int(w), int(h)))
+        self._logs_dir.mkdir(parents=True, exist_ok=True)
         log_path = self._logs_dir / f"{out_path.stem}.json"
         self._detection_logs[camera_id] = {
-            "log_path": log_path,
-            "frames": [],
-            "video_file": str(out_path),
-            "camera_id": camera_id,
-            "model": self._model_label(self._camera_models.get(camera_id, (self._detector_model,))),
+            "log_path": log_path, "frames": [], "video_file": str(out_path), "camera_id": camera_id,
+            "model": Path(self._detector_model).name, "fps": fps,
             "start_time": datetime.now(timezone.utc).isoformat(),
         }
         logger.info(f"Recording started for camera {camera_id} -> {out_path}")
-        logger.info(f"Detection log started -> {log_path}")
         return {"recording": True, "path": str(out_path), "log_path": str(log_path), "camera_id": camera_id}
 
     def stop_recording(self, camera_id: int) -> Dict[str, Any]:
-        """Stop recording and save the clip to footage storage."""
-        # Capture log path before stopping (flush will pop it)
-        log_info = self._detection_logs.get(camera_id)
-        log_path = str(log_info["log_path"]) if log_info else None
+        camera_id = int(camera_id)
+        info = self._detection_logs.get(camera_id)
+        log_path = str(info["log_path"]) if info else None
         path = self._stop_recording_impl(camera_id)
         if path:
             logger.info(f"Recording stopped for camera {camera_id} -> {path}")
@@ -678,1443 +1947,137 @@ class ProcessingPipeline:
         return {"recording": False, "message": f"Camera {camera_id} was not recording"}
 
     def get_recording_status(self) -> Dict[str, Any]:
-        """Return which cameras are currently recording."""
-        return {
-            "recording_cameras": list(self._recorders.keys()),
-            "recording": list(self._recorders.keys()),
-        }
+        cams = list(self._recorders.keys())
+        return {"recording_cameras": cams, "recording": cams}
 
-    @staticmethod
-    def _detection_to_dict(det: Any, track_id: Optional[int] = None) -> Dict[str, Any]:
-        """
-        Normalize a detection (BBox dataclass or dict) into the dict shape the
-        downstream analytics modules consume:
-          {bbox: [x, y, w, h], confidence, class_name, track_id}
-        """
-        if isinstance(det, BBox):
-            return {
-                "bbox": [float(det.x), float(det.y), float(det.w), float(det.h)],
-                "confidence": float(det.confidence),
-                "class_id": int(det.class_id),
-                "class_name": det.class_name,
-                "track_id": det.track_id if det.track_id is not None else track_id,
-                "keypoints": det.keypoints,
-            }
-        bbox = det.get("bbox") or det.get("box") or []
-        if len(bbox) < 4:
-            return {"bbox": [0.0, 0.0, 0.0, 0.0], "confidence": 0.0, "class_name": "person", "track_id": track_id, "keypoints": None}
-        return {
-            "bbox": [float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])],
-            "confidence": float(det.get("confidence", 0.0)),
-            "class_id": int(det.get("class_id", 0) or 0),
-            "class_name": str(det.get("class_name", "person")),
-            "track_id": det.get("track_id", track_id),
-            "keypoints": det.get("keypoints"),
-        }
-
-    @staticmethod
-    def _iou(box1: List[float], box2: List[float]) -> float:
-        """IoU for two boxes [x, y, w, h]. Returns 0 if no overlap."""
-        x1, y1, w1, h1 = box1[0], box1[1], box1[2], box1[3]
-        x2, y2, w2, h2 = box2[0], box2[1], box2[2], box2[3]
-        ax1, ay1 = x1, y1
-        ax2, ay2 = x1 + w1, y1 + h1
-        bx1, by1 = x2, y2
-        bx2, by2 = x2 + w2, y2 + h2
-        ix1 = max(ax1, bx1)
-        iy1 = max(ay1, by1)
-        ix2 = min(ax2, bx2)
-        iy2 = min(ay2, by2)
-        if ix2 <= ix1 or iy2 <= iy1:
-            return 0.0
-        inter = (ix2 - ix1) * (iy2 - iy1)
-        area_a = w1 * h1
-        area_b = w2 * h2
-        union = area_a + area_b - inter
-        return inter / union if union > 0 else 0.0
-
-    def _match_det_to_track(self, det_bbox: List[float], tracks: List[Any]) -> Optional[int]:
-        """Return track_id of the track with best IoU to this detection, or None."""
-        if not tracks:
-            return None
-        best_id, best_iou = None, 0.0
-        for t in tracks:
-            tid = getattr(t, "track_id", None)
-            tbox = getattr(t, "bbox", None)
-            if tid is None or tbox is None or len(tbox) < 4:
-                continue
-            iou = self._iou(det_bbox, tbox)
-            if iou > best_iou:
-                best_iou, best_id = iou, tid
-        return best_id if best_iou >= 0.3 else None
-
-    @staticmethod
-    def _parse_keywords(value: str) -> Tuple[str, ...]:
-        return tuple(k.strip().lower() for k in str(value or "").split(",") if k.strip())
-
-    @staticmethod
-    def _zone_matches(zone: str, keywords: Tuple[str, ...]) -> bool:
-        z = str(zone or "").lower()
-        return bool(z) and any(k in z for k in keywords)
-
-    def _infer_camera_role(self, camera_id: int, zone: Optional[str] = None, source: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Infer camera role for automatic model routing. This keeps large stores
-        manageable: operators can provide rough names, and the pipeline picks
-        the cheapest useful model policy.
-        """
-        z = str(zone if zone is not None else self._camera_zones.get(camera_id, "default"))
-        src = str(source if source is not None else self._camera_sources.get(camera_id, ""))
-        text = f"{z} {src}".lower()
-
-        def has(keywords: Tuple[str, ...]) -> bool:
-            return any(k in text for k in keywords)
-
-        role = "general"
-        confidence = 0.45
-        if has(self._checkout_zone_keywords):
-            role, confidence = "checkout", 0.9
-        elif has(self._shelf_zone_keywords):
-            role, confidence = "shelf", 0.85
-        elif has(self._entrance_zone_keywords):
-            role, confidence = "entrance", 0.8
-        elif has(self._safety_zone_keywords):
-            role, confidence = "safety", 0.75
-
-        modules = {
-            "detector": True,
-            "tracker": True,
-            "crowd": True,
-            "reid": role in {"general", "entrance", "shelf", "checkout"},
-            "fire": True,
-            "emotion": role in {"general", "entrance", "checkout"},
-            "shelf": role == "shelf",
-            "checkout": role == "checkout",
-        }
-        return {
-            "role": role,
-            "confidence": confidence,
-            "zone": z,
-            "modules": modules,
-            "reason": f"auto_role:{role}" if self._auto_camera_roles else "auto_role_disabled",
-        }
-
-    def _camera_policy(self, camera_id: int, zone: str, has_people: bool) -> Dict[str, Any]:
-        if self._auto_camera_roles:
-            role = self._camera_roles.get(camera_id) or self._infer_camera_role(camera_id, zone)
-        else:
-            role = {
-                "role": "manual",
-                "confidence": 1.0,
-                "zone": zone,
-                "reason": "auto_role_disabled",
-                "modules": {
-                    "detector": True,
-                    "tracker": True,
-                    "crowd": True,
-                    "reid": True,
-                    "fire": True,
-                    "emotion": True,
-                    "shelf": True,
-                    "checkout": True,
-                },
-            }
-        policy = dict(role)
-        modules = dict(policy.get("modules") or {})
-        modules["reid"] = bool(self._camera_reid_enabled.get(camera_id, True))
-        policy["modules"] = modules
-        policy["reid_enabled"] = bool(self._camera_reid_enabled.get(camera_id, True))
-        policy["has_people"] = has_people
-        return policy
-
-    def _module_decision(
-        self,
-        module: str,
-        frame_num: int,
-        has_people: bool,
-        zone: str = "default",
-        interval: int = 1,
-        zone_required: bool = False,
-        zone_keywords: Tuple[str, ...] = (),
-        idle_interval: Optional[int] = None,
-    ) -> Tuple[bool, str]:
-        if not self._adaptive_gating:
-            return True, "adaptive_gating_disabled"
-        if zone_required and not self._zone_matches(zone, zone_keywords):
-            return False, f"{module}:zone_not_relevant"
-        if not has_people and idle_interval is None:
-            return False, f"{module}:idle_no_people"
-        cadence = idle_interval if not has_people and idle_interval else interval
-        if frame_num % max(1, cadence) != 0:
-            return False, f"{module}:cadence_wait_{cadence}"
-        return True, f"{module}:scheduled"
-
-    def _reid_candidate_score(self, det: Dict[str, Any], cam_id: int, frame_shape: Tuple[int, ...]) -> float:
-        bbox = det.get("bbox") or []
-        if len(bbox) < 4:
-            return -1.0
-        _, frame_w = frame_shape[:2]
-        x, y, w, h = [float(v) for v in bbox[:4]]
-        area = max(0.0, w * h)
-        frame_area = max(1.0, float(frame_shape[0] * frame_w))
-        aspect_ok = 0.0 if h <= 0 else min(1.0, max(0.0, h / max(w, 1.0)) / 2.2)
-        stable_track = 1.0 if det.get("track_id") is not None else 0.0
-        known_track = 1.0 if (cam_id, det.get("track_id")) in self._last_global_by_track else 0.0
-        confidence = float(det.get("confidence", 0.0))
-        age = min(float(det.get("_track_age", 0) or 0), 20.0) / 20.0
-        center_bonus = 1.0 - min(1.0, abs((x + w / 2.0) - frame_w / 2.0) / max(frame_w / 2.0, 1.0))
-        size_score = min(1.0, area / frame_area * 12.0)
-        return (
-            known_track * 5.0
-            + stable_track * 2.0
-            + age * 1.5
-            + confidence * 1.2
-            + size_score
-            + aspect_ok * 0.6
-            + center_bonus * 0.25
-        )
-
-    def _crop_for_reid(self, frame: np.ndarray, bbox: List[float]) -> Optional[np.ndarray]:
-        if len(bbox) < 4:
-            return None
-        h_frame, w_frame = frame.shape[:2]
-        x, y, w, h = [int(v) for v in bbox[:4]]
-        if h < settings.REID_MIN_CROP_HEIGHT or w <= 0:
-            return None
-        if h / max(float(w), 1.0) < 1.15:
-            return None
-        pad_x = max(2, int(w * 0.04))
-        pad_y = max(2, int(h * 0.03))
-        x1 = max(0, x - pad_x)
-        y1 = max(0, y - pad_y)
-        x2 = min(w_frame, x + w + pad_x)
-        y2 = min(h_frame, y + h + pad_y)
-        if x2 <= x1 or y2 <= y1:
-            return None
-        crop = frame[y1:y2, x1:x2]
-        return crop if crop.size else None
-
-    def _find_recent_reid_match(
-        self,
-        cam_id: int,
-        track_id: Optional[int],
-        bbox: List[float],
-        embedding: np.ndarray,
-        timestamp: float,
-    ) -> Optional[Dict[str, Any]]:
-        cutoff = timestamp - settings.REID_RECENT_MEMORY_SECONDS
-        best: Optional[Dict[str, Any]] = None
-        best_score = -1.0
-        for entry in self._recent_reid_memory:
-            if entry.get("camera_id") != cam_id or entry.get("timestamp", 0.0) < cutoff:
-                continue
-            entry_emb = entry.get("embedding")
-            if entry_emb is None:
-                continue
-            sim = self.reid.compute_similarity(embedding, entry_emb)
-            iou = self._iou(bbox, entry.get("bbox") or [])
-            center = self._center_distance_ratio(bbox, entry.get("bbox") or [])
-            age = max(0.0, timestamp - float(entry.get("timestamp", timestamp)))
-            same_track = track_id is not None and entry.get("track_id") == track_id
-            spatial_ok = same_track or iou >= 0.04 or center <= 0.28
-            if not spatial_ok:
-                continue
-            if sim < settings.REID_RECENT_MATCH_THRESHOLD:
-                continue
-            score = sim + max(0.0, 0.08 - age * 0.004) + min(iou, 0.2)
-            if score > best_score:
-                best_score = score
-                best = {
-                    "global_id": entry.get("global_id"),
-                    "similarity": sim,
-                    "iou": iou,
-                    "age": age,
-                    "source": "recent_same_camera",
-                }
-        return best
-
-    @staticmethod
-    def _center_distance_ratio(a: List[float], b: List[float]) -> float:
-        if len(a) < 4 or len(b) < 4:
-            return 1.0
-        ax, ay, aw, ah = [float(v) for v in a[:4]]
-        bx, by, bw, bh = [float(v) for v in b[:4]]
-        acx, acy = ax + aw / 2.0, ay + ah / 2.0
-        bcx, bcy = bx + bw / 2.0, by + bh / 2.0
-        scale = max(aw, ah, bw, bh, 1.0)
-        return float(((acx - bcx) ** 2 + (acy - bcy) ** 2) ** 0.5 / scale)
-
-    def _remember_reid(
-        self,
-        cam_id: int,
-        track_id: Optional[int],
-        global_id: str,
-        bbox: List[float],
-        embedding: np.ndarray,
-        timestamp: float,
-    ) -> None:
-        self._recent_reid_memory.append({
-            "camera_id": cam_id,
-            "track_id": track_id,
-            "global_id": global_id,
-            "bbox": [float(v) for v in bbox[:4]],
-            "embedding": embedding.astype(np.float32),
-            "timestamp": timestamp,
-        })
-        cutoff = timestamp - settings.REID_RECENT_MEMORY_SECONDS
-        max_items = max(128, self.max_cameras * self._max_reid_per_frame * 8)
-        self._recent_reid_memory = [
-            e for e in self._recent_reid_memory[-max_items:]
-            if e.get("timestamp", 0.0) >= cutoff
-        ]
-
-    @staticmethod
-    def _identity_claimed_by_other(
-        global_id: Optional[str],
-        track_key: Optional[Tuple[int, int]],
-        frame_identity_claims: Optional[Dict[str, Optional[Tuple[int, int]]]],
-    ) -> bool:
-        if not global_id or not frame_identity_claims or global_id not in frame_identity_claims:
-            return False
-        return frame_identity_claims.get(global_id) != track_key
-
-    def _assign_global_id(
-        self,
-        cam_id: int,
-        track_id: Optional[int],
-        bbox: List[float],
-        embedding: np.ndarray,
-        timestamp: float,
-        quality_score: float = 1.0,
-        frame_identity_claims: Optional[Dict[str, Optional[Tuple[int, int]]]] = None,
-    ) -> Tuple[str, str, float]:
-        """
-        Assign a global identity with enterprise-grade persistence:
-        1. Stable track: if this (cam, track) already has a global_id, keep it
-           unless a much stronger match is found (hysteresis prevents flicker).
-        2. Recent same-camera memory: short-term reactivation after occlusion.
-        3. Gallery search: cross-camera matching via centroid-first screening.
-        4. Disappeared persons pool: blind-spot recovery for up to REID_BLIND_SPOT_TIMEOUT_S.
-        5. New identity: only created when all above fail.
-        """
-        key = (cam_id, int(track_id)) if track_id is not None else None
-        prev_global = self._last_global_by_track.get(key) if key else None
-        matches = self.reid.search_gallery(embedding, top_k=3)
-
-        if prev_global and not self._identity_claimed_by_other(prev_global, key, frame_identity_claims):
-            prev_score = self.reid.best_similarity_for_id(prev_global, embedding)
-            best_other = next(
-                (
-                    m for m in matches
-                    if m.get("id") != prev_global
-                    and not self._identity_claimed_by_other(m.get("id"), key, frame_identity_claims)
-                ),
-                None,
-            )
-            if (
-                best_other
-                and best_other.get("similarity", 0.0) >= self.reid.similarity_threshold + 0.04
-                and best_other.get("similarity", 0.0) >= prev_score + settings.REID_STRONG_SWITCH_MARGIN
-            ):
-                gid = best_other["id"]
-                sim = float(best_other.get("similarity", 0.0))
-                if sim < 0.92:
-                    self.reid.add_embedding_to_id(
-                        gid, embedding, camera_id=cam_id,
-                        timestamp=timestamp, quality_score=quality_score, bbox=bbox,
-                    )
-                # Remove from disappeared pool if re-found
-                self._disappeared_pool.pop(gid, None)
-                return gid, "gallery_strong_switch", sim
-            self.reid.add_embedding_to_id(
-                prev_global, embedding, camera_id=cam_id,
-                timestamp=timestamp, quality_score=quality_score, bbox=bbox,
-            )
-            # Remove from disappeared pool — this person is actively tracked
-            self._disappeared_pool.pop(prev_global, None)
-            return prev_global, "stable_track", prev_score
-
-        recent = self._find_recent_reid_match(cam_id, track_id, bbox, embedding, timestamp)
-        if recent and recent.get("global_id"):
-            gid = str(recent["global_id"])
-            if not self._identity_claimed_by_other(gid, key, frame_identity_claims):
-                self.reid.add_embedding_to_id(
-                    gid, embedding, camera_id=cam_id,
-                    timestamp=timestamp, quality_score=quality_score, bbox=bbox,
-                )
-                self._disappeared_pool.pop(gid, None)
-                return gid, recent.get("source", "recent_same_camera"), float(recent.get("similarity", 0.0))
-
-        for match in matches:
-            gid = match["id"]
-            if self._identity_claimed_by_other(gid, key, frame_identity_claims):
-                continue
-            sim = float(match.get("similarity", 0.0))
-            if sim < 0.92:
-                self.reid.add_embedding_to_id(
-                    gid, embedding, camera_id=cam_id,
-                    timestamp=timestamp, quality_score=quality_score, bbox=bbox,
-                )
-            self._disappeared_pool.pop(gid, None)
-            return gid, "gallery", sim
-
-        # ── Blind-spot recovery: check disappeared persons pool ──
-        pool_match = self._search_disappeared_pool(embedding, timestamp)
-        if pool_match:
-            gid = pool_match["global_id"]
-            if not self._identity_claimed_by_other(gid, key, frame_identity_claims):
-                sim = pool_match["similarity"]
-                self.reid.add_embedding_to_id(
-                    gid, embedding, camera_id=cam_id,
-                    timestamp=timestamp, quality_score=quality_score, bbox=bbox,
-                )
-                self._disappeared_pool.pop(gid, None)
-                logger.debug(
-                    f"Blind-spot recovery: {gid} re-identified on cam {cam_id} "
-                    f"(sim={sim:.3f}, gone {timestamp - pool_match.get('last_seen', 0):.1f}s)"
-                )
-                return gid, "blind_spot_recovery", sim
-
-        gid = f"PERSON-{self.global_state.total_persons_tracked:05d}"
-        while gid in self.reid._identities or (
-            frame_identity_claims is not None and gid in frame_identity_claims
-        ):
-            self.global_state.total_persons_tracked += 1
-            gid = f"PERSON-{self.global_state.total_persons_tracked:05d}"
-        self.reid.add_to_gallery(
-            gid, embedding, camera_id=cam_id,
-            timestamp=timestamp, quality_score=quality_score, bbox=bbox,
-        )
-        self.global_state.total_persons_tracked += 1
-        return gid, "new_identity", 0.0
-
-    def _search_disappeared_pool(
-        self,
-        query: np.ndarray,
-        timestamp: float,
-    ) -> Optional[Dict[str, Any]]:
-        """
-        Search the disappeared persons pool for blind-spot recovery.
-        Uses a slightly relaxed threshold (0.05 lower) since appearance may
-        have changed slightly during the blind-spot period.
-        """
-        if not self._disappeared_pool:
-            return None
-
-        relaxed_th = self.reid.similarity_threshold - 0.05
-        best: Optional[Dict[str, Any]] = None
-        best_sim = relaxed_th
-
-        expired = []
-        for gid, entry in self._disappeared_pool.items():
-            # Check expiry
-            age = timestamp - entry.get("last_seen", 0.0)
-            if age > self._blind_spot_timeout:
-                expired.append(gid)
-                continue
-
-            emb = entry.get("embedding")
-            if emb is None:
-                continue
-            sim = float(np.dot(query, emb))
-            if sim > best_sim:
-                best_sim = sim
-                best = {
-                    "global_id": gid,
-                    "similarity": sim,
-                    "last_seen": entry.get("last_seen", 0.0),
-                    "last_camera_id": entry.get("last_camera_id"),
-                }
-
-        # Clean expired entries
-        for gid in expired:
-            self._disappeared_pool.pop(gid, None)
-
-        return best
-
-    def _update_disappeared_pool(self, timestamp: float) -> None:
-        """
-        Move tracked persons who haven't been seen recently into the
-        disappeared pool for blind-spot recovery. Called at end of each tick.
-        """
-        disappeared_after = 5.0  # seconds without seeing before marking disappeared
-
-        # Collect currently active global_ids from this tick's results
-        active_gids = set()
-        for r in self._results_buffer.values():
-            for match in getattr(r, "reid_matches", []) or []:
-                gid = match.get("global_id")
-                if gid:
-                    active_gids.add(gid)
-
-        # Check all known identities in the gallery
-        for gid, identity in self.reid._identities.items():
-            if gid in active_gids:
-                # Still visible — remove from disappeared pool if there
-                self._disappeared_pool.pop(gid, None)
-                continue
-            if gid in self._disappeared_pool:
-                continue  # Already in pool
-
-            # Check if this identity has gone silent
-            time_since = timestamp - identity.last_seen
-            if time_since >= disappeared_after and identity.centroid is not None:
-                self._disappeared_pool[gid] = {
-                    "global_id": gid,
-                    "embedding": identity.centroid.copy(),
-                    "last_seen": identity.last_seen,
-                    "last_camera_id": identity.last_camera_id,
-                    "last_bbox": list(identity.last_bbox),
-                }
-
-        # Evict expired entries from pool
-        expired = [
-            gid for gid, entry in self._disappeared_pool.items()
-            if (timestamp - entry.get("last_seen", 0.0)) > self._blind_spot_timeout
-        ]
-        for gid in expired:
-            self._disappeared_pool.pop(gid, None)
-
-    @staticmethod
-    def _set_model_status(
-        result: CameraResult,
-        module: str,
-        ran: bool,
-        reason: str,
-        extra: Optional[Dict[str, Any]] = None,
-    ) -> None:
-        payload = {"ran": bool(ran), "reason": reason}
-        if extra:
-            payload.update(extra)
-        result.model_status[module] = payload
-
-    # ─────────────────────────────────────────────────────────────
-    # CALLBACKS (for WebSocket push, DB persistence, etc.)
-    # ─────────────────────────────────────────────────────────────
-
-    def on_results(self, callback: Callable):
-        """
-        Register a callback that fires after each processing cycle.
-        
-        The callback receives:
-          callback(results: Dict[int, CameraResult], global_state: GlobalState)
-        
-        Use this to:
-          - Push results to WebSocket for live dashboard
-          - Save detections to database
-          - Trigger alerts (fire, overcrowding)
-        """
-        if callback not in self._callbacks:
-            self._callbacks.append(callback)
-
-    def warm_reid_gallery(self, gallery_rows: List[Dict[str, Any]]) -> int:
-        """
-        Pre-load the global Re-ID gallery with rows from pgvector (survives restart).
-        Each row: {"global_id": str, "vector": List[float]}.
-        Returns the number of embeddings loaded.
-        """
-        loaded = 0
-        for row in gallery_rows or []:
-            try:
-                gid = row.get("global_id")
-                vec = row.get("vector")
-                if not gid or not vec:
-                    continue
-                arr = np.asarray(vec, dtype=np.float32)
-                norm = np.linalg.norm(arr)
-                if norm > 0:
-                    arr = arr / norm
-                self.reid.add_to_gallery(
-                    gid, arr,
-                    camera_id=int(row.get("camera_id") or -1),
-                    timestamp=float(row.get("timestamp") or 0.0),
-                    quality_score=float(row.get("confidence") or 0.5),
-                )
-                loaded += 1
-            except Exception:
-                continue
-        # Seed the global counter so new IDs don't collide with persisted ones
-        max_suffix = 0
-        for gid in self.reid._identities:
-            try:
-                if gid.startswith("PERSON-"):
-                    n = int(gid.split("-")[-1])
-                    if n > max_suffix:
-                        max_suffix = n
-            except Exception:
-                continue
-        if max_suffix >= self.global_state.total_persons_tracked:
-            self.global_state.total_persons_tracked = max_suffix + 1
-        gallery_stats = self.reid.get_gallery_stats()
-        logger.info(
-            f"Re-ID gallery warmed: {loaded} embeddings across "
-            f"{gallery_stats['total_identities']} identities, "
-            f"counter seeded at {self.global_state.total_persons_tracked}"
-        )
-        return loaded
-
+    # ── Re-ID gallery hooks used by persistence ─────────────────────
     def get_and_clear_pending_embeddings(self) -> List[Dict[str, Any]]:
-        """
-        Atomically drain the pending embeddings buffer.
-        Called by PersistencePipelineCallback to ship Re-ID embeddings to pgvector.
-        """
-        with self._pending_embeddings_lock:
-            drained = self._pending_embeddings
-            self._pending_embeddings = []
-        return drained
+        return self.coordinator.drain_vectors()
 
-    def record_journey_leg(self, global_id: str, camera_id: int, zone: str, started_at: float) -> None:
-        """Store the first-seen time for a (global_id, camera, zone) leg so persistence can compute dwell."""
-        key = (global_id, camera_id, zone)
-        self._journey_leg_start.setdefault(key, started_at)
+    def get_dirty_identities(self) -> List[Dict[str, Any]]:
+        return self.coordinator.drain_dirty_identities()
 
-    def on_lifecycle(self, hook: Callable[[str, Dict[str, Any]], Any]):
-        """Subscribe to pipeline lifecycle events (start/stop/camera_added/camera_removed)."""
-        if hook not in self._lifecycle_hooks:
-            self._lifecycle_hooks.append(hook)
-
-    async def _run_callbacks(self, results: Dict[int, CameraResult], global_state: GlobalState):
-        for cb in self._callbacks:
-            try:
-                if asyncio.iscoroutinefunction(cb):
-                    await asyncio.wait_for(
-                        cb(results, global_state),
-                        timeout=self._callback_timeout,
-                    )
-                else:
-                    cb(results, global_state)
-            except asyncio.TimeoutError:
-                logger.warning(
-                    f"Callback timed out after {self._callback_timeout:.2f}s: {cb}"
-                )
-            except Exception as e:
-                logger.error(f"Callback error: {e}")
-
-    async def _callback_worker(self):
-        while self.state in {PipelineState.STARTING, PipelineState.RUNNING}:
-            try:
-                if self._callback_queue is None:
-                    await asyncio.sleep(0.1)
-                    continue
-                results, global_state = await self._callback_queue.get()
-                try:
-                    await self._run_callbacks(results, global_state)
-                finally:
-                    self._callback_queue.task_done()
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.debug(f"Callback worker error: {e}")
-
-    async def _emit_lifecycle(self, event: str, payload: Dict[str, Any]):
-        for hook in self._lifecycle_hooks:
-            try:
-                if asyncio.iscoroutinefunction(hook):
-                    await hook(event, payload)
-                else:
-                    hook(event, payload)
-            except Exception as e:
-                logger.debug(f"Lifecycle hook failed for {event}: {e}")
-
-    # ─────────────────────────────────────────────────────────────
-    # MAIN PROCESSING LOOP
-    # ─────────────────────────────────────────────────────────────
-
-    async def start(self):
-        """Start the synchronized multi-camera processing pipeline."""
-        if self.state == PipelineState.RUNNING:
-            logger.warning("Pipeline already running")
-            return
-        if self.state == PipelineState.STARTING:
-            return
-        if self.stream_manager.total_count <= 0:
-            self.state = PipelineState.IDLE
-            logger.warning("Pipeline start skipped: no cameras registered")
-            return
-
-        self.state = PipelineState.STARTING
-        logger.info("🚀 Starting multi-camera pipeline...")
-
-        # Start all camera streams
-        started = self.stream_manager.start_all()
-        logger.info(f"   Started {started} camera streams")
-
-        # Wait for cameras to connect
-        await asyncio.sleep(1.0)
-
-        # Start main processing loop
-        self.state = PipelineState.RUNNING
-        self._callback_queue = asyncio.Queue(maxsize=settings.PIPELINE_RESULT_QUEUE_MAXSIZE)
-        self._callback_worker_task = asyncio.create_task(self._callback_worker())
-        self._processing_task = asyncio.create_task(self._processing_loop())
-        await self._emit_lifecycle("pipeline_started", {
-            "cameras": self.stream_manager.total_count,
-            "target_fps": self.processing_fps,
-        })
-        logger.info("✅ Pipeline running — processing all cameras in sync")
-
-    async def stop(self):
-        """Stop the pipeline gracefully."""
-        if self.state not in {PipelineState.STARTING, PipelineState.RUNNING, PipelineState.ERROR}:
-            return
-
-        self.state = PipelineState.STOPPING
-        logger.info("🛑 Stopping pipeline...")
-
-        if self._processing_task:
-            self._processing_task.cancel()
-            try:
-                await self._processing_task
-            except asyncio.CancelledError:
-                pass
-        if self._callback_worker_task:
-            self._callback_worker_task.cancel()
-            try:
-                await self._callback_worker_task
-            except asyncio.CancelledError:
-                pass
-            self._callback_worker_task = None
-        self._callback_queue = None
-
-        for cid in list(self._recorders.keys()):
-            self._stop_recording_impl(cid)
-        self.stream_manager.stop_all()
-        self.state = PipelineState.IDLE
-        await self._emit_lifecycle("pipeline_stopped", {
-            "total_persons_tracked": self.global_state.total_persons_tracked,
-            "total_detections": self._total_detections,
-        })
-        logger.info("Pipeline stopped")
-
-    async def _processing_loop(self):
-        """
-        Single loop for ALL cameras — not independent. Each tick:
-          1. Grab latest frame from EVERY camera
-          2. Detection + tracking per camera
-          3. GLOBAL Re-ID: one shared gallery; same person on Cam 1 and Cam 2 gets same global_id
-          4. Analytics, Store Vibe, callbacks
-        """
-        interval = 1.0 / max(self.processing_fps, 1)
-
-        while self.state == PipelineState.RUNNING:
-            tick_start = time.time()
-
-            try:
-                # Step 1: Grab frames from ALL cameras simultaneously
-                frames = {}
-                for cam_id in list(self._frame_counts.keys()):
-                    result = await self.stream_manager.get_frame_async(cam_id)
-                    if result:
-                        frames[cam_id] = result  # (frame, timestamp)
-
-                if not frames:
-                    await asyncio.sleep(0.1)
-                    continue
-
-                # Step 2-6: Process all frames
-                cycle_results = await self._process_synchronized_frames(frames)
-
-                # Step 7: hand off callbacks to a bounded worker so DB/WS/plugin
-                # latency cannot stall camera processing.
-                if self._callback_queue is not None:
-                    try:
-                        self._callback_queue.put_nowait((cycle_results, self.global_state))
-                    except asyncio.QueueFull:
-                        self._callback_dropped += 1
-                        logger.warning("Pipeline callback queue full; dropping one result cycle")
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(f"Pipeline processing error: {e}")
-                self.global_state.last_updated = time.time()
-
-            # Maintain target processing FPS
-            elapsed = time.time() - tick_start
-            sleep_time = max(0, interval - elapsed)
-            if sleep_time > 0:
-                await asyncio.sleep(sleep_time)
-
-    async def _process_synchronized_frames(
-        self, frames: Dict[int, tuple]
-    ) -> Dict[int, CameraResult]:
-        """
-        Process a synchronized batch of frames from all cameras.
-        
-        This is where the multi-camera magic happens:
-          - Detection & tracking are per-camera
-          - Re-ID gallery is GLOBAL (shared across all cameras)
-          - Analytics modules can see all cameras at once
-        """
-        results = {}
-        all_detections = {}
-        all_tracks = {}
-
-        process_start = time.time()
-
-        # ── PHASE 1: Detection + Tracking (bounded per-camera concurrency) ──
-        camera_limit = min(self._camera_processor_limit, max(1, len(frames)))
-        camera_sem = asyncio.Semaphore(camera_limit)
-
-        async def process_camera_detection(cam_id: int, frame: np.ndarray, timestamp: float):
-            async with camera_sem:
-                self._frame_counts[cam_id] = self._frame_counts.get(cam_id, 0) + 1
-                frame_num = self._frame_counts[cam_id]
-
-                camera_models = self._camera_models.get(cam_id, (self._detector_model,))
-                norm_dets = await asyncio.to_thread(self._detect_with_models, frame, camera_models)
-                tracker = self._trackers.get(cam_id)
-                if tracker is None:
-                    tracker = MultiObjectTracker(
-                        model_path=camera_models[0],
-                        use_model=False,
-                    )
-                    self._trackers[cam_id] = tracker
-                tracker_mode = self._camera_tracker_modes.get(cam_id, "bytetrack")
-                if tracker_mode == "bytetrack":
-                    tracks = tracker.update_from_detections(norm_dets)
-                    tracker_backend = getattr(tracker, "last_backend", "iou_fallback")
-                    tracker_reason = (
-                        "tracker:bytetrack_detections"
-                        if tracker_backend == "bytetrack"
-                        else "tracker:iou_fallback"
-                    )
-                else:
-                    tracks = tracker.update_from_detections(norm_dets)
-                    tracker_backend = "iou_fallback"
-                    tracker_reason = "tracker:iou_fallback"
-                tracks_by_id = {getattr(t, "track_id", None): t for t in tracks}
-
-                for det in norm_dets:
-                    bbox = det.get("bbox") or []
-                    tid = self._match_det_to_track(bbox, tracks) if len(bbox) >= 4 else None
-                    det["track_id"] = tid
-                    track = tracks_by_id.get(tid)
-                    if track:
-                        det["_track_age"] = getattr(track, "age", 0)
-                        det["_track_hits"] = getattr(track, "hits", 1)
-
-                return cam_id, frame_num, timestamp, norm_dets, tracks, tracker_reason
-
-        phase1 = await asyncio.gather(
-            *[
-                process_camera_detection(cam_id, frame, timestamp)
-                for cam_id, (frame, timestamp) in frames.items()
-            ],
-            return_exceptions=True,
+    def warm_reid_gallery(self, rows: List[Dict[str, Any]]) -> int:
+        info = self.coordinator.warm(rows)
+        logger.info(
+            f"Re-ID gallery warm start: {info['identities']} identities restored from {info['rows']} embedding rows "
+            f"(next ID counter {info['counter']})"
         )
-        for item in phase1:
-            if isinstance(item, Exception):
-                logger.debug(f"Camera detection phase failed: {item}")
-                continue
-            cam_id, frame_num, timestamp, norm_dets, tracks, tracker_reason = item
-            all_tracks[cam_id] = tracks
-            all_detections[cam_id] = norm_dets
-            self._total_detections += len(norm_dets)
-            results[cam_id] = CameraResult(
-                camera_id=cam_id,
-                timestamp=timestamp,
-                frame_number=frame_num,
-                detections=norm_dets,
-                tracks=tracks,
-            )
-            self._set_model_status(
-                results[cam_id],
-                "detector",
-                True,
-                "detector:base_layer",
-                {
-                    "detections": len(norm_dets),
-                    "model_mode": "ensemble" if len(self._camera_models.get(cam_id, (self._detector_model,))) > 1 else "single",
-                    "models": list(self._camera_models.get(cam_id, (self._detector_model,))),
-                },
-            )
-            self._set_model_status(
-                results[cam_id],
-                "tracker",
-                True,
-                tracker_reason,
-                {
-                    "tracks": len(tracks),
-                    "mode": tracker_reason.replace("tracker:", ""),
-                    "backend": tracker_backend,
-                    "error": getattr(self._trackers.get(cam_id), "last_error", None),
-                },
-            )
+        self.global_state.total_persons_tracked = int(self.coordinator.gallery.counter)
+        return int(info["identities"])
 
-        # ── PHASE 2: Cross-Camera Re-ID (GLOBAL gallery) ──
-        # Body-based matching (works when face not visible). Multi-view: we store several
-        # embeddings per identity and use best similarity. Temporal consistency: same
-        # (camera, track) keeps same global_id to avoid flicker when pose changes.
-        # Each produced embedding is queued for pgvector persistence (drained by the
-        # PersistencePipelineCallback each tick).
-        #
-        # IMPORTANT: Cameras are processed in DETERMINISTIC order (sorted by cam_id)
-        # to prevent race conditions where two cameras create different global_ids
-        # for the same person in the same tick. Earlier cameras' assignments are
-        # visible to later cameras via the shared gallery.
-        new_embeddings: List[Dict[str, Any]] = []
-        sorted_cam_ids = sorted(frames.keys())
-        for cam_id in sorted_cam_ids:
-            if cam_id not in frames:
-                continue
-            frame, timestamp = frames[cam_id]
-            frame_num = self._frame_counts.get(cam_id, 0)
-            reid_candidates = all_detections.get(cam_id, [])
-            reid_candidates = [
-                d for d in reid_candidates
-                if str(d.get("class_name", "")).lower() == "person"
-                and d.get("track_id") is not None
-                and float(d.get("confidence", 0.0) or 0.0) >= 0.45
-                and int(d.get("_track_hits", 0) or 0) >= 2
-            ]
-            zone = self._camera_zones.get(cam_id, "default")
-            reid_policy = self._camera_policy(cam_id, zone, bool(reid_candidates))
-            if not reid_policy.get("modules", {}).get("reid", True):
-                if results.get(cam_id):
-                    self._set_model_status(
-                        results[cam_id],
-                        "reid",
-                        False,
-                        f"reid:disabled_by_camera_role:{reid_policy.get('role')}",
-                    )
-                continue
-            if results.get(cam_id):
-                self._set_model_status(
-                    results[cam_id],
-                    "reid",
-                    False,
-                    "reid:idle_no_people" if not reid_candidates else "reid:pending_candidate_filter",
-                )
-            reid_candidates = sorted(
-                reid_candidates,
-                key=lambda d: self._reid_candidate_score(d, cam_id, frame.shape),
-                reverse=True,
-            )
-            if self._max_reid_per_frame:
-                # In ensemble mode, prefer high-agreement detections instead of
-                # hard-capping at 2. The ensemble NMS already filtered noise.
-                is_ensemble = len(self._camera_models.get(cam_id, ())) > 1
-                if is_ensemble:
-                    # Sort by ensemble agreement (high-agreement first), then by score
-                    reid_candidates.sort(
-                        key=lambda d: (
-                            d.get("ensemble_agreement", 1),
-                            self._reid_candidate_score(d, cam_id, frame.shape),
-                        ),
-                        reverse=True,
-                    )
-                reid_candidates = reid_candidates[:self._max_reid_per_frame]
+    @property
+    def _latest_vibe(self) -> Optional[Dict[str, Any]]:
+        return self.engine.latest_vibe()
 
-            camera_identity_claims: Dict[str, Optional[Tuple[int, int]]] = {}
-            prepared: List[Tuple[Dict[str, Any], List[float], Optional[Tuple[int, int]], Optional[str], np.ndarray]] = []
-            for det in reid_candidates:
-                try:
-                    bbox = det.get("bbox") or []
-                    if len(bbox) < 4:
-                        continue
-                    track_id = det.get("track_id")
-                    key = (cam_id, int(track_id)) if track_id is not None else None
-                    prev_global = self._last_global_by_track.get(key) if key else None
-                    last_reid_frame = self._last_reid_frame_by_track.get(key, -10**9) if key else -10**9
-                    should_reid = (
-                        not self._adaptive_gating
-                        or prev_global is None
-                        or (frame_num - last_reid_frame) >= self._reid_interval
-                    )
-                    if not should_reid:
-                        cached_assigned = False
-                        if prev_global and not self._identity_claimed_by_other(
-                            prev_global,
-                            key,
-                            camera_identity_claims,
-                        ):
-                            cached_assigned = True
-                            camera_identity_claims[prev_global] = key
-                            det["global_id"] = prev_global
-                            results[cam_id].reid_matches.append({
-                                "global_id": prev_global,
-                                "camera_id": cam_id,
-                                "track_id": track_id,
-                                "bbox": bbox,
-                                "timestamp": timestamp,
-                                "source": "cached_track",
-                            })
-                        if cached_assigned:
-                            self._set_model_status(
-                                results[cam_id],
-                                "reid",
-                                False,
-                                f"reid:cached_until_{self._reid_interval}_frames",
-                            )
-                            continue
-                    crop = self._crop_for_reid(frame, bbox)
-                    if crop is None:
-                        continue
-                    prepared.append((det, bbox, key, prev_global, crop))
-                except Exception as e:
-                    logger.debug(f"Re-ID candidate prep error cam {cam_id}: {e}")
+    # ── read API ────────────────────────────────────────────────────
+    def get_latest_results(self, camera_id: Optional[int] = None) -> Any:
+        if camera_id is not None:
+            cs = self._cams.get(int(camera_id))
+            return cs.last_result if cs else None
+        return {cam: cs.last_result for cam, cs in self._cams.items() if cs.last_result is not None}
 
-            if not prepared:
-                continue
+    def _model_status(self, cs: _Cam) -> Dict[str, Any]:
+        return {
+            "person_detector": self.detector.name if self.detector else None,
+            "reid": bool(self._reid_ready and cs.enable_reid),
+            "fire": self.fire_model is not None,
+            "product": self.product_model is not None,
+            "emotion": self.emotion is not None,
+        }
 
-            embeddings = await asyncio.to_thread(
-                self.reid.extract_batch,
-                [item[4] for item in prepared],
-            )
-            for (det, bbox, key, _prev_global, _crop), embedding in zip(prepared, embeddings):
-                try:
-                    if embedding is None:
-                        continue
-                    track_id = det.get("track_id")
-                    # Compute quality score from detection confidence + crop aspect
-                    det_conf = float(det.get("confidence", 0.5))
-                    crop_h = float(bbox[3]) if len(bbox) >= 4 else 64
-                    crop_w = float(bbox[2]) if len(bbox) >= 4 else 32
-                    aspect_quality = min(1.0, max(0.0, crop_h / max(crop_w, 1.0)) / 2.5)
-                    q_score = det_conf * 0.6 + aspect_quality * 0.4
-                    global_id, source, sim = self._assign_global_id(
-                        cam_id=cam_id,
-                        track_id=track_id,
-                        bbox=bbox,
-                        embedding=embedding,
-                        timestamp=timestamp,
-                        quality_score=q_score,
-                        frame_identity_claims=camera_identity_claims,
-                    )
-                    if self._identity_claimed_by_other(global_id, key, camera_identity_claims):
-                        logger.debug(
-                            f"Re-ID claim conflict cam={cam_id} track={track_id} global_id={global_id}"
-                        )
-                        continue
-                    camera_identity_claims[global_id] = key
-                    if key:
-                        self._last_global_by_track[key] = global_id
-                        self._last_reid_frame_by_track[key] = frame_num
-                    self._remember_reid(cam_id, track_id, global_id, bbox, embedding, timestamp)
-                    det["global_id"] = global_id
-                    results[cam_id].reid_matches.append({
-                        "global_id": global_id,
-                        "camera_id": cam_id,
-                        "track_id": track_id,
-                        "bbox": bbox,
-                        "timestamp": timestamp,
-                        "source": source,
-                        "similarity": sim,
-                    })
-                    self._set_model_status(
-                        results[cam_id],
-                        "reid",
-                        True,
-                        f"reid:{source}",
-                    )
-                    # Queue for pgvector persistence. Convert to list so we don't
-                    # carry numpy refs across the asyncio boundary.
-                    new_embeddings.append({
-                        "camera_id": cam_id,
-                        "track_id": track_id,
-                        "global_id": global_id,
-                        "embedding": [float(v) for v in embedding.tolist()],
-                        "confidence": float(det.get("confidence", 0.0)),
-                        "bbox": bbox,
-                        "timestamp": timestamp,
-                    })
-                except Exception as e:
-                    logger.debug(f"Re-ID error cam {cam_id}: {e}")
-        if new_embeddings:
-            with self._pending_embeddings_lock:
-                self._pending_embeddings.extend(new_embeddings)
+    def _models_info(self) -> Dict[str, Any]:
+        def spec(m, key):
+            if m is not None:
+                return {"status": "loaded", "model": m.name}
+            return {"status": "error" if key in self._model_errors else "not_loaded", "error": self._model_errors.get(key)}
 
-        # ── PHASE 3: Analytics (parallel across modules) ──
-        for cam_id, (frame, timestamp) in frames.items():
-            dets = all_detections.get(cam_id, [])
-            zone = self._camera_zones.get(cam_id, "default")
-            frame_num = self._frame_counts.get(cam_id, 0)
-            has_people = bool(dets)
-            policy = self._camera_policy(cam_id, zone, has_people)
-            allowed_modules = policy.get("modules", {})
-            self._set_model_status(
-                results[cam_id],
-                "router",
-                True,
-                policy.get("reason", "auto_role"),
-                {
-                    "role": policy.get("role"),
-                    "confidence": policy.get("confidence"),
-                    "allowed_modules": allowed_modules,
-                },
-            )
+        return {
+            "person": ({"status": "loaded", **self.detector.info()} if self.detector else
+                       {"status": "error" if "person" in self._model_errors else "not_loaded",
+                        "model": Path(self._detector_model).name, "error": self._model_errors.get("person")}),
+            "reid": ({"status": "loaded", **self.reid.info()} if self._reid_ready else
+                     {"status": "error" if "reid" in self._model_errors else "not_loaded", "error": self._model_errors.get("reid")}),
+            "fire": spec(self.fire_model, "fire"),
+            "product": spec(self.product_model, "product"),
+            "emotion": ({"status": "loaded"} if self.emotion is not None else
+                        {"status": "error" if "emotion" in self._model_errors else "not_loaded", "error": self._model_errors.get("emotion")}),
+        }
 
-            # Crowd density (always on; cheap)
-            try:
-                crowd_status = self.crowd.update(cam_id, dets)
-                results[cam_id].crowd_status = crowd_status
-                self._set_model_status(results[cam_id], "crowd", True, "crowd:cheap_always_on")
-            except Exception as e:
-                logger.debug(f"Crowd update error cam {cam_id}: {e}")
+    def _camera_health(self, cs: _Cam) -> Dict[str, Any]:
+        s = self.stream_manager.get_stats(cs.camera_id)
+        stream = self.stream_manager._streams.get(cs.camera_id)
+        stages = {}
+        for name, vals in cs.stages.items():
+            if vals:
+                stages[name] = {"p50": _pct(vals, 0.5), "p95": _pct(vals, 0.95), "max": round(max(vals), 1), "n": len(vals)}
+        recent = [m for t, m in cs.errors if t >= time.time() - 60.0]
+        return {
+            "camera_id": cs.camera_id,
+            "zone": cs.zone,
+            "connected": bool(s and s.is_connected),
+            "stream_error": s.error_message if s else None,
+            "last_frame_time": cs.last_frame_ts,
+            "last_frame_age_s": round(time.time() - cs.last_frame_ts, 2) if cs.last_frame_ts else None,
+            "target_fps": round(cs.fps_target * cs.fps_scale, 2),
+            "processed_fps": cs.processed_fps(),
+            "source_fps": stream.source_fps if stream else None,
+            "frames_processed": cs.frames_processed,
+            "frames_read": s.frames_read if s else 0,
+            "frames_dropped": s.frames_dropped if s else 0,
+            "reconnects": s.reconnect_count if s else 0,
+            "active_tracks": cs.confirmed_now,
+            "tracker_buffer_frames": cs.tracker.track_buffer_frames,
+            "reid_enabled": cs.enable_reid,
+            "loop": cs.loop,
+            "finished": cs.finished,
+            "finished_at": cs.finished_at,
+            "loops_completed": s.loops_completed if s else 0,
+            "evidence_ring": cs.ring.stats() if cs.ring is not None else None,
+            "errors_last_min": len(recent),
+            "last_error": recent[-1] if recent else None,
+            "render_skipped": cs.render_skipped,
+            "watched": time.time() - cs.viewer_ts < VIEWER_TTL_S,
+            "stage_latency_ms": stages,
+        }
 
-            # Fire detection (safety-first — always runs)
-            run_fire, fire_reason = self._module_decision(
-                "fire",
-                frame_num,
-                has_people,
-                zone=zone,
-                interval=self._fire_active_interval,
-                idle_interval=self._fire_idle_interval,
-            )
-            if run_fire and allowed_modules.get("fire", True) and self._enable_fire and self.fire_detector:
-                try:
-                    fire_results = await asyncio.to_thread(
-                        self.fire_detector.detect, frame, cam_id, zone
-                    )
-                    results[cam_id].fire_alerts = fire_results
-                    self._set_model_status(
-                        results[cam_id],
-                        "fire",
-                        True,
-                        fire_reason,
-                        {"alerts": len(fire_results)},
-                    )
-                    if fire_results:
-                        self.global_state.fire_alert_active = True
-                        logger.warning(f"FIRE/SMOKE ALERT on Camera {cam_id}!")
-                except Exception as e:
-                    logger.debug(f"Fire detect error cam {cam_id}: {e}")
-            else:
-                self._set_model_status(results[cam_id], "fire", False, fire_reason)
-
-            # Emotion recognition — returns a single summary dict per frame.
-            run_emotion, emotion_reason = self._module_decision(
-                "emotion",
-                frame_num,
-                has_people,
-                zone=zone,
-                interval=self._emotion_interval,
-            )
-            if not allowed_modules.get("emotion", False):
-                run_emotion = False
-                emotion_reason = f"emotion:disabled_by_camera_role:{policy.get('role')}"
-            if run_emotion and allowed_modules.get("emotion", False) and self._enable_emotions and self.emotion:
-                try:
-                    summary = await asyncio.to_thread(
-                        self.emotion.analyze_frame_summary, frame, cam_id, zone
-                    )
-                    results[cam_id].emotions = summary
-                    self._set_model_status(
-                        results[cam_id],
-                        "emotion",
-                        True,
-                        emotion_reason,
-                        {"samples": int(summary.get("sample_count", 0)) if isinstance(summary, dict) else 0},
-                    )
-                except Exception as e:
-                    logger.debug(f"Emotion analyze error cam {cam_id}: {e}")
-            else:
-                self._set_model_status(results[cam_id], "emotion", False, emotion_reason)
-
-            # Shelf analytics (tracks = normalized detections with track_id).
-            run_shelf, shelf_reason = self._module_decision(
-                "shelf",
-                frame_num,
-                has_people,
-                zone=zone,
-                interval=self._shelf_interval,
-                zone_required=True,
-                zone_keywords=self._shelf_zone_keywords,
-            )
-            if not allowed_modules.get("shelf", False):
-                run_shelf = False
-                shelf_reason = f"shelf:disabled_by_camera_role:{policy.get('role')}"
-            if run_shelf and self._enable_shelf and self.shelf_tracker:
-                try:
-                    shelf_data = self.shelf_tracker.update(cam_id, dets, timestamp)
-                    results[cam_id].shelf_data = shelf_data
-                    self._set_model_status(results[cam_id], "shelf", True, shelf_reason)
-                except Exception as e:
-                    logger.debug(f"Shelf update error cam {cam_id}: {e}")
-            else:
-                self._set_model_status(results[cam_id], "shelf", False, shelf_reason)
-
-            # Checkout analytics
-            run_checkout, checkout_reason = self._module_decision(
-                "checkout",
-                frame_num,
-                has_people,
-                zone=zone,
-                interval=self._checkout_interval,
-                zone_required=True,
-                zone_keywords=self._checkout_zone_keywords,
-            )
-            if not allowed_modules.get("checkout", False):
-                run_checkout = False
-                checkout_reason = f"checkout:disabled_by_camera_role:{policy.get('role')}"
-            if run_checkout and self._enable_checkout and self.checkout:
-                try:
-                    checkout_data = self.checkout.update(cam_id, dets, timestamp)
-                    results[cam_id].checkout_data = checkout_data
-                    self._set_model_status(results[cam_id], "checkout", True, checkout_reason)
-                except Exception as e:
-                    logger.debug(f"Checkout update error cam {cam_id}: {e}")
-            else:
-                self._set_model_status(results[cam_id], "checkout", False, checkout_reason)
-
-        # ── PHASE 4: Store Vibe Score (aggregate everything) ──
-        try:
-            total_people = sum(len(d) for d in all_detections.values())
-            sentiment_samples = 0
-            avg_sentiment = 0.0
-            engagement_accum = 0.0
-            engagement_samples = 0
-
-            for r in results.values():
-                if r.emotions and isinstance(r.emotions, dict):
-                    samples = r.emotions.get("sample_count", 0)
-                    sent = r.emotions.get("sentiment_score", 0.0)
-                    if samples:
-                        avg_sentiment += sent
-                        sentiment_samples += 1
-                if r.shelf_data and isinstance(r.shelf_data, dict):
-                    eng = r.shelf_data.get("engagement_score", 0)
-                    if eng:
-                        engagement_accum += eng
-                        engagement_samples += 1
-
-            if sentiment_samples > 0:
-                avg_sentiment /= sentiment_samples
-            avg_engagement = engagement_accum / max(engagement_samples, 1)
-
-            vibe = self.vibe_engine.calculate(
-                sentiment_score=avg_sentiment,
-                crowd_count=total_people,
-                max_capacity=self._total_capacity(),
-                engagement_score=avg_engagement,
-                foot_traffic=total_people,
-            )
-            self.global_state.vibe_score = vibe.get("overall_score", 0)
-            self._latest_vibe = vibe
-        except Exception as e:
-            logger.debug(f"Vibe calc error: {e}")
-
-        # ── PHASE 5: Update global state + blind-spot pool ──
-        self.global_state.last_updated = time.time()
-
-        # Update disappeared persons pool for blind-spot recovery
-        self._update_disappeared_pool(time.time())
-
-        # Zone occupancy from all cameras
-        for cam_id, result in results.items():
-            if result.crowd_status:
-                zone = result.crowd_status.get("zone", f"cam-{cam_id}")
-                count = result.crowd_status.get("person_count", len(result.detections))
-                self.global_state.zone_occupancy[zone] = count
-
-        # Active tracks across all cameras
-        for cam_id, result in results.items():
-            for match in result.reid_matches:
-                self.global_state.active_tracks[match["global_id"]] = {
-                    "camera_id": cam_id,
-                    "last_seen": result.timestamp,
-                    "bbox": match.get("bbox"),
-                }
-
-        # Calculate processing time
-        total_ms = (time.time() - process_start) * 1000
-        for r in results.values():
-            r.processing_time_ms = total_ms / len(results)
-
-        # Draw detections on frames and store JPEGs for live stream (dashboard/CCTV)
-        for cam_id, (frame, _) in frames.items():
-            r = results.get(cam_id)
-            if r and frame is not None:
-                try:
-                    vis = self._draw_annotations(frame.copy(), r)
-                    _, jpeg = cv2.imencode(".jpg", vis)
-                    with self._jpeg_lock:
-                        self._latest_annotated_jpeg[cam_id] = jpeg.tobytes()
-                    # Write to recorder if this camera is recording
-                    rec = self._recorders.get(cam_id)
-                    if rec:
-                        writer, _ = rec
-                        if writer.isOpened():
-                            writer.write(vis)
-                    # Append detection log entry for this frame
-                    log_entry = self._detection_logs.get(cam_id)
-                    if log_entry is not None:
-                        frame_log = {
-                            "frame_number": r.frame_number,
-                            "timestamp": r.timestamp,
-                            "detections": [],
-                        }
-                        for det in r.detections:
-                            d = det if isinstance(det, dict) else self._detection_to_dict(det)
-                            reid_match = next(
-                                (m for m in r.reid_matches if m.get("track_id") == d.get("track_id")),
-                                None
-                            )
-                            frame_log["detections"].append({
-                                "track_id": d.get("track_id"),
-                                "class_name": d.get("class_name", "unknown"),
-                                "confidence": round(d.get("confidence", 0.0), 4),
-                                "bbox": d.get("bbox", []),
-                                "global_id": reid_match.get("global_id") if reid_match else None,
-                                "region": self._camera_zones.get(cam_id, "global"),
-                            })
-                        frame_log["detection_count"] = len(frame_log["detections"])
-                        log_entry["frames"].append(frame_log)
-                except Exception as e:
-                    logger.debug(f"Annotation draw error cam {cam_id}: {e}")
-
-        # Store in buffer for API access
-        self._results_buffer = results
-
-        return results
-
-    # COCO-17 keypoint skeleton edges (Ultralytics pose models)
-    _POSE_SKELETON = [
-        (5, 7), (7, 9), (6, 8), (8, 10),         # arms
-        (11, 13), (13, 15), (12, 14), (14, 16),  # legs
-        (5, 6), (11, 12), (5, 11), (6, 12),      # torso
-        (0, 1), (0, 2), (1, 3), (2, 4),          # face
-        (0, 5), (0, 6),                           # neck-shoulders
-    ]
-    # Colors per joint group (BGR): face=yellow, arms=cyan, legs=magenta, torso=green
-    _POSE_KP_COLORS = {
-        **{i: (0, 255, 255) for i in range(0, 5)},      # face: nose, eyes, ears
-        **{i: (255, 200, 0) for i in [5, 6, 7, 8, 9, 10]},  # arms
-        **{i: (255, 0, 255) for i in [11, 12, 13, 14, 15, 16]},  # legs
-    }
-
-    @staticmethod
-    def _color_for_track(track_id: Optional[int]) -> Tuple[int, int, int]:
-        """Deterministic vivid color (BGR) for a track_id. Same ID -> same color across frames."""
-        if track_id is None:
-            return (0, 255, 0)  # green for untracked
-        # Hash to HSV hue, full saturation/value for visibility
-        hue = (int(track_id) * 47) % 180  # OpenCV hue range: 0-179
-        hsv = np.uint8([[[hue, 220, 255]]])
-        bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)[0][0]
-        return (int(bgr[0]), int(bgr[1]), int(bgr[2]))
-
-    def _draw_pose_skeleton(self, frame: np.ndarray, keypoints: List[List[float]], color: Tuple[int, int, int]):
-        """Draw COCO-17 pose skeleton on frame. keypoints: list of [x, y, conf]."""
-        if not keypoints or len(keypoints) < 17:
-            return
-        kp_thresh = 0.3
-        # Draw bones
-        for a, b in self._POSE_SKELETON:
-            if a >= len(keypoints) or b >= len(keypoints):
-                continue
-            ka, kb = keypoints[a], keypoints[b]
-            if ka[2] < kp_thresh or kb[2] < kp_thresh:
-                continue
-            pa = (int(ka[0]), int(ka[1]))
-            pb = (int(kb[0]), int(kb[1]))
-            cv2.line(frame, pa, pb, color, 2, cv2.LINE_AA)
-        # Draw joints
-        for i, kp in enumerate(keypoints):
-            if kp[2] < kp_thresh:
-                continue
-            cx, cy = int(kp[0]), int(kp[1])
-            joint_color = self._POSE_KP_COLORS.get(i, color)
-            cv2.circle(frame, (cx, cy), 3, joint_color, -1, cv2.LINE_AA)
-            cv2.circle(frame, (cx, cy), 4, (255, 255, 255), 1, cv2.LINE_AA)
-
-    def _draw_annotations(self, frame: np.ndarray, result: "CameraResult") -> np.ndarray:
-        """Draw detection bboxes, per-track colors, labels with class name + track_id, and pose skeleton."""
-        h, w = frame.shape[:2]
-
-        # Build a quick lookup: track_id -> global_id for label suffix
-        gid_by_tid = {m.get("track_id"): m.get("global_id") for m in result.reid_matches if m.get("track_id") is not None}
-
-        for det in result.detections:
-            if hasattr(det, "x"):
-                x, y, bw, bh = int(det.x), int(det.y), int(det.w), int(det.h)
-                conf = float(getattr(det, "confidence", 0))
-                track_id = getattr(det, "track_id", None)
-                class_name = getattr(det, "class_name", "object")
-                keypoints = getattr(det, "keypoints", None)
-            else:
-                bbox = det.get("bbox", det.get("box", []))
-                if len(bbox) < 4:
-                    continue
-                x, y, bw, bh = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
-                conf = float(det.get("confidence", 0))
-                track_id = det.get("track_id")
-                class_name = det.get("class_name", "object")
-                keypoints = det.get("keypoints")
-
-            x, y = max(0, x), max(0, y)
-            color = self._color_for_track(track_id)
-
-            # Bounding box
-            cv2.rectangle(frame, (x, y), (x + bw, y + bh), color, 2)
-
-            # Label: "ClassName #ID  87%"
-            tid_str = f"#{track_id}" if track_id is not None else ""
-            label = f"{class_name} {tid_str} {conf:.0%}".strip()
-
-            # Filled label background for readability
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            font_scale = 0.55
-            thickness = 1
-            (tw, th), baseline = cv2.getTextSize(label, font, font_scale, thickness)
-            label_y = max(th + 6, y)
-            label_bg_top = label_y - th - 6
-            label_bg_bottom = label_y
-            cv2.rectangle(
-                frame,
-                (x, label_bg_top),
-                (x + tw + 8, label_bg_bottom),
-                color, -1
-            )
-            cv2.putText(
-                frame, label, (x + 4, label_y - 4),
-                font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA
-            )
-
-            # Pose skeleton if available
-            if keypoints:
-                self._draw_pose_skeleton(frame, keypoints, color)
-
-            # Global ID below bbox (from Re-ID)
-            gid = gid_by_tid.get(track_id) if track_id is not None else None
-            if gid:
-                cv2.putText(
-                    frame, str(gid), (x, min(h - 5, y + bh + 18)),
-                    font, 0.45, (255, 200, 0), 1, cv2.LINE_AA
-                )
-
-        if result.fire_alerts:
-            cv2.putText(
-                frame, "FIRE ALERT", (10, 30),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2, cv2.LINE_AA
-            )
-        return frame
-
-    def get_latest_annotated_jpeg(self, camera_id: int) -> Optional[bytes]:
-        """Get latest annotated frame as JPEG bytes for MJPEG stream."""
-        with self._jpeg_lock:
-            return self._latest_annotated_jpeg.get(camera_id)
-
-    # ─────────────────────────────────────────────────────────────
-    # STATUS & METRICS
-    # ─────────────────────────────────────────────────────────────
+    def get_health(self) -> Dict[str, Any]:
+        cams = {cam: self._camera_health(cs) for cam, cs in self._cams.items()}
+        errors = sum(c["errors_last_min"] for c in cams.values())
+        disconnected = [c for c, h in cams.items() if not h["connected"] and not h["finished"]]
+        if self.state == PipelineState.ERROR:
+            status = "error"
+        elif self.state != PipelineState.RUNNING:
+            status = "idle"
+        elif cams and all(h["finished"] for h in cams.values()):
+            status = "finished"
+        elif disconnected or errors:
+            status = "degraded"
+        else:
+            status = "ok"
+        return {
+            "status": status,
+            "state": self.state.value,
+            "device": self.device,
+            "target_fps": self.processing_fps,
+            "cameras": cams,
+            "models": self._models_info(),
+            "inference_worker": self._worker.stats() if self._worker else {"alive": False},
+            "reid": {**self.coordinator.snapshot(), "quality_gate": dict(self._reid_gate)},
+            "callbacks": [
+                {"name": getattr(s.fn, "__qualname__", str(s.fn)), "busy_skips": s.busy_skips,
+                 "slow_calls": s.slow_calls, "failures": s.failures, "last_ms": s.last_ms}
+                for s in self._callbacks
+            ],
+            "events": {"buffered": len(self._event_buffer), "persisted": self._events_persisted,
+                       "dropped": self._events_dropped},
+            "memory": dict(self._mem),
+            "timestamp": time.time(),
+        }
 
     def get_status(self) -> Dict[str, Any]:
-        """Get complete pipeline status for dashboard."""
         stream_stats = self.stream_manager.get_all_stats()
-        tracker_backends = {
-            cam_id: getattr(tracker, "last_backend", "uninitialized")
-            for cam_id, tracker in self._trackers.items()
-        }
-        if not self._trackers:
-            tracker_status = "no cameras"
-        elif any(backend == "bytetrack" for backend in tracker_backends.values()):
-            tracker_status = "bytetrack"
-        elif any(getattr(tracker, "byte_tracker", None) is not None for tracker in self._trackers.values()):
-            tracker_status = "bytetrack_ready"
-        else:
-            tracker_status = "iou_fallback"
+        det_name = self.detector.name if self.detector else Path(self._detector_model).name
         return {
             "state": self.state.value,
             "cameras": {
@@ -2125,58 +2088,54 @@ class ProcessingPipeline:
                 "stats": {
                     cam_id: {
                         "connected": s.is_connected,
-                        "fps": s.fps_actual,
+                        "fps": self._cams[cam_id].processed_fps() if cam_id in self._cams else s.fps_actual,
                         "frames_read": s.frames_read,
                         "frames_dropped": s.frames_dropped,
                         "resolution": s.resolution,
                         "uptime": round(s.uptime_seconds, 1),
                         "reconnects": s.reconnect_count,
+                        "loop": self._cams[cam_id].loop if cam_id in self._cams else False,
+                        "finished": bool(s.finished or (cam_id in self._cams and self._cams[cam_id].finished)),
+                        "finished_at": s.finished_at,
+                        "loops_completed": s.loops_completed,
                     }
                     for cam_id, s in stream_stats.items()
                 },
-                "roles": self._camera_roles,
-                "reid_enabled": self._camera_reid_enabled,
-                "tracker_modes": self._camera_tracker_modes,
-                "tracker_backends": tracker_backends,
-                "models": {
-                    cam_id: {
-                        "paths": list(paths),
-                        "mode": "ensemble" if len(paths) > 1 else "single",
-                        "label": self._model_label(paths),
-                    }
-                    for cam_id, paths in self._camera_models.items()
-                },
+                "reid_enabled": {c: cs.enable_reid for c, cs in self._cams.items()},
+                "tracker_modes": {c: "bytetrack" for c in self._cams},
+                "models": {c: {"paths": [det_name], "mode": "single", "label": det_name} for c in self._cams},
             },
             "ai_modules": {
                 "detector": {
-                    "status": "loaded" if any(
-                        getattr(detector, "model", None) is not None
-                        for detector in self._detectors.values()
-                    ) else "idle",
-                    "active_models": sorted(self._active_model_paths()),
-                    "loaded_models": sorted(
-                        model_path
-                        for model_path, detector in self._detectors.items()
-                        if getattr(detector, "model", None) is not None
-                    ),
+                    "status": "loaded" if self.detector else ("error" if "person" in self._model_errors else "idle"),
+                    "active_models": [det_name],
+                    "loaded_models": [det_name] if self.detector else [],
+                    "backend": self.detector.backend if self.detector else None,
+                    "device": self.device,
                 },
-                "tracker": tracker_status,
+                "tracker": "bytetrack",
                 "reid": {
-                    "status": "loaded" if self.reid.model else "mock",
-                    "model": getattr(self.reid, "model_name", "unknown"),
-                    "threshold": getattr(self.reid, "similarity_threshold", None),
-                    "gallery_size": sum(len(i.embeddings) for i in self.reid._identities.values()),
-                    "unique_identities": len(self.reid._identities),
-                    "max_identities": self.reid.max_identities,
-                    "disappeared_pool_size": len(self._disappeared_pool),
-                    "blind_spot_timeout_s": self._blind_spot_timeout,
-                    "enabled_feeds": sum(1 for enabled in self._camera_reid_enabled.values() if enabled),
-                    "gallery_stats": self.reid.get_gallery_stats(),
+                    "status": "loaded" if self._reid_ready else ("error" if "reid" in self._model_errors else "idle"),
+                    "model": self._reid_arch,
+                    "weights": Path(settings.REID_WEIGHTS_PATH).name,
+                    "threshold": self.coordinator.cfg.t_match,
+                    "t_update": self.coordinator.cfg.t_update,
+                    "unique_identities": len(self.coordinator.gallery.identities()),
+                    "max_identities": self.coordinator.cfg.max_identities,
+                    "enabled_feeds": sum(1 for cs in self._cams.values() if cs.enable_reid),
                 },
-                "emotion": "enabled" if self._enable_emotions else "disabled",
-                "fire": "enabled" if self._enable_fire else "disabled",
-                "shelf": "enabled" if self._enable_shelf else "disabled",
-                "checkout": "enabled" if self._enable_checkout else "disabled",
+                "emotion": "enabled" if self.emotion is not None else "disabled",
+                "demographics": {
+                    "status": "enabled" if self.demographics is not None else (
+                        "model_not_installed" if self._model_errors.get("demographics") == "model_not_installed"
+                        else "disabled"),
+                    "open_visits": len(self._demo_visits),
+                    "visits_written": self._demo_written,
+                },
+                "fire": "enabled" if self.fire_model is not None else "disabled",
+                "product": "enabled" if self.product_model is not None else "disabled",
+                "shelf": "zones",
+                "checkout": "zones",
             },
             "global_state": {
                 "total_persons_tracked": self.global_state.total_persons_tracked,
@@ -2188,150 +2147,80 @@ class ProcessingPipeline:
             "reid_scope": "global",
             "processing": {
                 "target_fps": self.processing_fps,
-                "frame_buffer_size": self.frame_buffer_size,
-                "default_skip_frames": self.default_skip_frames,
-                "camera_processor_limit": self._camera_processor_limit,
-                "max_reid_detections_per_frame": self._max_reid_per_frame,
-                "heavy_analytics_interval": self._heavy_analytics_interval,
-                "adaptive_model_gating": self._adaptive_gating,
-                "auto_camera_role_detection": self._auto_camera_roles,
-                "scheduler": {
-                    "tracker_mode": "bytetrack",
-                    "fallback_tracker_mode": "iou",
-                    "reid_interval_frames": self._reid_interval,
-                    "fire_active_interval_frames": self._fire_active_interval,
-                    "fire_idle_interval_frames": self._fire_idle_interval,
-                    "emotion_interval_frames": self._emotion_interval,
-                    "shelf_interval_frames": self._shelf_interval,
-                    "checkout_interval_frames": self._checkout_interval,
-                    "shelf_zone_keywords": list(self._shelf_zone_keywords),
-                    "checkout_zone_keywords": list(self._checkout_zone_keywords),
-                    "entrance_zone_keywords": list(self._entrance_zone_keywords),
-                    "safety_zone_keywords": list(self._safety_zone_keywords),
-                },
-                "callback_timeout_ms": int(self._callback_timeout * 1000),
-                "callback_queue_depth": self._callback_queue.qsize() if self._callback_queue else 0,
-                "callback_queue_max": settings.PIPELINE_RESULT_QUEUE_MAXSIZE,
-                "callback_dropped_cycles": self._callback_dropped,
-                "frame_counts": self._frame_counts,
+                "frame_buffer_size": 1,
+                "default_skip_frames": 0,
+                "fire_interval_frames": settings.FIRE_INTERVAL_FRAMES,
+                "product_interval_s": settings.PRODUCT_INTERVAL_S,
+                "emotion_interval_frames": settings.EMOTION_ANALYTICS_INTERVAL_FRAMES,
+                "callback_hz": CALLBACK_HZ,
+                "callback_timeout_ms": settings.CALLBACK_TIMEOUT_MS,
+                "frame_counts": {c: cs.frames_processed for c, cs in self._cams.items()},
                 "total_detections_processed": self._total_detections,
+                "memory_scale": self._mem["scale"],
             },
         }
-
-    def get_latest_results(self, camera_id: Optional[int] = None) -> Any:
-        """Get latest processing results."""
-        if camera_id:
-            return self._results_buffer.get(camera_id)
-        return self._results_buffer
-
-    def _total_capacity(self) -> int:
-        """Sum of per-zone max_capacity for all registered zones (>=1)."""
-        if not getattr(self.crowd, "zones", None):
-            return 200
-        total = sum(getattr(z, "max_capacity", 50) for z in self.crowd.zones)
-        return max(total, 1)
-
-    # ─────────────────────────────────────────────────────────────
-    # ANALYTICS SNAPSHOTS (for REST routers)
-    # ─────────────────────────────────────────────────────────────
 
     def get_analytics_snapshot(self) -> Dict[str, Any]:
-        """
-        Unified snapshot used by the analytics routers and dashboard overview.
-        Built purely from the latest per-camera CameraResult buffer so it's
-        O(cameras) and doesn't re-run any AI.
-        """
-        crowd_zones: List[Dict[str, Any]] = []
-        fire_alerts: List[Dict[str, Any]] = []
-        emotions_per_zone: List[Dict[str, Any]] = []
-        shelf_per_camera: List[Dict[str, Any]] = []
-        checkout_lanes: List[Dict[str, Any]] = []
-        total_detections_snapshot = 0
-
-        for cam_id, r in self._results_buffer.items():
-            total_detections_snapshot += len(r.detections or [])
-            if r.crowd_status:
-                crowd_zones.append(r.crowd_status)
-            if r.fire_alerts:
-                fire_alerts.extend(r.fire_alerts)
-            if r.emotions and isinstance(r.emotions, dict) and r.emotions.get("sample_count"):
-                emotions_per_zone.append(r.emotions)
-            if r.shelf_data and isinstance(r.shelf_data, dict):
-                shelf_per_camera.append(r.shelf_data)
-            if r.checkout_data and isinstance(r.checkout_data, dict):
-                lanes = r.checkout_data.get("lanes") or []
-                checkout_lanes.extend(lanes)
-
-        # Sentiment aggregate across all zones
-        total_sentiment_samples = sum(e.get("sample_count", 0) for e in emotions_per_zone)
-        weighted_sentiment = sum(
-            e.get("sentiment_score", 0) * e.get("sample_count", 0) for e in emotions_per_zone
-        )
-        overall_sentiment = (
-            weighted_sentiment / total_sentiment_samples if total_sentiment_samples else 0.0
-        )
-
-        # Shelf rankings pulled live from the analytics module
-        shelf_rankings = (
-            self.shelf_tracker.get_zone_rankings() if self.shelf_tracker else []
-        )
-
-        # Fire alert history — last 50
-        fire_history = (
-            self.fire_detector.get_alert_history(limit=50)
-            if self.fire_detector else []
-        )
-
-        current_vibe = self._latest_vibe or self.vibe_engine.get_current() or {
-            "overall_score": 0.0,
-            "sentiment_score": 0.0,
-            "energy_score": 0.0,
-            "engagement_score": 0.0,
-            "foot_traffic_score": 0.0,
-            "vibe_label": "Quiet",
-        }
-
+        """Live analytics for the REST routers, built from the zone engine (no invented values)."""
+        snaps = {cam: self.engine.snapshot(str(cam)) for cam in self._cams}
+        crowd_zones, shelf, lanes, per_zone_emotion = [], [], [], {}
+        sentiments, samples = [], 0
+        for cam, sn in snaps.items():
+            for z in sn.get("zones", []):
+                if z.get("zone_type") == "crowd":
+                    crowd_zones.append({"camera_id": cam, "zone_id": z["id"], "zone": z["name"], "count": z.get("count"),
+                                        "capacity": z.get("capacity"), "pct": z.get("pct"), "level": z.get("level")})
+                if z.get("zone_type") == "shelf":
+                    md = z.get("median_dwell_s")
+                    shelf.append({"camera_id": cam, "zone_id": z["id"], "zone": z["name"], "visits": z.get("visits"),
+                                  "engaged_visits": z.get("engaged_visits"), "median_dwell_s": md, "passers": z.get("passers"),
+                                  "attention": (z.get("engaged_visits") or 0) * (md or 0.0)})
+            for ln in sn.get("lanes", []):
+                lanes.append({"camera_id": cam, **ln})
+            emo = sn.get("emotion") or {}
+            if emo.get("counts"):
+                per_zone_emotion[self._camera_zones.get(cam, str(cam))] = emo
+                samples += sum(emo["counts"].values())
+                if emo.get("sentiment") is not None:
+                    sentiments.append(float(emo["sentiment"]))
+        top = max((s["attention"] for s in shelf), default=0.0)
+        for s in shelf:
+            s["attention_score"] = round(100.0 * s["attention"] / top, 1) if top > 0 else 0.0
+        shelf.sort(key=lambda s: -s["attention"])
+        active_fire = [{"camera_id": cam, **sn["fire"]} for cam, sn in snaps.items() if (sn.get("fire") or {}).get("active")]
+        vibe = self.engine.latest_vibe()
         return {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "cameras": {
-                "total": self.stream_manager.total_count,
-                "active": self.stream_manager.active_count,
-                "zones": dict(self._camera_zones),
-            },
+            "timestamp": time.time(),
+            "cameras": list(self._cams.keys()),
             "detections": {
-                "active_frame": total_detections_snapshot,
+                "active_frame": sum(cs.confirmed_now for cs in self._cams.values()),
                 "total_processed": self._total_detections,
-                "frames_processed": int(sum(self._frame_counts.values())),
-                "frame_counts_by_camera": dict(self._frame_counts),
+                "frames_processed": sum(cs.frames_processed for cs in self._cams.values()),
+                "frame_counts_by_camera": {c: cs.frames_processed for c, cs in self._cams.items()},
             },
             "crowd": {
                 "zones": crowd_zones,
-                "total_occupancy": sum(z.get("person_count", 0) for z in crowd_zones),
-                "critical_zones": [
-                    z for z in crowd_zones if z.get("classification") == "critical"
-                ],
+                "total_occupancy": sum(cs.confirmed_now for cs in self._cams.values()),
+                "critical_zones": [z["zone"] for z in crowd_zones if z.get("level") in ("high", "critical")],
+                "status": "ok" if crowd_zones else "no_data",
             },
-            "fire": {
-                "active_alerts": fire_alerts,
-                "history": fire_history,
-                "active": bool(fire_alerts),
-            },
+            "fire": {"active_alerts": active_fire, "history": list(self._fire_history)[-50:], "active": bool(active_fire)},
             "emotions": {
-                "per_zone": emotions_per_zone,
-                "overall_sentiment": round(overall_sentiment, 3),
-                "samples": total_sentiment_samples,
+                "per_zone": per_zone_emotion,
+                "overall_sentiment": round(sum(sentiments) / len(sentiments), 3) if sentiments else None,
+                "samples": samples,
+                "status": "ok" if samples else "no_data",
             },
-            "shelf": {
-                "rankings": shelf_rankings,
-                "per_camera": shelf_per_camera,
-            },
+            "shelf": {"rankings": shelf, "per_camera": {c: [s for s in shelf if s["camera_id"] == c] for c in self._cams},
+                      "status": "ok" if shelf else "no_data"},
             "checkout": {
-                "lanes": checkout_lanes,
-                "summary": self.checkout.get_summary() if self.checkout else {},
+                "lanes": lanes,
+                "summary": {"lanes": len(lanes), "waiting": sum(ln.get("waiting") or 0 for ln in lanes),
+                            "served": sum(ln.get("served") or 0 for ln in lanes),
+                            "abandoned": sum(ln.get("abandoned") or 0 for ln in lanes)},
+                "status": "ok" if lanes else "no_data",
             },
-            "vibe": current_vibe,
-            "reid": {
-                "total_persons_tracked": self.global_state.total_persons_tracked,
-                "active_tracks": len(self.global_state.active_tracks),
-            },
+            "vibe": vibe if vibe else {"status": "no_data"},
+            "reid": {"total_persons_tracked": self.global_state.total_persons_tracked,
+                     "active_tracks": len(self.global_state.active_tracks)},
         }

@@ -1,5 +1,11 @@
 import React from 'react';
 
+/**
+ * Ring gauge. `accent` picks the fill token: status names (success/warn/danger) map to status colours,
+ * 'neutral' to ink, anything else to the amber accent.
+ */
+const TONE = { success: 'success', ok: 'success', emerald: 'success', green: 'success', warn: 'warn', warning: 'warn', danger: 'danger', rose: 'danger', red: 'danger', neutral: 'neutral', ink: 'neutral' };
+
 export default function ProgressRing({
     value = 0,
     max = 100,
@@ -7,24 +13,18 @@ export default function ProgressRing({
     stroke = 6,
     label,
     sublabel,
-    accent = 'teal',
+    accent = 'accent',
 }) {
-    const pct = Math.max(0, Math.min(100, (value / max) * 100));
+    const pct = Math.max(0, Math.min(100, (value / max) * 100 || 0));
     const r = (size - stroke) / 2;
     const circ = 2 * Math.PI * r;
     const offset = circ - (pct / 100) * circ;
+    const tone = TONE[accent] || 'accent';
 
     return (
-        <div className={`ui-ring ui-ring--${accent}`} style={{ width: size, height: size }}>
-            <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-                <circle
-                    className="ui-ring-track"
-                    cx={size / 2}
-                    cy={size / 2}
-                    r={r}
-                    fill="none"
-                    strokeWidth={stroke}
-                />
+        <div className={`ui-ring ui-ring--${tone}`} style={{ width: size, height: size }}>
+            <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
+                <circle className="ui-ring-track" cx={size / 2} cy={size / 2} r={r} fill="none" strokeWidth={stroke} />
                 <circle
                     className="ui-ring-fill"
                     cx={size / 2}

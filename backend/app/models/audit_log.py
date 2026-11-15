@@ -1,8 +1,8 @@
 """
-OmniTrack AI — Audit Log Model (SHA-256 Hash Chain)
+OmniTrack AI — Audit Log Model (HMAC-SHA256 hash chain; legacy rows SHA-256)
 """
 
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Index
+from sqlalchemy import Column, Integer, String, DateTime, Text, Index
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -16,11 +16,14 @@ class AuditLog(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     event_type = Column(String(50), nullable=False, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # Plain integer, no FK: deleting a user must never rewrite hashed history.
+    user_id = Column(Integer, nullable=True)
     description = Column(Text, nullable=True)
-    encrypted_metadata = Column(Text, nullable=True)  # AES-256-CBC encrypted
+    encrypted_metadata = Column(Text, nullable=True)  # AES-256-GCM (legacy rows may be CBC)
     current_hash = Column(String(64), nullable=False, unique=True)
     previous_hash = Column(String(64), nullable=True)
     ip_address = Column(String(45), nullable=True)
     user_agent = Column(String(300), nullable=True)
     timestamp = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    # 'sha256' = legacy unkeyed rows (pre-004); 'hmac-sha256' = keyed with AUDIT_HMAC_KEY
+    hash_alg = Column(String(16), nullable=False, default="hmac-sha256", server_default="sha256")

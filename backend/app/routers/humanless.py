@@ -57,7 +57,7 @@ async def list_products(
 async def create_product(
     data: ProductCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.OPERATOR])),
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
 ):
     return await HumanlessStoreService.create_product(db, data.model_dump())
 
@@ -67,7 +67,7 @@ async def update_product(
     product_id: int,
     data: ProductUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.OPERATOR])),
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
 ):
     product = await HumanlessStoreService.update_product(
         db, product_id, data.model_dump(exclude_unset=True)
@@ -90,7 +90,7 @@ async def list_shelf_zones(
 async def create_shelf_zone(
     data: ShelfZoneCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.OPERATOR])),
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
 ):
     return await HumanlessStoreService.create_shelf_zone(db, data.model_dump())
 
@@ -100,7 +100,7 @@ async def update_shelf_zone(
     zone_id: int,
     data: ShelfZoneUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.OPERATOR])),
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
 ):
     zone = await HumanlessStoreService.update_shelf_zone(
         db, zone_id, data.model_dump(exclude_unset=True)
@@ -114,7 +114,7 @@ async def update_shelf_zone(
 async def create_cart_event(
     data: CartEventCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.OPERATOR])),
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
 ):
     try:
         return await HumanlessStoreService.apply_cart_event(db, data.model_dump(exclude_none=True))
@@ -126,7 +126,7 @@ async def create_cart_event(
 async def checkout_session(
     session_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.OPERATOR])),
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
 ):
     try:
         return await HumanlessStoreService.checkout_simulation(db, session_id)
@@ -149,7 +149,7 @@ async def counter_arrival(
     session_id: int,
     data: CounterArrivalRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.OPERATOR])),
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
 ):
     try:
         return await HumanlessStoreService.mark_counter_arrival(
@@ -166,7 +166,7 @@ async def counter_arrival(
 async def close_stale_sessions(
     stale_after_seconds: int = 300,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.OPERATOR])),
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
 ):
     count = await HumanlessStoreService.close_stale_sessions(
         db,

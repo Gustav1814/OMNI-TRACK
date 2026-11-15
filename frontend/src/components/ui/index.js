@@ -1,6 +1,8 @@
 export { default as StatCard } from './StatCard';
 export { default as ExecPanel } from './ExecPanel';
+/** @deprecated use `.panel` */
 export { default as MagicCard } from './MagicCard';
+/** @deprecated use components/PageHeader */
 export { default as MagicPageHeader } from './MagicPageHeader';
 export { default as ContentCard } from './ContentCard';
 export { default as RecordCard } from './RecordCard';
@@ -14,4 +16,6 @@ export { default as ProgressRing } from './ProgressRing';
 export { default as ActivityTimeline } from './ActivityTimeline';
 export { default as DataTable } from './DataTable';
 export { default as CommandPalette } from './CommandPalette';
+export { default as Metric, toMetricValue } from './Metric';
+export { default as Tape } from './Tape';
 export { Skeleton, SkeletonKpiGrid, SkeletonChart, SkeletonTable, SkeletonCameraGrid } from './Skeleton';

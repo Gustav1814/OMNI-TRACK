@@ -1,0 +1,168 @@
+{
+  "schema": 1,
+  "id": "emotion",
+  "title": "Facial emotion",
+  "criterion": "Emotion > 70% accuracy on FER-2013",
+  "status": "measured",
+  "primary": {
+    "metric": "Accuracy",
+    "value": 0.5599,
+    "target": 0.7,
+    "op": ">",
+    "unit": "ratio",
+    "passed": false
+  },
+  "metrics": {
+    "accuracy_7class": 0.5599,
+    "accuracy_strict_8way": 0.5532,
+    "contempt_predictions": 114,
+    "macro_recall": 0.5232,
+    "per_class_recall": {
+      "angry": 0.5115,
+      "disgusted": 0.5045,
+      "fearful": 0.3838,
+      "happy": 0.8517,
+      "neutral": 0.5645,
+      "sad": 0.4074,
+      "surprised": 0.4392
+    },
+    "class_support": {
+      "angry": 958,
+      "disgusted": 111,
+      "fearful": 1024,
+      "happy": 1774,
+      "neutral": 1233,
+      "sad": 1247,
+      "surprised": 831
+    },
+    "confusion_matrix": {
+      "rows_true_cols_pred": [
+        "angry",
+        "disgusted",
+        "fearful",
+        "happy",
+        "neutral",
+        "sad",
+        "surprised"
+      ],
+      "counts": [
+        [
+          490,
+          72,
+          164,
+          39,
+          92,
+          63,
+          38
+        ],
+        [
+          28,
+          56,
+          14,
+          2,
+          2,
+          8,
+          1
+        ],
+        [
+          144,
+          15,
+          393,
+          52,
+          152,
+          209,
+          59
+        ],
+        [
+          18,
+          21,
+          60,
+          1511,
+          54,
+          14,
+          96
+        ],
+        [
+          107,
+          19,
+          63,
+          132,
+          696,
+          157,
+          59
+        ],
+        [
+          180,
+          20,
+          128,
+          70,
+          314,
+          508,
+          27
+        ],
+        [
+          13,
+          1,
+          396,
+          34,
+          15,
+          7,
+          365
+        ]
+      ]
+    },
+    "n_images": 7178,
+    "ms_per_face": 15.71
+  },
+  "dataset": {
+    "name": "FER-2013 public test split",
+    "split": "test (PublicTest + PrivateTest, all 7,178 images)",
+    "source": "https://huggingface.co/datasets/clip-benchmark/wds_fer2013 @ 9399b94167523fe5c40b3a857e24ef931ee4395b",
+    "license": "FER-2013 (ICML 2013 representation-learning challenge), research use",
+    "manifest": "eval/manifests/fer2013_test.json",
+    "manifest_sha256": "26ec8ff473a633d5ed763643929b1500e4a96e071e32b1ceb6210d88b18c1527",
+    "n_items": 7178
+  },
+  "model": {
+    "input": 224,
+    "preprocessing": "app.ai.emotion.EmotionRecognizer._preprocess",
+    "labels": [
+      "angry",
+      "contempt",
+      "disgust",
+      "fear",
+      "happy",
+      "neutral",
+      "sad",
+      "surprise"
+    ],
+    "name": "enet_b0_8_best_afew.onnx",
+    "sha256": "7aa2ea31c1311f4f8aa9d3fdb085d418dd4e7a48c4b9ed41df8c044f91d0213f"
+  },
+  "hardware": {
+    "cpu": "12th Gen Intel(R) Core(TM) i5-1245U",
+    "logical_cores": 12,
+    "threads_used": 4,
+    "os": "Linux 7.0.0-43-generic",
+    "python": "3.12.16",
+    "device": "cpu",
+    "gpu": null,
+    "ram_gb": 15.8
+  },
+  "git": {
+    "commit": "31c93786f870f23cc3676e793e2cc3ec326b7de5",
+    "branch": "main",
+    "dirty": true
+  },
+  "script": "eval/emotion.py",
+  "command": "emotion.py",
+  "created_at": "2026-11-14T19:53:03+00:00",
+  "duration_s": 187.1,
+  "peak_rss_mb": 2058.5,
+  "notes": [
+    "Model is trained on AffectNet (8 classes); FER-2013 is a cross-dataset test (48x48 grayscale faces).",
+    "Primary = argmax over the 7 classes FER shares with the model (contempt logit dropped); accuracy_strict_8way counts a 'contempt' prediction as wrong.",
+    "Published FER-2013 state of the art is ~73-76% for models trained on FER-2013 itself."
+  ],
+  "passed": false
+}

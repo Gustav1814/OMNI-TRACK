@@ -1,0 +1,69 @@
+{
+  "schema": 1,
+  "id": "search_latency",
+  "title": "Person search latency",
+  "criterion": "Search < 100 ms (top-10 over 100k embeddings)",
+  "status": "measured",
+  "primary": {
+    "metric": "p95 latency",
+    "value": 2.92,
+    "target": 100,
+    "op": "<",
+    "unit": "ms",
+    "passed": true
+  },
+  "metrics": {
+    "p50_ms": 1.99,
+    "p95_ms": 2.92,
+    "p99_ms": 3.51,
+    "mean_ms": 2.1,
+    "recall_at_10_vs_exact": 0.9654,
+    "n_vectors": 100000,
+    "n_queries": 1000,
+    "k": 10,
+    "dim": 512,
+    "index": "hnsw vector_cosine_ops (m=16, ef_construction=64)",
+    "ef_search": 40,
+    "load_s": 1.8,
+    "index_build_s": 50.7,
+    "uses_index": true,
+    "postgres": "16.16 (Debian 16.16-1.pgdg12+1)",
+    "pgvector": "0.8.7"
+  },
+  "dataset": {
+    "name": "synthetic Re-ID-like embeddings (10000 identities x 10 views, noise 0.6, seed 0)",
+    "split": "100000 stored, 1000 queries",
+    "source": "generated (numpy default_rng)",
+    "n_items": 100000
+  },
+  "model": {
+    "name": "pgvector HNSW",
+    "pgvector": "0.8.7",
+    "postgres": "16.16 (Debian 16.16-1.pgdg12+1)"
+  },
+  "hardware": {
+    "cpu": "12th Gen Intel(R) Core(TM) i5-1245U",
+    "logical_cores": 12,
+    "threads_used": 4,
+    "os": "Linux 7.0.0-43-generic",
+    "python": "3.12.16",
+    "device": "cpu",
+    "gpu": null,
+    "ram_gb": 15.8
+  },
+  "git": {
+    "commit": "31c93786f870f23cc3676e793e2cc3ec326b7de5",
+    "branch": "main",
+    "dirty": true
+  },
+  "script": "eval/search_latency.py",
+  "command": "search_latency.py",
+  "created_at": "2026-11-14T22:40:38+00:00",
+  "duration_s": 6437.7,
+  "peak_rss_mb": 2006.0,
+  "notes": [
+    "Latency is client-side wall clock through asyncpg, so it includes the round trip to Postgres (Docker Desktop on the same host).",
+    "TEMP table only; the app's embeddings tables are not read or written."
+  ],
+  "passed": true
+}

@@ -1,25 +1,13 @@
 /**
- * Animated count-up for stats — feels alive
+ * Formatted number. Kept for API compatibility: it no longer animates
+ * (animated tickers fake motion). Renders the real value immediately.
  */
-import React, { useEffect, useState } from 'react';
-import { motion, useSpring } from 'framer-motion';
+import React from 'react';
 
-export default function CountUp({ value, duration = 0.8, suffix = '', prefix = '', format = (n) => n }) {
-  const [display, setDisplay] = useState(0);
-  const spring = useSpring(0, { stiffness: 75, damping: 20 });
-
-  useEffect(() => {
-    const num = typeof value === 'number' ? value : parseFloat(String(value).replace(/[^0-9.-]/g, '')) || 0;
-    spring.set(num);
-  }, [value, spring]);
-
-  useEffect(() => {
-    return spring.on('change', (v) => setDisplay(v));
-  }, [spring]);
-
-  const formatted = typeof value === 'string' && value.includes(',')
-    ? value
-    : `${prefix}${format(Math.round(display * 10) / 10)}${suffix}`;
-
-  return <motion.span>{formatted}</motion.span>;
+// eslint-disable-next-line no-unused-vars
+export default function CountUp({ value, duration = undefined, suffix = '', prefix = '', format = (n) => n }) {
+    if (typeof value === 'string' && value.includes(',')) return <span className="tabular">{value}</span>;
+    const num = typeof value === 'number' ? value : parseFloat(String(value).replace(/[^0-9.-]/g, ''));
+    if (!Number.isFinite(num)) return <span className="tabular">—</span>;
+    return <span className="tabular">{`${prefix}${format(Math.round(num * 10) / 10)}${suffix}`}</span>;
 }

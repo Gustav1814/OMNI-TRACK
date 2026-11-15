@@ -11,10 +11,9 @@ HOW IT WORKS:
   Events arrive as JSON: { "type": "fire_alert", "data": {...} }
 """
 
-import asyncio
 import json
-from typing import Dict, List, Any, Set
-from fastapi import WebSocket, WebSocketDisconnect
+from typing import Dict, Any, Optional, Set
+from fastapi import WebSocket
 from loguru import logger
 from datetime import datetime, timezone
 
@@ -136,12 +135,17 @@ class BroadcastService:
             "breakdown": breakdown,
         })
 
-    async def push_reid_match(self, global_id: str, camera_id: int, previous_camera: int):
+    async def push_reid_match(
+        self, global_id: str, camera_id: int, previous_camera: int,
+        similarity: Optional[float] = None, reason: Optional[str] = None,
+    ):
         """Broadcast cross-camera Re-ID match."""
         await self.broadcast("detections", "reid_match", {
             "global_id": global_id,
             "current_camera": camera_id,
             "previous_camera": previous_camera,
+            "similarity": similarity,
+            "reason": reason,
         })
 
     # ─────────────────────────────────────────────────────────

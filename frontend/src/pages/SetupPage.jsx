@@ -1,418 +1,385 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { ArrowUpRight, ExternalLink } from 'lucide-react';
 import {
-    Boxes, Camera, Check, ClipboardList, Link as LinkIcon, PackagePlus,
-    Save, ShieldCheck, SlidersHorizontal, Store, Users,
-} from 'lucide-react';
-import {
-    camerasAPI, humanlessAPI, modelAPI, setupAPI, systemAPI,
+    camerasAPI, liveStreamUrl, modelAPI, pipelineAPI, systemAPI, zonesAPI,
 } from '../services/api';
 import useLivePoll from '../hooks/useLivePoll';
 import useUserRole from '../hooks/useUserRole';
-import ContentCard from '../components/ui/ContentCard';
-import StatusTile from '../components/ui/StatusTile';
+import PageHeader from '../components/PageHeader';
+import ZoneEditor from '../components/zones/ZoneEditor';
+import FloorCalibration from '../components/zones/FloorCalibration';
 
-const money = (value) => `$${Number(value || 0).toFixed(2)}`;
+const mb = (bytes) => (bytes ? `${(bytes / 1048576).toFixed(1)} MB` : '—');
+const statusPill = (s) => (s === 'healthy' || s === 'ok' ? 'pill-success' : s ? 'pill-warn' : 'pill-neutral');
+
+function PanelHead({ title, sub, children }) {
+    return (
+        <div className="panel-head">
+            <div>
+                <h2 className="panel-title">{title}</h2>
+                {sub && <p className="panel-sub">{sub}</p>}
+            </div>
+            {children}
+        </div>
+    );
+}
+
+const isStreaming = (pipeline, id) => {
+    const st = pipeline?.cameras?.stats?.[String(id)];
+    return Boolean(st && st.connected !== false && !st.finished);
+};
+
+const clock = (d) => (d ? d.toLocaleTimeString([], { hour12: false }) : '');
+
+/** One real frame per camera: the live MJPEG while the pipeline runs it, else the authed snapshot. */
+function CameraFrame({ camera, streaming }) {
+    const [snap, setSnap] = useState({ url: null, at: null, error: null });
+    const [liveFailed, setLiveFailed] = useState(false);
+    const [now, setNow] = useState(() => new Date());
+    const urlRef = useRef(null);
+    const live = streaming && !liveFailed;
+
+    useEffect(() => { setLiveFailed(false); }, [streaming]);
+
+    useEffect(() => {
+        if (!live) return undefined;
+        const t = setInterval(() => setNow(new Date()), 1000);
+        return () => clearInterval(t);
+    }, [live]);
+
+    useEffect(() => {
+        if (live) return undefined;
+        let cancelled = false;
+        zonesAPI.snapshot(camera.id)
+            .then((res) => {
+                if (cancelled) return;
+                const next = URL.createObjectURL(res.data);
+                if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+                urlRef.current = next;
+                setSnap({ url: next, at: new Date(), error: null });
+            })
+            .catch(() => { if (!cancelled) setSnap({ url: null, at: null, error: 'No frame available yet' }); });
+        return () => { cancelled = true; };
+    }, [camera.id, live]);
+
+    useEffect(() => () => { if (urlRef.current) URL.revokeObjectURL(urlRef.current); }, []);
+
+    const w = Number(camera.resolution_w) || 4;
+    const h = Number(camera.resolution_h) || 3;
+    const name = camera.name || `Camera ${camera.id}`;
+    return (
+        <figure className="adm-cam">
+            <div className="adm-frame vf vf--on-media" style={{ aspectRatio: `${w} / ${h}` }}>
+                {live ? (
+                    <img src={liveStreamUrl(camera.id)} alt={`Live view of ${name}`} onError={() => setLiveFailed(true)} />
+                ) : snap.url ? (
+                    <img src={snap.url} alt={`Last frame from ${name}`} />
+                ) : (
+                    <span className="adm-frame-msg">{snap.error || 'Loading a frame…'}</span>
+                )}
+                <div className="osd-strip" aria-hidden="true">
+                    <span><i className={`live-dot ${live ? 'is-live' : ''}`} />{live ? 'Rec' : 'Snapshot'}</span>
+                    <span>CAM {String(camera.id).padStart(2, '0')}</span>
+                    <span>{live ? clock(now) : clock(snap.at)}</span>
+                </div>
+            </div>
+            <figcaption className="adm-cam-meta">
+                <span className="adm-cam-name">{name}</span>
+                <span className={`pill ${streaming ? 'pill-success' : camera.is_active ? 'pill-neutral' : 'pill-warn'}`}>
+                    {streaming ? 'Streaming' : camera.is_active ? 'Idle' : 'Inactive'}
+                </span>
+            </figcaption>
+        </figure>
+    );
+}
 
 const TABS = [
-    { id: 'profile', path: '/setup', label: 'Store profile', icon: Store },
-    { id: 'products', path: '/setup/products', label: 'Products', icon: Boxes },
-    { id: 'zones', path: '/setup/zones', label: 'Shelf zones', icon: ClipboardList },
-    { id: 'cameras', path: '/setup/cameras', label: 'Cameras', icon: Camera },
-    { id: 'models', path: '/setup/models', label: 'Models', icon: SlidersHorizontal },
-    { id: 'integrations', path: '/setup/integrations', label: 'Integrations', icon: LinkIcon },
-    { id: 'users', path: '/setup/users', label: 'Users', icon: Users },
-];
-
-const MODULES = [
-    'crowd', 'checkout', 'fire', 'vibe', 'reid', 'shelf',
-    'peak-hours', 'demographics', 'emotion', 'humanless', 'loss-prevention',
+    { id: 'cameras', path: '/setup', label: 'Cameras' },
+    { id: 'zones', path: '/setup/zones', label: 'Zones' },
+    { id: 'models', path: '/setup/models', label: 'Models' },
+    { id: 'integrations', path: '/setup/integrations', label: 'Integrations' },
+    { id: 'users', path: '/setup/users', label: 'Access' },
 ];
 
 function activeTabFromPath(pathname) {
-    const tab = TABS.find((item) => item.path === pathname);
-    return tab?.id || 'profile';
+    const clean = pathname.replace(/\/+$/, '') || '/setup';
+    if (clean === '/setup/cameras') return 'cameras';
+    return TABS.find((item) => item.path === clean)?.id || 'cameras';
 }
+
+const PIPELINE_PILL = { running: 'pill-success', starting: 'pill-warn', stopping: 'pill-warn', error: 'pill-danger' };
+
+const capitalise = (s) => (s ? `${s.charAt(0).toUpperCase()}${s.slice(1)}` : s);
 
 export default function SetupPage() {
     const location = useLocation();
     const navigate = useNavigate();
     const { canAdmin, canOperate, role } = useUserRole();
     const activeTab = activeTabFromPath(location.pathname);
-    const wizard = new URLSearchParams(location.search).get('wizard') === '1';
 
-    const [profileForm, setProfileForm] = useState({
-        store_name: 'OmniTrack Store',
-        deployment_type: 'custom',
-        enabled_modules: [],
-        zone_templates: [],
-    });
-    const [productForm, setProductForm] = useState({ sku: '', name: '', category: '', price: '' });
-    const [zoneForm, setZoneForm] = useState({
-        zone_id: '', name: '', camera_id: '', product_id: '', current_stock: 0, low_stock_threshold: 3,
-    });
-    const [busy, setBusy] = useState(false);
-    const [notice, setNotice] = useState(null);
-    const [error, setError] = useState(null);
-
-    const { data: templates } = useLivePoll(() => setupAPI.templates(), { intervalMs: 60000 });
-    const { data: profile, refresh: refreshProfile } = useLivePoll(() => setupAPI.profile(), { intervalMs: 15000 });
-    const needsProducts = ['products', 'zones'].includes(activeTab);
-    const needsZones = activeTab === 'zones';
-    const needsCameras = ['zones', 'cameras'].includes(activeTab);
-    const needsModels = activeTab === 'models';
-    const needsHealth = activeTab === 'integrations';
-
-    const { data: products, refresh: refreshProducts } = useLivePoll(
-        () => humanlessAPI.products(false),
-        { intervalMs: 12000, enabled: needsProducts }
-    );
-    const { data: zones, refresh: refreshZones } = useLivePoll(
-        () => humanlessAPI.shelfZones(false),
-        { intervalMs: 12000, enabled: needsZones }
-    );
-    const { data: cameras } = useLivePoll(
-        () => camerasAPI.list(),
-        { intervalMs: 15000, enabled: needsCameras }
-    );
-    const { data: models } = useLivePoll(
-        () => modelAPI.list(),
-        { intervalMs: 30000, enabled: needsModels }
-    );
+    const { data: cameras } = useLivePoll(() => camerasAPI.list(), { intervalMs: 15000 });
+    const { data: pipeline } = useLivePoll(() => pipelineAPI.status(), { intervalMs: 10000 });
+    const { data: models } = useLivePoll(() => modelAPI.list(), { intervalMs: 30000 });
+    const { data: zones } = useLivePoll(() => zonesAPI.list(), { intervalMs: 30000 });
     const { data: health } = useLivePoll(
         () => systemAPI.health(),
-        { intervalMs: 12000, enabled: needsHealth }
+        { intervalMs: 12000, enabled: activeTab === 'integrations' }
     );
 
-    useEffect(() => {
-        if (!profile) return;
-        setProfileForm({
-            store_name: profile.store_name || 'OmniTrack Store',
-            deployment_type: profile.deployment_type || 'custom',
-            enabled_modules: profile.enabled_modules || [],
-            zone_templates: profile.zone_templates || [],
-        });
-    }, [profile]);
-
-    const templateRows = Array.isArray(templates) ? templates : [];
-    const productRows = Array.isArray(products) ? products : [];
-    const zoneRows = Array.isArray(zones) ? zones : [];
     const cameraRows = Array.isArray(cameras) ? cameras : [];
     const modelRows = Array.isArray(models?.models) ? models.models : [];
-    const activeTemplate = templateRows.find((t) => t.id === profileForm.deployment_type);
-
-    const setupStats = useMemo(() => ({
-        modules: profileForm.enabled_modules.length,
-        zones: profileForm.zone_templates.length,
-        products: productRows.length,
-        cameras: cameraRows.length,
-    }), [profileForm, productRows.length, cameraRows.length]);
-
-    const applyTemplate = (template) => {
-        setProfileForm((prev) => ({
-            ...prev,
-            deployment_type: template.id,
-            enabled_modules: template.modules || [],
-            zone_templates: template.default_zones || [],
-        }));
-    };
-
-    const toggleModule = (name) => {
-        setProfileForm((prev) => {
-            const current = new Set(prev.enabled_modules);
-            if (current.has(name)) current.delete(name);
-            else current.add(name);
-            return { ...prev, enabled_modules: Array.from(current) };
-        });
-    };
-
-    const updateZones = (value) => {
-        setProfileForm((prev) => ({
-            ...prev,
-            zone_templates: value.split(',').map((item) => item.trim()).filter(Boolean),
-        }));
-    };
-
-    const saveProfile = async (complete = false) => {
-        setBusy(true); setError(null); setNotice(null);
-        try {
-            await setupAPI.updateProfile({
-                ...profileForm,
-                setup_completed: complete || Boolean(profile?.setup_completed_at),
-            });
-            setNotice(complete ? 'Setup marked complete.' : 'Store profile saved.');
-            await refreshProfile();
-        } catch (e) {
-            setError(e?.response?.data?.detail || e.message);
-        } finally {
-            setBusy(false);
-        }
-    };
-
-    const createProduct = async (e) => {
-        e.preventDefault();
-        if (!productForm.sku || !productForm.name) return;
-        setBusy(true); setError(null); setNotice(null);
-        try {
-            await humanlessAPI.createProduct({ ...productForm, price: Number(productForm.price || 0) });
-            setProductForm({ sku: '', name: '', category: '', price: '' });
-            setNotice('Product added to catalog.');
-            await refreshProducts();
-        } catch (e) {
-            setError(e?.response?.data?.detail || e.message);
-        } finally {
-            setBusy(false);
-        }
-    };
-
-    const createZone = async (e) => {
-        e.preventDefault();
-        if (!zoneForm.zone_id || !zoneForm.name) return;
-        setBusy(true); setError(null); setNotice(null);
-        try {
-            await humanlessAPI.createShelfZone({
-                zone_id: zoneForm.zone_id,
-                name: zoneForm.name,
-                camera_id: zoneForm.camera_id ? Number(zoneForm.camera_id) : null,
-                product_id: zoneForm.product_id ? Number(zoneForm.product_id) : null,
-                current_stock: Number(zoneForm.current_stock || 0),
-                low_stock_threshold: Number(zoneForm.low_stock_threshold || 3),
-            });
-            setZoneForm({ zone_id: '', name: '', camera_id: '', product_id: '', current_stock: 0, low_stock_threshold: 3 });
-            setNotice('Shelf zone mapped.');
-            await refreshZones();
-        } catch (e) {
-            setError(e?.response?.data?.detail || e.message);
-        } finally {
-            setBusy(false);
-        }
-    };
+    const zoneCount = Array.isArray(zones?.zones) ? zones.zones.length : null;
+    const streamingCount = cameraRows.filter((c) => isStreaming(pipeline, c.id)).length;
+    const loadedModels = modelRows.filter((m) => m.loaded).length;
+    const pipelineState = pipeline?.state || null;
+    const comps = health?.components || {};
+    const plugins = comps.plugins?.loaded || [];
 
     return (
-        <div className="page-scroll">
-            <div className="page-header">
-                <div>
-                    <h1 className="page-title">Store Setup</h1>
-                    <p className="page-subtitle">Deployment templates, catalog, zones, cameras, models, integrations, and access.</p>
-                </div>
-                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                    <span className={`pill ${profile?.setup_completed_at ? 'pill-success' : 'pill-warning'}`}>
-                        {profile?.setup_completed_at ? 'complete' : 'first run'}
-                    </span>
-                    <button type="button" className="btn btn-primary btn-xs" onClick={() => saveProfile(true)} disabled={!canOperate || busy}>
-                        <Check size={13} /> Complete setup
-                    </button>
-                </div>
-            </div>
+        <div className="adm-page">
+            <PageHeader
+                title="Cameras & Zones"
+                subtitle="The feeds OmniTrack watches, the zones analytics run inside, and the models behind them."
+            />
 
-            {wizard ? <div className="alert-banner info">Finish the store profile once, then OmniTrack will open into the live overview.</div> : null}
-            {error ? <div className="alert-banner danger">{error}</div> : null}
-            {notice ? <div className="alert-banner info">{notice}</div> : null}
-
-            <div className="ui-status-grid" style={{ marginBottom: 14 }}>
-                <StatusTile icon={SlidersHorizontal} label="Modules" value={setupStats.modules} tone="teal" compact />
-                <StatusTile icon={ClipboardList} label="Default zones" value={setupStats.zones} tone="sky" compact />
-                <StatusTile icon={Boxes} label="Products" value={setupStats.products} tone="ok" compact />
-                <StatusTile icon={Camera} label="Cameras" value={setupStats.cameras} tone="neutral" compact />
-            </div>
-
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
-                {TABS.map((tab) => {
-                    const Icon = tab.icon;
-                    return (
-                        <button
-                            key={tab.id}
-                            type="button"
-                            className={`topbar-pill ${activeTab === tab.id ? 'topbar-pill-primary' : 'topbar-pill-button'}`}
-                            onClick={() => navigate(tab.path)}
-                        >
-                            <Icon size={13} /> {tab.label}
-                        </button>
-                    );
-                })}
-            </div>
-
-            {activeTab === 'profile' && (
-                <div className="two-col">
-                    <ContentCard title="Deployment template" subtitle="Choose the closest rollout pattern, then tune modules and zones.">
-                        <div className="ui-feed-list">
-                            {templateRows.map((template) => (
-                                <button
-                                    key={template.id}
-                                    type="button"
-                                    className="ui-lane-row"
-                                    style={{ gridTemplateColumns: '1fr 90px', textAlign: 'left' }}
-                                    onClick={() => applyTemplate(template)}
-                                >
-                                    <span>
-                                        <span className="ui-lane-row-title">{template.label}</span>
-                                        <span style={{ display: 'block', color: 'var(--text-muted)', fontSize: 12 }}>
-                                            {(template.modules || []).join(', ') || 'manual modules'}
-                                        </span>
-                                    </span>
-                                    <span className={`pill ${profileForm.deployment_type === template.id ? 'pill-success' : 'pill-info'}`}>
-                                        {profileForm.deployment_type === template.id ? 'active' : 'apply'}
-                                    </span>
+            {cameras != null && (
+                <div className="adm-overview">
+                    <section className="panel panel--feature adm-feature" aria-label="Cameras">
+                        <div className="panel-body">
+                            <div className="adm-feature-head">
+                                <span className="metric-label">Cameras registered</span>
+                                <button type="button" className="corner-link" onClick={() => navigate('/detection')} aria-label="Open video feeds">
+                                    <ArrowUpRight size={16} strokeWidth={1.75} />
                                 </button>
-                            ))}
-                        </div>
-                    </ContentCard>
-
-                    <ContentCard
-                        title="Store profile"
-                        subtitle={activeTemplate?.description || 'Manual enterprise configuration'}
-                        actions={<button type="button" className="btn btn-primary btn-xs" onClick={() => saveProfile(false)} disabled={!canOperate || busy}><Save size={13} /> Save</button>}
-                    >
-                        <div className="settings-form">
-                            <input className="form-input" value={profileForm.store_name} onChange={(e) => setProfileForm((f) => ({ ...f, store_name: e.target.value }))} />
-                            <input className="form-input" value={profileForm.zone_templates.join(', ')} onChange={(e) => updateZones(e.target.value)} placeholder="entrance, aisle, checkout" />
-                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                                {MODULES.map((name) => (
-                                    <button
-                                        key={name}
-                                        type="button"
-                                        className={`pill ${profileForm.enabled_modules.includes(name) ? 'pill-success' : 'pill-info'}`}
-                                        onClick={() => toggleModule(name)}
-                                    >
-                                        {name}
-                                    </button>
-                                ))}
+                            </div>
+                            <div className="metric metric--hero">
+                                <span className="metric-value tabular">{cameraRows.length}</span>
+                                <span className="metric-sub">
+                                    {streamingCount > 0 ? `${streamingCount} streaming now` : 'None streaming right now'}
+                                </span>
                             </div>
                         </div>
-                    </ContentCard>
+                    </section>
+                    <section className="panel panel--flush adm-flush" aria-label="Pipeline">
+                        <div className="panel-body">
+                            <div className="adm-status">
+                                <span className={`pill ${PIPELINE_PILL[pipelineState] || 'pill-neutral'}`}>
+                                    {pipelineState ? `Pipeline ${pipelineState}` : 'Pipeline unknown'}
+                                </span>
+                                <h2 className="adm-status-title">
+                                    {streamingCount > 0
+                                        ? `${streamingCount} of ${cameraRows.length} cameras processing`
+                                        : 'No camera is processing'}
+                                </h2>
+                            </div>
+                            <div className="kpi-strip">
+                                <div className="metric">
+                                    <span className="metric-label">Zones drawn</span>
+                                    <span className="metric-value tabular">{zoneCount ?? '—'}</span>
+                                </div>
+                                <div className="metric">
+                                    <span className="metric-label">Models loaded</span>
+                                    <span className="metric-value tabular">
+                                        {models == null ? '—' : <>{loadedModels}<small>/{modelRows.length}</small></>}
+                                    </span>
+                                </div>
+                                <div className="metric">
+                                    <span className="metric-label">Re-ID scope</span>
+                                    <span className="adm-text-value">{capitalise(pipeline?.reid_scope) || '—'}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
                 </div>
             )}
 
-            {activeTab === 'products' && (
-                <div className="two-col">
-                    <ContentCard title="Products & catalog" subtitle="Catalog items used by shelf zones and cart events.">
-                        <form className="settings-form" onSubmit={createProduct}>
-                            <input className="form-input" placeholder="SKU" value={productForm.sku} onChange={(e) => setProductForm((f) => ({ ...f, sku: e.target.value }))} />
-                            <input className="form-input" placeholder="Product name" value={productForm.name} onChange={(e) => setProductForm((f) => ({ ...f, name: e.target.value }))} />
-                            <input className="form-input" placeholder="Category" value={productForm.category} onChange={(e) => setProductForm((f) => ({ ...f, category: e.target.value }))} />
-                            <input className="form-input" placeholder="Price" type="number" step="0.01" value={productForm.price} onChange={(e) => setProductForm((f) => ({ ...f, price: e.target.value }))} />
-                            <button type="submit" className="btn btn-primary" disabled={!canOperate || busy}><PackagePlus size={14} /> Add product</button>
-                        </form>
-                    </ContentCard>
-                    <ContentCard title="Catalog" subtitle={`${productRows.length} product${productRows.length === 1 ? '' : 's'}`}>
-                        <div className="ui-feed-list" style={{ maxHeight: 460, overflow: 'auto' }}>
-                            {productRows.length === 0 ? <div className="page-empty-hint">No products yet.</div> : productRows.map((product) => (
-                                <div key={product.id} className="ui-lane-row" style={{ gridTemplateColumns: '1fr 110px 88px' }}>
-                                    <span className="ui-lane-row-title">{product.name}</span>
-                                    <span>{product.sku}</span>
-                                    <span>{money(product.price)}</span>
-                                </div>
-                            ))}
-                        </div>
-                    </ContentCard>
+            <nav className="adm-tabs" aria-label="Camera sections">
+                {TABS.map((tab) => (
+                    <button
+                        key={tab.id}
+                        type="button"
+                        className="adm-tab"
+                        aria-current={activeTab === tab.id ? 'page' : undefined}
+                        onClick={() => navigate(tab.path)}
+                    >
+                        {tab.label}
+                    </button>
+                ))}
+            </nav>
+
+            {!canOperate ? <div className="alert-banner info">Read-only: your role can view cameras and zones but not change them.</div> : null}
+
+            {activeTab === 'zones' && (
+                <div className="panel">
+                    <div className="panel-body">
+                        <PanelHead
+                            title="Analytics zones"
+                            sub="Crowd, shelf, queue and footfall analytics only run inside the zones you draw on each camera."
+                        />
+                        <ZoneEditor cameras={cameraRows} canEdit={canAdmin} />
+                    </div>
                 </div>
             )}
 
             {activeTab === 'zones' && (
-                <div className="two-col">
-                    <ContentCard title="Shelf zones & planogram" subtitle="Map visible shelf areas to cameras and products.">
-                        <form className="settings-form" onSubmit={createZone}>
-                            <input className="form-input" placeholder="Zone ID, e.g. aisle1-drinks" value={zoneForm.zone_id} onChange={(e) => setZoneForm((f) => ({ ...f, zone_id: e.target.value }))} />
-                            <input className="form-input" placeholder="Zone name" value={zoneForm.name} onChange={(e) => setZoneForm((f) => ({ ...f, name: e.target.value }))} />
-                            <select className="form-input" value={zoneForm.camera_id} onChange={(e) => setZoneForm((f) => ({ ...f, camera_id: e.target.value }))}>
-                                <option value="">No camera yet</option>
-                                {cameraRows.map((camera) => <option key={camera.id} value={camera.id}>{camera.name || `Camera ${camera.id}`}</option>)}
-                            </select>
-                            <select className="form-input" value={zoneForm.product_id} onChange={(e) => setZoneForm((f) => ({ ...f, product_id: e.target.value }))}>
-                                <option value="">No product yet</option>
-                                {productRows.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
-                            </select>
-                            <div className="two-col" style={{ gap: 10 }}>
-                                <input className="form-input" placeholder="Current stock" type="number" value={zoneForm.current_stock} onChange={(e) => setZoneForm((f) => ({ ...f, current_stock: e.target.value }))} />
-                                <input className="form-input" placeholder="Low stock threshold" type="number" value={zoneForm.low_stock_threshold} onChange={(e) => setZoneForm((f) => ({ ...f, low_stock_threshold: e.target.value }))} />
-                            </div>
-                            <button type="submit" className="btn btn-primary" disabled={!canOperate || busy}>Add zone</button>
-                        </form>
-                    </ContentCard>
-                    <ContentCard title="Mapped zones" subtitle={`${zoneRows.length} shelf zone${zoneRows.length === 1 ? '' : 's'}`}>
-                        <div className="ui-feed-list" style={{ maxHeight: 460, overflow: 'auto' }}>
-                            {zoneRows.length === 0 ? <div className="page-empty-hint">No shelf zones yet.</div> : zoneRows.map((zone) => (
-                                <div key={zone.id} className="ui-lane-row" style={{ gridTemplateColumns: '1fr 90px 90px' }}>
-                                    <span className="ui-lane-row-title">{zone.name}</span>
-                                    <span>Cam {zone.camera_id || '-'}</span>
-                                    <span>{zone.current_stock} left</span>
-                                </div>
-                            ))}
-                        </div>
-                    </ContentCard>
+                <div className="panel">
+                    <div className="panel-body">
+                        <PanelHead
+                            title="Floor calibration"
+                            sub="Maps each camera onto one floor plan, so a person seen by two overlapping cameras is counted once."
+                        />
+                        <FloorCalibration cameras={cameraRows} canEdit={canAdmin} />
+                    </div>
                 </div>
             )}
 
             {activeTab === 'cameras' && (
-                <ContentCard title="Cameras & zones" subtitle="Camera CRUD remains available from the API; use Video Feeds to start live processing.">
-                    <div className="ui-feed-list">
-                        {cameraRows.length === 0 ? <div className="page-empty-hint">No registered cameras yet. Add a video feed from Operations.</div> : cameraRows.map((camera) => (
-                            <div key={camera.id} className="ui-lane-row" style={{ gridTemplateColumns: '1fr 120px 120px 120px' }}>
-                                <span className="ui-lane-row-title">{camera.name || `Camera ${camera.id}`}</span>
-                                <span>{camera.zone || 'default'}</span>
-                                <span>{camera.camera_type || 'general'}</span>
-                                <span className={`pill ${camera.is_active ? 'pill-success' : 'pill-warning'}`}>{camera.is_active ? 'active' : 'inactive'}</span>
+                <div className="panel">
+                    <div className="panel-body">
+                        <PanelHead title="Cameras" sub="Cameras are registered when you add a video feed.">
+                            <button type="button" className="btn btn-secondary btn-sm" onClick={() => navigate('/detection')}>
+                                Open video feeds
+                            </button>
+                        </PanelHead>
+                        {cameraRows.length === 0 ? (
+                            <div className="empty-state">
+                                <span className="empty-state-title">No cameras registered</span>
+                                Add an RTSP stream or upload a clip in Video feeds. It appears here once registered.
                             </div>
-                        ))}
+                        ) : (
+                            <>
+                            <div className="adm-cams">
+                                {cameraRows.map((camera) => (
+                                    <CameraFrame key={camera.id} camera={camera} streaming={isStreaming(pipeline, camera.id)} />
+                                ))}
+                            </div>
+                            <div className="table-scroll">
+                                <table className="data-table adm-table adm-table--mid">
+                                    <thead><tr><th>Camera</th><th>Zone</th><th>Type</th><th className="num">Resolution</th><th>Status</th></tr></thead>
+                                    <tbody>
+                                        {cameraRows.map((camera) => (
+                                            <tr key={camera.id}>
+                                                <td className="adm-strong">{camera.name || `Camera ${camera.id}`}</td>
+                                                <td>{camera.zone || '—'}</td>
+                                                <td>{camera.camera_type || 'general'}</td>
+                                                <td className="num mono">{camera.resolution_w && camera.resolution_h ? `${camera.resolution_w}×${camera.resolution_h}` : '—'}</td>
+                                                <td>
+                                                    <span className={`pill ${isStreaming(pipeline, camera.id) ? 'pill-success' : camera.is_active ? 'pill-neutral' : 'pill-warn'}`}>
+                                                        {isStreaming(pipeline, camera.id) ? 'Streaming' : camera.is_active ? 'Idle' : 'Inactive'}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                            </>
+                        )}
                     </div>
-                    <button type="button" className="btn btn-secondary btn-xs" style={{ marginTop: 12 }} onClick={() => navigate('/detection')}>
-                        Open Video Feeds
-                    </button>
-                </ContentCard>
+                </div>
             )}
 
             {activeTab === 'models' && (
-                <ContentCard title="Models & detection policy" subtitle="Zone-smart ensemble defaults are selected by the backend when Smart auto ensemble is used.">
-                    <div className="ui-feed-list">
-                        {modelRows.length === 0 ? <div className="page-empty-hint">No model weights found in the configured model directory.</div> : modelRows.map((model) => (
-                            <div key={model.filename} className="ui-lane-row" style={{ gridTemplateColumns: '1fr 100px 100px' }}>
-                                <span className="ui-lane-row-title">{model.filename}</span>
-                                <span>{model.size_mb ? `${model.size_mb} MB` : 'ready'}</span>
-                                <span className="pill pill-info">{model.loaded ? 'loaded' : 'available'}</span>
+                <div className="panel">
+                    <div className="panel-body">
+                        <PanelHead title="Model weights" sub="Files in the backend model directory. Each camera runs one person detector.">
+                            <span className="count-badge">{modelRows.length} files</span>
+                        </PanelHead>
+                        {models == null ? (
+                            <div className="empty-state">
+                                <span className="empty-state-title">Loading model list…</span>
+                                Reading the backend model directory.
                             </div>
-                        ))}
+                        ) : modelRows.length === 0 ? (
+                            <div className="empty-state">
+                                <span className="empty-state-title">No model weights found</span>
+                                Run scripts/download_default_weights.py on the backend to fetch and verify them.
+                            </div>
+                        ) : (
+                            <div className="table-scroll">
+                                <table className="data-table adm-table adm-table--mid">
+                                    <thead><tr><th>File</th><th>Role</th><th className="num">Size</th><th>Status</th></tr></thead>
+                                    <tbody>
+                                        {modelRows.map((model) => (
+                                            <tr key={model.filename}>
+                                                <td><span className="adm-mono adm-strong">{model.filename}</span></td>
+                                                <td>{model.role || '—'}</td>
+                                                <td className="num tabular">{mb(model.size_bytes)}</td>
+                                                <td><span className={`pill ${model.loaded ? 'pill-success' : 'pill-neutral'}`}>{model.loaded ? 'Loaded' : 'On disk'}</span></td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
                     </div>
-                </ContentCard>
+                </div>
             )}
 
             {activeTab === 'integrations' && (
-                <ContentCard title="Integrations & alerts" subtitle="Plugins, Redis, websocket, and deployment health.">
-                    <div className="ui-status-grid">
-                        <StatusTile icon={ShieldCheck} label="API health" value={health?.status || 'checking'} tone={health?.status === 'healthy' ? 'ok' : 'warn'} />
-                        <StatusTile icon={LinkIcon} label="Redis" value={health?.components?.redis?.status || health?.components?.redis || 'unknown'} tone="sky" />
-                        <StatusTile icon={SlidersHorizontal} label="Plugins" value={(health?.components?.plugins?.loaded || []).length} tone="teal" />
-                    </div>
-                    <div className="ui-feed-list" style={{ marginTop: 14 }}>
-                        {(health?.components?.plugins?.loaded || []).length === 0 ? <div className="page-empty-hint">No plugins enabled.</div> : health.components.plugins.loaded.map((plugin) => (
-                            <div key={plugin} className="ui-lane-row" style={{ gridTemplateColumns: '1fr 120px' }}>
-                                <span className="ui-lane-row-title">{plugin}</span>
-                                <span className="pill pill-success">enabled</span>
+                <div className="panel">
+                    <div className="panel-body">
+                        <PanelHead title="Services" sub="Live from the backend health check, refreshed every 12 seconds." />
+                        {!health ? (
+                            <div className="empty-state">
+                                <span className="empty-state-title">Checking services…</span>
+                                Waiting for the backend health check.
                             </div>
-                        ))}
+                        ) : (
+                            <dl className="adm-kv">
+                                <dt>API</dt>
+                                <dd><span className={`pill ${statusPill(health.status)}`}>{health.status || 'unknown'}</span>{health.version ? <span className="adm-mono"> v{health.version}</span> : null}</dd>
+                                <dt>Database</dt>
+                                <dd>
+                                    <span className={`pill ${statusPill(comps.database?.status)}`}>{comps.database?.status || 'unknown'}</span>
+                                    {comps.database?.revision ? <span className="adm-mono"> {comps.database.revision}{comps.database.pgvector ? ' · pgvector' : ''}</span> : null}
+                                </dd>
+                                <dt>Redis</dt>
+                                <dd>
+                                    <span className={`pill ${statusPill(comps.redis?.status)}`}>{comps.redis?.status || 'unknown'}</span>
+                                    {comps.redis?.latency_ms != null ? <span className="adm-mono"> {comps.redis.latency_ms} ms</span> : null}
+                                </dd>
+                                <dt>Pipeline</dt>
+                                <dd>{comps.pipeline ? <span className="tabular">{comps.pipeline.state} · {comps.pipeline.cameras_active} of {comps.pipeline.cameras_total} cameras active</span> : '—'}</dd>
+                                <dt>WebSocket</dt>
+                                <dd>{comps.websocket ? <span className="tabular">{comps.websocket.active_connections} open connections</span> : '—'}</dd>
+                                <dt>Plugins</dt>
+                                <dd>{plugins.length ? plugins.join(', ') : (comps.plugins?.enabled === false ? 'Disabled' : 'None loaded')}</dd>
+                            </dl>
+                        )}
                     </div>
-                </ContentCard>
+                </div>
             )}
 
             {activeTab === 'users' && (
-                <ContentCard title="Users & access" subtitle="Role-aware navigation is active; deeper RBAC remains enforced by backend dependencies.">
-                    <div className="ui-status-grid">
-                        <StatusTile icon={Users} label="Your role" value={role} tone="teal" />
-                        <StatusTile icon={ShieldCheck} label="Admin tools" value={canAdmin ? 'full' : 'limited'} tone={canAdmin ? 'ok' : 'warn'} />
-                        <StatusTile icon={Store} label="Setup access" value={canOperate ? 'editable' : 'read-only'} tone={canOperate ? 'ok' : 'neutral'} />
+                <div className="panel">
+                    <div className="panel-body">
+                        <PanelHead title="Access" sub="Navigation follows your role. The backend enforces the same rules on every request." />
+                        <dl className="adm-kv">
+                            <dt>Your role</dt><dd>{role || '—'}</dd>
+                            <dt>User management</dt><dd>{canAdmin ? 'Allowed' : 'Admins only'}</dd>
+                            <dt>Camera and zone changes</dt><dd>{canOperate ? 'Allowed' : 'Read-only'}</dd>
+                        </dl>
+                        <div className="adm-form-actions">
+                            <button type="button" className="btn btn-secondary btn-sm" onClick={() => navigate('/system/account')}>
+                                {canAdmin ? 'Manage users' : 'Your account'}
+                            </button>
+                            {canAdmin && (
+                                <button
+                                    type="button"
+                                    className="btn btn-ghost btn-sm"
+                                    onClick={() => {
+                                        const adminUrl = `${window.location.protocol}//${window.location.hostname}:8000/admin`;
+                                        window.open(adminUrl, '_blank', 'noopener,noreferrer');
+                                    }}
+                                >
+                                    Open SQLAdmin <ExternalLink size={14} strokeWidth={1.75} />
+                                </button>
+                            )}
+                        </div>
                     </div>
-                    <button
-                        type="button"
-                        className="btn btn-secondary btn-xs"
-                        style={{ marginTop: 12 }}
-                        onClick={() => {
-                            const adminUrl = `${window.location.protocol}//${window.location.hostname}:8000/admin`;
-                            window.open(adminUrl, '_blank', 'noopener,noreferrer');
-                        }}
-                        disabled={!canAdmin}
-                    >
-                        Open SQLAdmin
-                    </button>
-                </ContentCard>
+                </div>
             )}
         </div>
     );

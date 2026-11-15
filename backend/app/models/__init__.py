@@ -22,6 +22,15 @@ from app.models.humanless import (
     LossPreventionAlert,
 )
 from app.models.store_profile import StoreProfile
+from app.models.zones import (
+    Zone,
+    ZoneEvent,
+    ZoneSample,
+    TrackVisit,
+    FireIncident,
+    EmotionAggregate,
+)
+from app.models.alerts import AlertAck, EvidenceItem
 
 __all__ = [
     "User",
@@ -44,4 +53,12 @@ __all__ = [
     "CartEvent",
     "LossPreventionAlert",
     "StoreProfile",
+    "Zone",
+    "ZoneEvent",
+    "ZoneSample",
+    "TrackVisit",
+    "FireIncident",
+    "EmotionAggregate",
+    "AlertAck",
+    "EvidenceItem",
 ]

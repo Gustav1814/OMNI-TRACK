@@ -9,8 +9,8 @@ instead of faking an alert. The operator sees this through the status payload
 Training a custom model:
   1. Collect labelled fire/smoke imagery (PyroNear, FIRE-SMOKE-DATASET, …)
   2. `yolo detect train model=yolov8n.pt data=fire.yaml epochs=100 imgsz=640`
-  3. Copy the resulting best.pt to `backend/fire_smoke.pt`
-  4. Set FIRE_MODEL_PATH=fire_smoke.pt in `.env`
+  3. Copy the resulting best.pt to `backend/model_weight/fire-smoke.pt`
+  4. FIRE_MODEL_PATH (default `fire-smoke.pt`) resolves under MODEL_WEIGHTS_DIR
 
 The detector auto-inspects the loaded model's class names and flips into
 "fire-specific" mode only when fire/smoke classes are present; otherwise it
@@ -26,6 +26,8 @@ from typing import List, Dict, Any, Optional, Set
 import numpy as np
 from dataclasses import dataclass
 from loguru import logger
+
+from app.config import settings
 
 try:
     from ultralytics import YOLO
@@ -62,7 +64,7 @@ class FireDetector:
 
     def __init__(
         self,
-        model_path: str = "fire_smoke.pt",
+        model_path: str = "fire-smoke.pt",
         confidence: float = 0.4,
         device: str = "auto",
         history_limit: int = 500,
@@ -83,20 +85,23 @@ class FireDetector:
 
     def _load_model(self) -> None:
         if not ULTRALYTICS_AVAILABLE:
-            logger.warning("[FireDetector] Ultralytics unavailable — detector disabled.")
+            logger.error("[FireDetector] Ultralytics unavailable — fire/smoke detection is DISABLED.")
             return
 
-        path = self.model_path
-        if not os.path.isabs(path):
-            # Allow looking inside CWD first, then `backend/` for dev convenience
-            if not os.path.isfile(path) and os.path.isfile(os.path.join(os.getcwd(), path)):
-                path = os.path.join(os.getcwd(), path)
+        # Relative names resolve under MODEL_WEIGHTS_DIR (never an implicit download).
+        path = str(settings.weight_path(self.model_path))
+        if not os.path.isfile(path):
+            logger.error(
+                f"[FireDetector] Weight file not found: {path} (FIRE_MODEL_PATH={self.model_path}). "
+                "Fire/smoke detection is DISABLED and will report no alerts."
+            )
+            return
         try:
             self.model = YOLO(path)
         except Exception as e:
-            logger.warning(
-                f"[FireDetector] Failed to load model '{self.model_path}' ({e}). "
-                "Detector will report no alerts until a fire-specific model is deployed."
+            logger.error(
+                f"[FireDetector] Failed to load model '{path}' ({e}). "
+                "Fire/smoke detection is DISABLED and will report no alerts."
             )
             self.model = None
             return
@@ -119,7 +124,7 @@ class FireDetector:
                 f"(classes={self.model_class_map})"
             )
         else:
-            logger.warning(
+            logger.error(
                 f"[FireDetector] Loaded model '{self.model_path}' but it is NOT fire-specific "
                 f"(classes={list(lower_names)[:5]}...). "
                 "Detector will NOT raise alerts — deploy a custom YOLO trained on fire/smoke data "

@@ -1,14 +1,19 @@
-import React, { useMemo, useState } from 'react';
-import { motion } from 'framer-motion';
-import { AlertCircle, Clock, Download, Film, Play, RefreshCw } from 'lucide-react';
+/**
+ * Track highlight reels: pick a detection log, extract one tracked subject into
+ * a short clip (POST /api/footage/trim-by-track) and inspect the log's movement
+ * analytics (heatmap, distances, timelines). Every figure comes from the API.
+ */
+
+import React, { useEffect, useMemo, useState } from 'react';
+import { AlertCircle, Download, Play, RefreshCw } from 'lucide-react';
 import { footageAPI } from '../services/api';
 import useLivePoll from '../hooks/useLivePoll';
-import ContentCard from './ui/ContentCard';
+import { Metric } from './ui';
 
 export default function HighlightReelTool() {
     const [selectedLog, setSelectedLog] = useState('');
     const [trackIdInput, setTrackIdInput] = useState('');
-    const [paddingFrames, setPaddingFrames] = useState(5);
+    const [paddingFrames, setPaddingFrames] = useState('5');
     const [trimming, setTrimming] = useState(false);
     const [trimResult, setTrimResult] = useState(null);
     const [analytics, setAnalytics] = useState(null);
@@ -27,7 +32,7 @@ export default function HighlightReelTool() {
         setError(null);
     };
 
-    React.useEffect(() => {
+    useEffect(() => {
         let cancelled = false;
         const loadAnalytics = async () => {
             if (!selectedLog) return;
@@ -66,273 +71,225 @@ export default function HighlightReelTool() {
         }
     };
 
-    const selectedLogInfo = useMemo(() => {
-        return logs?.find((log) => log.filename === selectedLog);
-    }, [logs, selectedLog]);
+    const logList = Array.isArray(logs) ? logs : [];
+    const selectedLogInfo = useMemo(() => logList.find((log) => log.filename === selectedLog), [logList, selectedLog]);
+    const ready = selectedLog && analytics && !analyticsLoading;
+    const heat = analytics?.heatmap?.cells || [];
+    const heatMax = heat.reduce((a, c) => Math.max(a, Number(c.count) || 0), 0);
+    const bins = analytics?.heatmap?.bins || 4;
+    const distances = (analytics?.distances || []).slice(0, 6);
+    const timelines = (analytics?.timelines || []).slice(0, 8);
+    const segments = trimResult?.segments || [];
 
     return (
-        <div style={{ display: 'grid', gap: 16 }}>
+        <>
+            <div className="section-head ops-reel-head">
+                <h2 className="section-title">Track highlight reels</h2>
+            </div>
+
             {error && (
-                <div className="alert-banner danger" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <AlertCircle size={16} />
-                    {error}
+                <div className="alert-banner danger" role="alert">
+                    <AlertCircle size={16} strokeWidth={1.75} aria-hidden />
+                    <span className="ops-banner-text">{typeof error === 'string' ? error : JSON.stringify(error)}</span>
                 </div>
             )}
 
-            <div className="two-col">
-                <ContentCard
-                    title={<> <Film size={16} style={{ verticalAlign: -3, marginRight: 6 }} /> Build Highlight Reel </>}
-                    subtitle="Choose a detection log and extract one tracked subject into a short reel"
-                    accent="teal"
-                >
-                    <div style={{ display: 'grid', gap: 16 }}>
+            <div className="ops-split ops-split--rev">
+                <section className="panel ops-panel" aria-labelledby="reel-build">
+                    <div className="panel-head">
                         <div>
-                            <label className="form-label">Detection Log</label>
-                            <select
-                                className="form-select"
-                                value={selectedLog}
-                                onChange={(e) => handleLogChange(e.target.value)}
-                            >
-                                <option value="">Select a recorded video...</option>
-                                {(logs || []).map((log) => (
+                            <h2 className="panel-title" id="reel-build">Build a reel</h2>
+                            <p className="panel-sub">Extract one tracked subject from a detection log.</p>
+                        </div>
+                    </div>
+                    <div className="panel-body ops-col-body">
+                        <div className="form-group">
+                            <label className="form-label" htmlFor="reel-log">Detection log</label>
+                            <select id="reel-log" className="form-select" value={selectedLog} onChange={(e) => handleLogChange(e.target.value)}>
+                                <option value="">{logList.length ? 'Select a recorded video…' : 'No detection logs yet'}</option>
+                                {logList.map((log) => (
                                     <option key={log.filename} value={log.filename}>
                                         {log.filename} ({log.total_frames} frames)
                                     </option>
                                 ))}
                             </select>
                             {selectedLogInfo && (
-                                <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
-                                    <Film size={12} style={{ verticalAlign: -1, marginRight: 4 }} />
-                                    Camera {selectedLogInfo.camera_id} - {selectedLogInfo.model} - {selectedLogInfo.total_frames} frames
-                                </div>
+                                <p className="ops-note ops-muted ops-reel-meta">
+                                    Camera {selectedLogInfo.camera_id ?? '—'} · {selectedLogInfo.model || '—'} · {selectedLogInfo.total_frames ?? '—'} frames
+                                </p>
                             )}
                         </div>
-
-                        <div>
-                            <label className="form-label">Track ID</label>
-                            <input
-                                type="number"
-                                className="form-input"
-                                placeholder="Enter track ID"
-                                value={trackIdInput}
-                                onChange={(e) => setTrackIdInput(e.target.value)}
-                                disabled={!selectedLog}
-                                min={0}
-                            />
-                        </div>
-
-                        <div>
-                            <label className="form-label">Padding Frames</label>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <div className="ops-pair">
+                            <div className="form-group">
+                                <label className="form-label" htmlFor="reel-track">Track ID</label>
                                 <input
+                                    id="reel-track"
+                                    type="number"
+                                    className="form-input"
+                                    placeholder="e.g. 12"
+                                    value={trackIdInput}
+                                    onChange={(e) => setTrackIdInput(e.target.value)}
+                                    disabled={!selectedLog}
+                                    min={0}
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label" htmlFor="reel-pad">Padding · <span className="ops-tnum">{paddingFrames}</span> frames</label>
+                                <input
+                                    id="reel-pad"
                                     type="range"
+                                    className="ops-range"
                                     min={0}
                                     max={30}
                                     value={paddingFrames}
                                     onChange={(e) => setPaddingFrames(e.target.value)}
-                                    style={{ flex: 1 }}
                                 />
-                                <span style={{ fontSize: 14, fontWeight: 500, minWidth: 30 }}>{paddingFrames}</span>
                             </div>
                         </div>
-
                         <button
+                            type="button"
                             className="btn btn-primary"
                             onClick={handleTrim}
                             disabled={!selectedLog || !trackIdInput || trimming}
                         >
-                            {trimming ? (
-                                <><RefreshCw size={14} className="spin" /> Building...</>
-                            ) : (
-                                <><Play size={14} /> Create Highlight Reel</>
-                            )}
+                            {trimming
+                                ? <><RefreshCw size={16} strokeWidth={1.75} className="spin" /> Building…</>
+                                : <><Play size={16} strokeWidth={1.75} /> Create highlight reel</>}
                         </button>
                     </div>
-                </ContentCard>
+                </section>
 
-                <ContentCard
-                    title={<> <Play size={16} style={{ verticalAlign: -3, marginRight: 6 }} /> Reel Preview </>}
-                    subtitle="Preview and download the generated subject reel"
-                    accent="sky"
-                >
-                    {!trimResult && !trimming && (
-                        <div className="page-empty-hint">
-                            Select a log and track, then create a highlight reel.
-                        </div>
-                    )}
-
-                    {trimming && (
-                        <div style={{ textAlign: 'center', padding: 40 }}>
-                            <motion.div
-                                animate={{ rotate: 360 }}
-                                transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                            >
-                                <RefreshCw size={40} style={{ opacity: 0.5 }} />
-                            </motion.div>
-                            <p style={{ marginTop: 16, color: 'var(--text-secondary)' }}>
-                                Extracting frames and building reel...
+                <section className="panel ops-panel" aria-labelledby="reel-preview">
+                    <div className="panel-head">
+                        <div>
+                            <h2 className="panel-title" id="reel-preview">Reel preview</h2>
+                            <p className="panel-sub">
+                                {trimResult
+                                    ? `${segments.length} segment${segments.length === 1 ? '' : 's'} · ${trimResult.frames_written ?? '—'} frames written`
+                                    : 'The generated subject reel plays here.'}
                             </p>
                         </div>
-                    )}
-
-                    {trimResult && (
-                        <div style={{ display: 'grid', gap: 16 }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                                <Metric label="Segments" value={trimResult.segments?.length || 0} />
-                                <Metric label="Frames Written" value={trimResult.frames_written || 0} />
-                            </div>
-
-                            <div>
-                                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>Segments</div>
-                                {trimResult.segments?.map((seg, i) => (
-                                    <div key={i} style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 8,
-                                        padding: '8px 12px',
-                                        background: 'var(--bg-glass)',
-                                        borderRadius: 8,
-                                        marginBottom: 6,
-                                        fontSize: 13,
-                                    }}>
-                                        <Clock size={12} />
-                                        <span>Frame {seg[0]} to {seg[1]}</span>
-                                        <span style={{ color: 'var(--text-secondary)', marginLeft: 'auto' }}>
-                                            {seg[1] - seg[0] + 1} frames
-                                        </span>
-                                    </div>
-                                ))}
-                            </div>
-
-                            <div style={{
-                                background: '#000',
-                                borderRadius: 12,
-                                overflow: 'hidden',
-                                border: '1px solid var(--border)',
-                            }}>
-                                <video
-                                    key={trimResult.trimmed_video}
-                                    controls
-                                    autoPlay
-                                    style={{ width: '100%', display: 'block' }}
-                                    src={footageAPI.serveUrl(trimResult.trimmed_video)}
-                                >
-                                    Your browser does not support the video tag.
-                                </video>
-                            </div>
-
+                        {trimResult ? (
                             <a
                                 href={footageAPI.serveUrl(trimResult.trimmed_video)}
                                 download={trimResult.trimmed_video}
-                                className="btn btn-secondary"
-                                style={{ display: 'inline-flex', justifyContent: 'center', textDecoration: 'none' }}
+                                className="btn btn-secondary btn-sm"
                             >
-                                <Download size={14} /> Download Reel
+                                <Download size={16} strokeWidth={1.75} /> Download
                             </a>
-                        </div>
-                    )}
-                </ContentCard>
-            </div>
-
-            <ContentCard
-                title="Retail Analytics"
-                subtitle="Heatmap, timelines, traffic counts, movement distance, and fall candidates from the selected log"
-                accent="violet"
-            >
-                {!selectedLog && <div className="page-empty-hint">Select a detection log to view analytics.</div>}
-                {selectedLog && analyticsLoading && <div className="page-empty-hint">Loading analytics...</div>}
-                {selectedLog && analytics && !analyticsLoading && (
-                    <div style={{ display: 'grid', gap: 16 }}>
-                        <div className="ui-status-grid">
-                            <Metric label="Frames" value={analytics.frame_count || 0} />
-                            <Metric label="Tracks" value={analytics.track_count || 0} />
-                            <Metric label="Timelines" value={analytics.timelines?.length || 0} />
-                            <Metric label="Fall candidates" value={analytics.fall_candidates?.length || 0} />
-                        </div>
-
-                        <div className="two-col" style={{ gap: 16 }}>
-                            <div>
-                                <div className="form-label">Heatmap</div>
-                                <div
-                                    style={{
-                                        display: 'grid',
-                                        gridTemplateColumns: `repeat(${analytics.heatmap?.bins || 4}, minmax(34px, 1fr))`,
-                                        gap: 6,
-                                    }}
-                                >
-                                    {(analytics.heatmap?.cells || []).map((cell) => {
-                                        const alpha = Math.min(0.95, 0.12 + (cell.share || 0) * 6);
-                                        return (
-                                            <div
-                                                key={`${cell.row}-${cell.col}`}
-                                                title={`${cell.count} samples`}
-                                                style={{
-                                                    aspectRatio: '1',
-                                                    borderRadius: 6,
-                                                    border: '1px solid var(--border)',
-                                                    background: `rgba(20, 184, 166, ${alpha})`,
-                                                    display: 'grid',
-                                                    placeItems: 'center',
-                                                    fontSize: 12,
-                                                    fontWeight: 700,
-                                                }}
-                                            >
-                                                {cell.count}
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-
-                            <div>
-                                <div className="form-label">Top Movement</div>
-                                <div className="ui-feed-list" style={{ maxHeight: 220, overflow: 'auto' }}>
-                                    {(analytics.distances || []).slice(0, 6).map((row) => (
-                                        <div key={row.track_id} className="ui-lane-row" style={{ gridTemplateColumns: '1fr 90px 90px' }}>
-                                            <span className="ui-lane-row-title">{row.track_id}</span>
-                                            <span>{Math.round(row.distance_px)} px</span>
-                                            <span>{row.frames_observed} frames</span>
-                                        </div>
-                                    ))}
-                                    {(!analytics.distances || analytics.distances.length === 0) && (
-                                        <div className="page-empty-hint">No movement samples yet.</div>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-
-                        <div>
-                            <div className="form-label">Track Timelines</div>
-                            <div className="ui-feed-list" style={{ maxHeight: 220, overflow: 'auto' }}>
-                                {(analytics.timelines || []).slice(0, 8).map((row) => (
-                                    <div key={row.track_id} className="ui-lane-row" style={{ gridTemplateColumns: '1fr 110px 110px' }}>
-                                        <span className="ui-lane-row-title">{row.track_id}</span>
-                                        <span>Frame {row.first_frame}</span>
-                                        <span>{row.duration_frames} frames</span>
+                        ) : null}
+                    </div>
+                    <div className="panel-body ops-col-body">
+                        <div className="ops-reel-body">
+                            <div className="ops-syn-stage vf vf--on-media">
+                                {trimResult ? (
+                                    <video
+                                        key={trimResult.trimmed_video}
+                                        className="ops-syn-video"
+                                        controls
+                                        autoPlay
+                                        src={footageAPI.serveUrl(trimResult.trimmed_video)}
+                                    />
+                                ) : (
+                                    <div className="ops-syn-idle">
+                                        {trimming
+                                            ? <><RefreshCw size={16} strokeWidth={1.75} className="spin" aria-hidden /><span>Extracting frames and building the reel…</span></>
+                                            : <span>Select a log and a track, then create a reel.</span>}
                                     </div>
-                                ))}
-                                {(!analytics.timelines || analytics.timelines.length === 0) && (
-                                    <div className="page-empty-hint">No tracks lasted long enough for timeline display.</div>
                                 )}
+                            </div>
+                            <div className="ops-reel-segs">
+                                <div className="form-label">Segments</div>
+                                {segments.length ? (
+                                    <ol className="ops-reel-seglist">
+                                        {segments.map((seg, i) => (
+                                            <li key={i}>
+                                                <span className="mono">{seg[0]}–{seg[1]}</span>
+                                                <span className="ops-muted">{seg[1] - seg[0] + 1} frames</span>
+                                            </li>
+                                        ))}
+                                    </ol>
+                                ) : <p className="ops-note ops-muted">—</p>}
                             </div>
                         </div>
                     </div>
-                )}
-            </ContentCard>
-        </div>
-    );
-}
+                </section>
+            </div>
 
-function Metric({ label, value }) {
-    return (
-        <div style={{
-            padding: 12,
-            border: '1px solid var(--border)',
-            borderRadius: 8,
-            background: 'var(--bg-glass)',
-        }}>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>{label}</div>
-            <div style={{ fontWeight: 700, fontSize: 18 }}>{value}</div>
-        </div>
+            <section className="panel ops-panel" aria-labelledby="reel-analytics">
+                <div className="panel-head">
+                    <div>
+                        <h2 className="panel-title" id="reel-analytics">Track analytics</h2>
+                        <p className="panel-sub">Floor heatmap, movement and timelines from the selected log.</p>
+                    </div>
+                </div>
+                <div className="panel-body ops-col-body">
+                    <div className="kpi-strip ops-reel-kpis">
+                        <Metric label="Frames" value={ready ? analytics.frame_count ?? null : null} />
+                        <Metric label="Tracks" value={ready ? analytics.track_count ?? null : null} />
+                        <Metric label="Timelines" value={ready ? (analytics.timelines?.length ?? null) : null} />
+                        <Metric label="Fall candidates" value={ready ? (analytics.fall_candidates?.length ?? null) : null} />
+                    </div>
+
+                    {!ready ? (
+                        <div className="empty-state ops-reel-empty">
+                            <div className="empty-state-title">{selectedLog ? 'Loading analytics…' : 'No log selected'}</div>
+                            {!selectedLog ? <p>Choose a detection log above to see where people moved.</p> : null}
+                        </div>
+                    ) : (
+                        <div className="ops-reel-grid">
+                            <div>
+                                <div className="form-label">Heatmap</div>
+                                {heat.length ? (
+                                    <div className="ops-heat" style={{ '--bins': bins }}>
+                                        {heat.map((cell) => {
+                                            const v = heatMax ? (Number(cell.count) || 0) / heatMax : 0;
+                                            return (
+                                                <div
+                                                    key={`${cell.row}-${cell.col}`}
+                                                    className={`ops-heat-cell ${v > 0.55 ? 'is-hot' : ''}`}
+                                                    style={{ '--heat': v }}
+                                                    title={`${cell.count} samples`}
+                                                >
+                                                    {cell.count}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                ) : <p className="ops-note ops-muted">No position samples.</p>}
+                            </div>
+                            <div>
+                                <div className="form-label">Top movement</div>
+                                {distances.length ? (
+                                    <ol className="ops-reel-rows">
+                                        {distances.map((row) => (
+                                            <li key={row.track_id}>
+                                                <span className="mono">{row.track_id}</span>
+                                                <span>{Math.round(row.distance_px)} px</span>
+                                                <span className="ops-muted">{row.frames_observed} frames</span>
+                                            </li>
+                                        ))}
+                                    </ol>
+                                ) : <p className="ops-note ops-muted">No movement samples yet.</p>}
+                            </div>
+                            <div>
+                                <div className="form-label">Track timelines</div>
+                                {timelines.length ? (
+                                    <ol className="ops-reel-rows">
+                                        {timelines.map((row) => (
+                                            <li key={row.track_id}>
+                                                <span className="mono">{row.track_id}</span>
+                                                <span>From frame {row.first_frame}</span>
+                                                <span className="ops-muted">{row.duration_frames} frames</span>
+                                            </li>
+                                        ))}
+                                    </ol>
+                                ) : <p className="ops-note ops-muted">No track lasted long enough.</p>}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </section>
+        </>
     );
 }

@@ -1,11 +1,6 @@
 import React from 'react';
-import MagicCard from './MagicCard';
 
-/** Dashboard section shell — magic-card border, no top accent line. */
+/** Dashboard section shell: a calm `.panel` with standard padding. */
 export default function ExecPanel({ children, className = '' }) {
-    return (
-        <MagicCard className={`exec-panel ${className}`.trim()} borderRadius={16}>
-            {children}
-        </MagicCard>
-    );
+    return <section className={`panel exec-panel ${className}`.trim()}>{children}</section>;
 }

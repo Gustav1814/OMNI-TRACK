@@ -15,7 +15,7 @@ import { buildWsUrl } from '../services/api';
 const RECONNECT_BASE_MS = 1500;
 const RECONNECT_MAX_MS = 15000;
 
-export default function useWebSocket(path = '/ws/live', { onEvent, onType } = {}) {
+export default function useWebSocket(path = '/ws/live', { onEvent = undefined, onType = undefined } = {}) {
     const [status, setStatus] = useState('connecting');
     const [lastEvent, setLastEvent] = useState(null);
     const wsRef = useRef(null);

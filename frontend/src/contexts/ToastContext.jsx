@@ -1,11 +1,12 @@
 import React, { createContext, useCallback, useContext, useState } from 'react';
-import { CheckCircle2, AlertTriangle, Info, X } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, AlertOctagon, Info, X } from 'lucide-react';
 
 const ToastContext = createContext(null);
 
 const ICONS = {
     success: CheckCircle2,
-    error: AlertTriangle,
+    error: AlertOctagon,
+    warning: AlertTriangle,
     info: Info,
 };
 
@@ -32,14 +33,14 @@ export function ToastProvider({ children }) {
                 {toasts.map((t) => {
                     const Icon = ICONS[t.type] || Info;
                     return (
-                        <div key={t.id} className={`ui-toast ui-toast--${t.type}`} role="status">
-                            <Icon size={18} className="ui-toast-icon" />
+                        <div key={t.id} className={`ui-toast ui-toast--${t.type}`} role={t.type === 'error' ? 'alert' : 'status'}>
+                            <Icon size={16} strokeWidth={1.75} className="ui-toast-icon" aria-hidden />
                             <div className="ui-toast-body">
                                 {t.title ? <div className="ui-toast-title">{t.title}</div> : null}
-                                {t.message ? <div className="ui-toast-msg">{t.message}</div> : null}
+                                {t.message ? <div className="ui-toast-message">{t.message}</div> : null}
                             </div>
                             <button type="button" className="ui-toast-close" onClick={() => dismiss(t.id)} aria-label="Dismiss">
-                                <X size={14} />
+                                <X size={14} strokeWidth={1.75} />
                             </button>
                         </div>
                     );

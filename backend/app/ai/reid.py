@@ -1,494 +1,416 @@
 """
-OmniTrack AI — Torchreid Re-Identification Module
-Global person Re-ID using osnet_x1_0 backbone.
-One shared gallery across ALL cameras: same person on Cam 1 and Cam 2 gets the same global_id.
+OmniTrack AI — person Re-ID: embedding model, crop quality gate, identity gallery.
 
-Body-based (not face): uses full-body appearance (clothing, shape, pose) so it works when
-the person's face is not towards the camera. Multiple embeddings per identity (different
-angles/poses) improve matching when the same person is seen from the back or side.
+* ``PersonReID`` turns person crops into 512-d L2-normalised OSNet embeddings
+  (``osnet_ain_x1_0`` trained on MSMT17 by default). There is no fallback: if
+  torch/torchreid or the Re-ID-trained weights are missing, ``is_loaded`` is
+  False and no embedding is produced (ImageNet weights would invent matches).
+* ``crop_quality`` is the gate a crop must pass before its embedding may
+  enter a tracklet: tall enough, person-shaped, not touching the frame edge,
+  not overlapped by another person, confident detection.
+* ``IdentityGallery`` holds the *recent* identities in memory (the full
+  history lives in pgvector). Each identity keeps up to ``max_views`` diverse
+  views; similarity to an identity is the best cosine over its views.
 
-Enterprise features:
-  - Structured gallery with Dict[str, GalleryIdentity] for O(1) lookup per ID
-  - Centroid embedding per identity for fast initial screening (avoids O(N×M) brute force)
-  - LRU eviction when gallery exceeds max_identities
-  - Temporal metadata (last_seen, last_camera, appearance_count) for blind-spot recovery
-  - merge_identities() for post-hoc deduplication
-  - prune_stale_identities() for memory management
+Global-ID assignment (Hungarian matching, topology/transit gating, update
+rules) lives in ``app/services/track_coordinator.py``.
 """
 
+from __future__ import annotations
+
+import threading
 import time
-import numpy as np
-from typing import List, Optional, Tuple, Dict
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+
+import cv2
+import numpy as np
 from loguru import logger
+
 from app.config import settings
 
 try:
     import torch
-    import torchvision.transforms as T
+
     TORCH_AVAILABLE = True
-except ImportError:
+except ImportError:  # pragma: no cover
+    torch = None
     TORCH_AVAILABLE = False
-    logger.warning("PyTorch not installed. Re-ID will run in mock mode.")
 
 try:
     import torchreid
+
     TORCHREID_AVAILABLE = True
-except ImportError:
+except ImportError:  # pragma: no cover
+    torchreid = None
     TORCHREID_AVAILABLE = False
-    logger.warning("Torchreid not installed. Re-ID will run in mock mode.")
+
+EMBEDDING_DIM = 512
+_MEAN = np.array([0.485, 0.456, 0.406], np.float32)
+_STD = np.array([0.229, 0.224, 0.225], np.float32)
 
 
-@dataclass
-class EmbeddingEntry:
-    """A single stored embedding with metadata for quality-aware matching."""
-    vector: np.ndarray          # 512-d L2-normalized float32
-    timestamp: float = 0.0      # epoch when this embedding was captured
-    camera_id: int = -1         # which camera captured this view
-    quality_score: float = 1.0  # higher = better crop (aspect, size, confidence)
+def l2n(v: np.ndarray) -> np.ndarray:
+    v = np.asarray(v, dtype=np.float32)
+    if v.ndim == 1:
+        n = float(np.linalg.norm(v))
+        return v / n if n > 0 else v
+    n = np.linalg.norm(v, axis=1, keepdims=True)
+    return v / np.maximum(n, 1e-12)
 
 
-@dataclass
-class GalleryIdentity:
-    """
-    All information about one tracked person in the global gallery.
-    Supports multi-view matching, temporal tracking, and blind-spot recovery.
-    """
-    global_id: str
-    embeddings: List[EmbeddingEntry] = field(default_factory=list)
-    centroid: Optional[np.ndarray] = None  # running weighted average for fast screening
-    last_seen: float = 0.0                 # epoch — when was this person last detected
-    last_camera_id: int = -1               # last camera that saw this person
-    last_bbox: List[float] = field(default_factory=list)  # last bounding box [x,y,w,h]
-    appearance_count: int = 0              # total times this identity has been matched
-    created_at: float = 0.0                # epoch — when this identity was first created
-    max_embeddings: int = 8                # per-identity cap
+# ─────────────────────────────────────────────────────────────────────────────
+# Crop quality gate
+# ─────────────────────────────────────────────────────────────────────────────
 
-    def recompute_centroid(self) -> None:
-        """Recompute centroid as quality-weighted average of stored embeddings."""
-        if not self.embeddings:
-            self.centroid = None
-            return
-        weights = np.array([e.quality_score for e in self.embeddings], dtype=np.float32)
-        total = weights.sum()
-        if total <= 0:
-            weights = np.ones(len(self.embeddings), dtype=np.float32)
-            total = float(len(self.embeddings))
-        vectors = np.stack([e.vector for e in self.embeddings], axis=0)
-        centroid = (vectors * weights[:, None]).sum(axis=0) / total
-        norm = np.linalg.norm(centroid)
-        self.centroid = (centroid / norm).astype(np.float32) if norm > 0 else centroid.astype(np.float32)
 
-    def add_embedding(self, entry: EmbeddingEntry) -> None:
-        """Add embedding, evict oldest if at capacity, recompute centroid."""
-        if len(self.embeddings) >= self.max_embeddings:
-            # Evict lowest quality or oldest
-            self.embeddings.sort(key=lambda e: (e.quality_score, e.timestamp))
-            self.embeddings.pop(0)
-        self.embeddings.append(entry)
-        self.last_seen = max(self.last_seen, entry.timestamp)
-        self.last_camera_id = entry.camera_id
-        self.appearance_count += 1
-        self.recompute_centroid()
+@dataclass(frozen=True)
+class QualityConfig:
+    min_height_px: int = 128          # absolute floor for HD cameras …
+    min_height_frac: float = 0.25     # … relaxed to this fraction of frame height on small frames
+    min_aspect: float = 0.25          # width / height
+    max_aspect: float = 0.6
+    edge_margin_px: int = 2
+    max_occlusion_iou: float = 0.3
+    min_conf: float = 0.6
 
-    def best_similarity(self, query: np.ndarray) -> float:
-        """Best cosine similarity between query and any stored embedding."""
-        if not self.embeddings:
-            return 0.0
-        return max(float(np.dot(query, e.vector)) for e in self.embeddings)
+    @classmethod
+    def from_settings(cls) -> "QualityConfig":
+        return cls(
+            min_height_px=int(settings.REID_MIN_CROP_HEIGHT),
+            min_height_frac=float(settings.REID_MIN_CROP_HEIGHT_FRAC),
+            min_aspect=float(settings.REID_MIN_ASPECT),
+            max_aspect=float(settings.REID_MAX_ASPECT),
+            edge_margin_px=int(settings.REID_EDGE_MARGIN_PX),
+            max_occlusion_iou=float(settings.REID_MAX_OCCLUSION_IOU),
+            min_conf=float(settings.REID_MIN_DET_CONF),
+        )
 
-    def centroid_similarity(self, query: np.ndarray) -> float:
-        """Fast screening similarity using centroid embedding."""
-        if self.centroid is None:
-            return 0.0
-        return float(np.dot(query, self.centroid))
+    def min_height(self, frame_h: int) -> float:
+        """128 px on a 1080p camera; a quarter of the frame on small (e.g. 288 px CAVIAR) frames."""
+        return float(min(self.min_height_px, self.min_height_frac * max(1, frame_h)))
+
+
+def box_iou_matrix(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    a = np.asarray(a, np.float32).reshape(-1, 4)
+    b = np.asarray(b, np.float32).reshape(-1, 4)
+    if not len(a) or not len(b):
+        return np.zeros((len(a), len(b)), np.float32)
+    x1 = np.maximum(a[:, None, 0], b[None, :, 0])
+    y1 = np.maximum(a[:, None, 1], b[None, :, 1])
+    x2 = np.minimum(a[:, None, 2], b[None, :, 2])
+    y2 = np.minimum(a[:, None, 3], b[None, :, 3])
+    inter = np.clip(x2 - x1, 0, None) * np.clip(y2 - y1, 0, None)
+    area_a = (a[:, 2] - a[:, 0]) * (a[:, 3] - a[:, 1])
+    area_b = (b[:, 2] - b[:, 0]) * (b[:, 3] - b[:, 1])
+    union = area_a[:, None] + area_b[None, :] - inter
+    return np.where(union > 0, inter / np.maximum(union, 1e-9), 0.0).astype(np.float32)
+
+
+def crop_quality(
+    xyxy: Sequence[float],
+    conf: float,
+    frame_wh: Tuple[int, int],
+    max_iou_with_others: float,
+    cfg: QualityConfig,
+) -> Tuple[bool, str, float]:
+    """Return ``(passes, reason, score)``. ``score`` ranks crops of one tracklet (higher = better)."""
+    x1, y1, x2, y2 = (float(v) for v in xyxy[:4])
+    w, h = x2 - x1, y2 - y1
+    fw, fh = int(frame_wh[0]), int(frame_wh[1])
+    if h <= 0 or w <= 0:
+        return False, "empty", 0.0
+    if conf < cfg.min_conf:
+        return False, "low_conf", 0.0
+    min_h = cfg.min_height(fh)
+    if h < min_h:
+        return False, "too_small", 0.0
+    aspect = w / h
+    if aspect < cfg.min_aspect or aspect > cfg.max_aspect:
+        return False, "aspect", 0.0
+    m = cfg.edge_margin_px
+    if x1 <= m or y1 <= m or x2 >= fw - 1 - m or y2 >= fh - 1 - m:
+        return False, "edge", 0.0
+    if max_iou_with_others >= cfg.max_occlusion_iou:
+        return False, "occluded", 0.0
+    # Prefer confident, larger, unoccluded crops. Size saturates at 2x the minimum.
+    size = min(1.0, h / (2.0 * min_h))
+    score = float(conf) * (0.5 + 0.5 * size) * (1.0 - max_iou_with_others)
+    return True, "ok", score
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Embedding model
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 class PersonReID:
-    """
-    Person Re-Identification using Torchreid (body-based, not face).
-    One GLOBAL gallery shared by all cameras. Enterprise-grade with:
-    - Structured identity gallery with O(1) lookup
-    - Centroid-first search: screen candidates fast, then refine top-K
-    - LRU eviction at gallery capacity
-    - Temporal metadata for blind-spot recovery
-    """
+    """OSNet embedder. Thread-safe, loaded once, batched."""
 
-    EMBEDDING_DIM = 512
+    INPUT_HW = (256, 128)
 
-    def __init__(
-        self,
-        model_name: str = "osnet_x1_0",
-        device: str = "auto",
-        similarity_threshold: float = 0.6,
-        max_embeddings_per_id: int = 8,
-        max_identities: int = 5000,
-    ):
+    def __init__(self, model_name: str = "osnet_ain_x1_0", weights: Optional[str] = None, device: str = "auto"):
+        from app.ai.detector import resolve_device
+
         self.model_name = model_name
-        self.device = self._resolve_device(device)
-        self.similarity_threshold = similarity_threshold
-        self.max_embeddings_per_id = max(1, max_embeddings_per_id)
-        self.max_identities = max(100, max_identities)
+        self.weights = Path(weights or settings.REID_WEIGHTS_PATH)
+        self.model_version = self.weights.stem[:50]
+        self.device = resolve_device(device)
         self.model = None
-        self.transform = self._build_transform()
+        self.error: Optional[str] = None
+        self._lock = threading.Lock()
+        self._lat_ms: List[float] = []
+        self._load()
 
-        # Enterprise gallery: global_id → GalleryIdentity
-        self._identities: Dict[str, GalleryIdentity] = {}
-        # LRU access order: most recently accessed global_id is at the end
-        self._lru_order: List[str] = []
-
-        self._load_model()
-
-    # ── backward-compat property ──────────────────────────────
-    @property
-    def _gallery(self) -> List[Tuple[str, np.ndarray]]:
-        """Backward-compatible flat gallery view for warm-up and status code."""
-        result = []
-        for gid, identity in self._identities.items():
-            for entry in identity.embeddings:
-                result.append((gid, entry.vector))
-        return result
-
-    def _resolve_device(self, device: str) -> str:
-        if device == "auto":
-            if TORCH_AVAILABLE and torch.cuda.is_available():
-                return "cuda"
-            return "cpu"
-        return device
-
-    def _build_transform(self):
-        if not TORCH_AVAILABLE:
-            return None
-        return T.Compose([
-            T.ToPILImage(),
-            T.Resize((256, 128)),
-            T.ToTensor(),
-            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ])
-
-    def _load_model(self):
-        if not TORCHREID_AVAILABLE or not TORCH_AVAILABLE:
-            logger.warning("Running Re-ID in mock mode")
+    def _load(self) -> None:
+        if not (TORCH_AVAILABLE and TORCHREID_AVAILABLE):
+            self.error = "torch/torchreid not installed"
+            logger.error(f"Re-ID disabled: {self.error}")
+            return
+        if not self.weights.is_file():
+            # ImageNet weights are not a fallback: they score most different people as the
+            # same person on CAVIAR, i.e. they would invent identities.
+            self.error = f"weights missing: {self.weights}"
+            logger.error(f"Re-ID disabled: {self.error}. Run scripts/download_default_weights.py.")
             return
         try:
-            self.model = torchreid.models.build_model(
-                name=self.model_name,
-                num_classes=1000,
-                pretrained=True,
-            )
-            self.model = self.model.to(self.device)
-            self.model.eval()
-            logger.info(f"Loaded Re-ID model: {self.model_name} on {self.device}")
-        except Exception as e:
-            logger.error(f"Failed to load Re-ID model: {e}")
+            model = torchreid.models.build_model(name=self.model_name, num_classes=1, pretrained=False)
+            torchreid.utils.load_pretrained_weights(model, str(self.weights))
+            self.model = model.to(self.device).eval()
+            logger.info(f"Re-ID model loaded: {self.model_name} weights={self.weights.name} device={self.device}")
+        except Exception as e:  # pragma: no cover - depends on files
+            self.error = f"load failed: {e}"
             self.model = None
-
-    def extract_embedding(self, person_crop: np.ndarray) -> Optional[np.ndarray]:
-        """
-        Extract a 512-d L2-normalized embedding from a cropped person image.
-        Input: BGR numpy array (from OpenCV crop).
-        Output: 512-d normalized float32 array.
-        """
-        if self.model is None or self.transform is None:
-            if not settings.ALLOW_MOCK_AI:
-                return None
-            return self._mock_embedding()
-
-        # Convert BGR to RGB
-        rgb = person_crop[:, :, ::-1].copy()
-        tensor = self.transform(rgb).unsqueeze(0).to(self.device)
-
-        with torch.no_grad():
-            features = self.model(tensor)
-
-        embedding = features.cpu().numpy().flatten()
-        # L2 normalize
-        norm = np.linalg.norm(embedding)
-        if norm > 0:
-            embedding = embedding / norm
-        return embedding.astype(np.float32)
-
-    def extract_batch(self, crops: List[np.ndarray]) -> List[Optional[np.ndarray]]:
-        """Batch embedding extraction for crowded frames."""
-        if not crops:
-            return []
-        if self.model is None or self.transform is None:
-            return [self.extract_embedding(crop) for crop in crops]
-
-        tensors = []
-        valid_indexes = []
-        for idx, crop in enumerate(crops):
-            if crop is None or crop.size == 0:
-                continue
-            try:
-                rgb = crop[:, :, ::-1].copy()
-                tensors.append(self.transform(rgb))
-                valid_indexes.append(idx)
-            except Exception:
-                continue
-        output: List[Optional[np.ndarray]] = [None] * len(crops)
-        if not tensors:
-            return output
-
-        batch = torch.stack(tensors, dim=0).to(self.device)
-        with torch.no_grad():
-            features = self.model(batch)
-        embeddings = features.cpu().numpy()
-        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
-        embeddings = np.divide(
-            embeddings,
-            np.maximum(norms, 1e-12),
-            out=np.zeros_like(embeddings, dtype=np.float32),
-        )
-        for idx, emb in zip(valid_indexes, embeddings):
-            output[idx] = emb.astype(np.float32)
-        return output
-
-    def compute_similarity(self, emb1: np.ndarray, emb2: np.ndarray) -> float:
-        """Cosine similarity between two embeddings."""
-        return float(np.dot(emb1, emb2))
-
-    def best_similarity_for_id(self, global_id: str, query: np.ndarray) -> float:
-        """Best cosine similarity between query and any stored view for one identity."""
-        identity = self._identities.get(global_id)
-        if identity is None:
-            return 0.0
-        return identity.best_similarity(query)
-
-    # ── LRU management ────────────────────────────────────────
-
-    def _touch_lru(self, global_id: str) -> None:
-        """Move identity to end of LRU list (most recently used)."""
-        try:
-            self._lru_order.remove(global_id)
-        except ValueError:
-            pass
-        self._lru_order.append(global_id)
-
-    def _evict_lru(self) -> None:
-        """Evict least recently used identities until under capacity."""
-        while len(self._identities) >= self.max_identities and self._lru_order:
-            evict_id = self._lru_order.pop(0)
-            self._identities.pop(evict_id, None)
-            logger.debug(f"Gallery LRU evicted: {evict_id}")
-
-    # ── Gallery operations ────────────────────────────────────
-
-    def add_to_gallery(
-        self,
-        global_id: str,
-        embedding: np.ndarray,
-        camera_id: int = -1,
-        timestamp: float = 0.0,
-        quality_score: float = 1.0,
-        bbox: Optional[List[float]] = None,
-    ) -> None:
-        """
-        Add a person to the global gallery. Creates identity if new,
-        or adds a new view if existing.
-        """
-        emb = embedding.astype(np.float32)
-        now = timestamp or time.time()
-
-        identity = self._identities.get(global_id)
-        if identity is None:
-            # Evict LRU if at capacity
-            if len(self._identities) >= self.max_identities:
-                self._evict_lru()
-
-            identity = GalleryIdentity(
-                global_id=global_id,
-                created_at=now,
-                max_embeddings=self.max_embeddings_per_id,
-            )
-            self._identities[global_id] = identity
-
-        entry = EmbeddingEntry(
-            vector=emb,
-            timestamp=now,
-            camera_id=camera_id,
-            quality_score=quality_score,
-        )
-        identity.add_embedding(entry)
-        if bbox:
-            identity.last_bbox = [float(v) for v in bbox[:4]]
-
-        self._touch_lru(global_id)
-
-    def add_embedding_to_id(
-        self,
-        global_id: str,
-        embedding: np.ndarray,
-        camera_id: int = -1,
-        timestamp: float = 0.0,
-        quality_score: float = 1.0,
-        bbox: Optional[List[float]] = None,
-    ) -> None:
-        """
-        Add another view/angle for an existing identity (e.g. person turned).
-        If identity doesn't exist yet, creates it.
-        """
-        self.add_to_gallery(
-            global_id, embedding,
-            camera_id=camera_id,
-            timestamp=timestamp,
-            quality_score=quality_score,
-            bbox=bbox,
-        )
-
-    def search_gallery(
-        self,
-        query: np.ndarray,
-        top_k: int = 1,
-        threshold: Optional[float] = None,
-    ) -> List[Dict]:
-        """
-        Search the GLOBAL gallery using centroid-first screening:
-        1. Compute centroid similarity for ALL identities (fast dot product)
-        2. Take top candidates (3× top_k)
-        3. Refine with best-of-N multi-view similarity
-        Only returns matches above threshold.
-        """
-        th = threshold if threshold is not None else self.similarity_threshold
-
-        if not self._identities:
-            return []
-
-        # Phase 1: centroid screening (fast)
-        centroid_scores: List[Tuple[str, float]] = []
-        for gid, identity in self._identities.items():
-            csim = identity.centroid_similarity(query)
-            # Use a relaxed threshold for centroid screening (allow 0.1 below)
-            if csim >= th - 0.12:
-                centroid_scores.append((gid, csim))
-
-        # Sort by centroid similarity, take top candidates for refinement
-        centroid_scores.sort(key=lambda x: x[1], reverse=True)
-        refine_count = min(len(centroid_scores), max(top_k * 3, 15))
-        candidates = centroid_scores[:refine_count]
-
-        # Phase 2: multi-view refinement (accurate but slower)
-        refined: List[Dict] = []
-        for gid, _csim in candidates:
-            identity = self._identities.get(gid)
-            if identity is None:
-                continue
-            best_sim = identity.best_similarity(query)
-            if best_sim >= th:
-                refined.append({"id": gid, "similarity": best_sim})
-
-        refined.sort(key=lambda x: x["similarity"], reverse=True)
-        return refined[:top_k]
-
-    def find_matches(
-        self,
-        query: np.ndarray,
-        gallery: List[Tuple[str, np.ndarray]],
-        threshold: float = 0.6,
-        top_k: int = 10,
-    ) -> List[Dict]:
-        """
-        Find top-K matches against an external flat gallery.
-        Each global_id can have multiple embeddings;
-        we use the best similarity per identity (so multiple views help).
-        """
-        best_per_id: Dict[str, float] = {}
-        for gid, emb in gallery:
-            sim = self.compute_similarity(query, emb)
-            if sim >= threshold:
-                best_per_id[gid] = max(best_per_id.get(gid, sim), sim)
-        scores = [{"global_id": gid, "similarity": sim} for gid, sim in best_per_id.items()]
-        scores.sort(key=lambda x: x["similarity"], reverse=True)
-        return scores[:top_k]
-
-    # ── Identity management ───────────────────────────────────
-
-    def get_identity(self, global_id: str) -> Optional[GalleryIdentity]:
-        """Get a gallery identity by ID."""
-        return self._identities.get(global_id)
-
-    def update_identity_seen(
-        self,
-        global_id: str,
-        camera_id: int,
-        bbox: List[float],
-        timestamp: float = 0.0,
-    ) -> None:
-        """Update last-seen metadata without adding a new embedding."""
-        identity = self._identities.get(global_id)
-        if identity is None:
-            return
-        now = timestamp or time.time()
-        identity.last_seen = now
-        identity.last_camera_id = camera_id
-        identity.last_bbox = [float(v) for v in bbox[:4]]
-        identity.appearance_count += 1
-        self._touch_lru(global_id)
-
-    def merge_identities(self, keep_id: str, merge_id: str) -> bool:
-        """
-        Merge two identities that are discovered to be the same person.
-        Keeps keep_id, absorbs embeddings from merge_id, deletes merge_id.
-        Returns True if merge happened.
-        """
-        keep = self._identities.get(keep_id)
-        merge = self._identities.get(merge_id)
-        if keep is None or merge is None or keep_id == merge_id:
-            return False
-
-        # Absorb embeddings from merge_id (respect capacity)
-        for entry in merge.embeddings:
-            keep.add_embedding(entry)
-
-        # Keep the older creation time, higher appearance count
-        keep.created_at = min(keep.created_at, merge.created_at)
-        keep.appearance_count += merge.appearance_count
-
-        # Remove merged identity
-        self._identities.pop(merge_id, None)
-        try:
-            self._lru_order.remove(merge_id)
-        except ValueError:
-            pass
-        self._touch_lru(keep_id)
-
-        logger.info(f"Merged identity {merge_id} → {keep_id}")
-        return True
-
-    def prune_stale_identities(self, max_age_seconds: float = 3600.0) -> int:
-        """
-        Remove identities not seen for longer than max_age_seconds.
-        Returns count of pruned identities.
-        """
-        now = time.time()
-        cutoff = now - max_age_seconds
-        stale = [gid for gid, ident in self._identities.items() if ident.last_seen < cutoff]
-        for gid in stale:
-            self._identities.pop(gid, None)
-            try:
-                self._lru_order.remove(gid)
-            except ValueError:
-                pass
-        if stale:
-            logger.info(f"Pruned {len(stale)} stale identities (older than {max_age_seconds:.0f}s)")
-        return len(stale)
-
-    def get_gallery_stats(self) -> Dict:
-        """Return gallery statistics for monitoring."""
-        total_embeddings = sum(len(i.embeddings) for i in self._identities.values())
-        return {
-            "total_identities": len(self._identities),
-            "total_embeddings": total_embeddings,
-            "max_identities": self.max_identities,
-            "max_embeddings_per_id": self.max_embeddings_per_id,
-            "lru_order_size": len(self._lru_order),
-        }
-
-    def _mock_embedding(self) -> np.ndarray:
-        """Generate a random normalized embedding for testing."""
-        emb = np.random.randn(self.EMBEDDING_DIM).astype(np.float32)
-        return emb / np.linalg.norm(emb)
+            logger.error(f"Re-ID disabled: {self.error}")
 
     @property
     def is_loaded(self) -> bool:
         return self.model is not None
+
+    def _prep(self, crop: np.ndarray) -> np.ndarray:
+        h, w = self.INPUT_HW
+        x = cv2.resize(crop, (w, h), interpolation=cv2.INTER_LINEAR)
+        x = cv2.cvtColor(x, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+        return ((x - _MEAN) / _STD).transpose(2, 0, 1)
+
+    def extract_batch(self, crops: Sequence[np.ndarray], batch_size: int = 32) -> Optional[np.ndarray]:
+        """(N, 512) L2-normalised float32 embeddings, or ``None`` when the model is not loaded."""
+        if self.model is None:
+            return None
+        if not crops:
+            return np.zeros((0, EMBEDDING_DIM), np.float32)
+        out = []
+        t0 = time.perf_counter()
+        with self._lock, torch.inference_mode():
+            for i in range(0, len(crops), batch_size):
+                x = np.stack([self._prep(c) for c in crops[i:i + batch_size]])
+                t = torch.from_numpy(x).to(self.device)
+                out.append(self.model(t).float().cpu().numpy())
+        self._lat_ms.append((time.perf_counter() - t0) * 1000.0)
+        if len(self._lat_ms) > 200:
+            del self._lat_ms[:-200]
+        return l2n(np.concatenate(out, axis=0))
+
+    def extract_embedding(self, crop: np.ndarray) -> Optional[np.ndarray]:
+        e = self.extract_batch([crop])
+        return None if e is None else e[0]
+
+    def info(self) -> Dict[str, object]:
+        lat = sorted(self._lat_ms)
+        return {
+            "model": self.model_name,
+            "weights": self.weights.name,
+            "model_version": self.model_version,
+            "device": self.device,
+            "loaded": self.is_loaded,
+            "error": self.error,
+            "batch_latency_ms_p50": round(lat[len(lat) // 2], 1) if lat else None,
+        }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Gallery
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@dataclass
+class Identity:
+    """One person across cameras. ``views`` are diverse L2-normalised embeddings."""
+
+    global_id: str
+    views: List[np.ndarray] = field(default_factory=list)
+    first_seen: float = 0.0
+    last_seen: float = 0.0
+    last_camera_id: Optional[int] = None
+    last_bbox: Optional[List[float]] = None
+    last_foot_xy: Optional[Tuple[float, float]] = None  # floor-plane metres (calibrated cameras only)
+    cameras: List[int] = field(default_factory=list)
+    n_updates: int = 0
+    restored: bool = False  # loaded from pgvector at start-up
+
+    @property
+    def centroid(self) -> Optional[np.ndarray]:
+        if not self.views:
+            return None
+        return l2n(np.mean(np.stack(self.views), axis=0))
+
+    def similarity(self, q: np.ndarray) -> float:
+        if not self.views:
+            return -1.0
+        return float(np.max(np.stack(self.views) @ q))
+
+    def add_view(self, v: np.ndarray, max_views: int) -> bool:
+        """Add ``v`` keeping at most ``max_views`` *diverse* views. Returns True if stored."""
+        v = l2n(v)
+        if len(self.views) < max_views:
+            self.views.append(v)
+            return True
+        V = np.stack(self.views)
+        sim_new = V @ v
+        # Redundant: nearly identical to a view we already have.
+        if float(sim_new.max()) >= 0.97:
+            return False
+        # Replace one member of the most similar existing pair if the new view is more
+        # distinct from the gallery than that pair is from each other.
+        S = V @ V.T
+        np.fill_diagonal(S, -np.inf)
+        i, j = np.unravel_index(int(np.argmax(S)), S.shape)
+        if float(sim_new.max()) < float(S[i, j]):
+            # Drop the one of the pair that is closer to the rest (least unique).
+            ri = float(np.sort(S[i])[-2]) if len(V) > 2 else 0.0
+            rj = float(np.sort(S[j])[-2]) if len(V) > 2 else 0.0
+            self.views[i if ri >= rj else j] = v
+            return True
+        return False
+
+    def touch(self, ts: float, camera_id: Optional[int], bbox: Optional[List[float]] = None) -> None:
+        self.last_seen = max(self.last_seen, float(ts))
+        if camera_id is not None:
+            self.last_camera_id = int(camera_id)
+            if int(camera_id) not in self.cameras:
+                self.cameras.append(int(camera_id))
+        if bbox is not None:
+            self.last_bbox = list(bbox)
+
+    def summary(self) -> Dict[str, object]:
+        return {
+            "global_id": self.global_id,
+            "views": len(self.views),
+            "first_seen": self.first_seen,
+            "last_seen": self.last_seen,
+            "last_camera_id": self.last_camera_id,
+            "cameras": list(self.cameras),
+            "n_updates": self.n_updates,
+            "restored": self.restored,
+        }
+
+
+class IdentityGallery:
+    """Recent identities in memory. Not thread-safe; the coordinator holds the lock."""
+
+    def __init__(self, max_identities: int = 2000, max_views: int = 8, prefix: str = "PERSON"):
+        self.max_identities = max(10, int(max_identities))
+        self.max_views = max(1, int(max_views))
+        self.prefix = prefix
+        self._ids: Dict[str, Identity] = {}
+        self._counter = 0
+
+    # ── ids ──
+    def new_id(self) -> str:
+        while True:
+            self._counter += 1
+            gid = f"{self.prefix}-{self._counter:05d}"
+            if gid not in self._ids:
+                return gid
+
+    def seed_counter(self, gids: Iterable[str]) -> None:
+        for gid in gids:
+            try:
+                if gid.startswith(self.prefix + "-"):
+                    self._counter = max(self._counter, int(gid.rsplit("-", 1)[1]))
+            except ValueError:
+                continue
+
+    @property
+    def counter(self) -> int:
+        return self._counter
+
+    # ── crud ──
+    def create(self, v: np.ndarray, ts: float, camera_id: Optional[int], bbox=None, gid: Optional[str] = None) -> Identity:
+        gid = gid or self.new_id()
+        ident = Identity(global_id=gid, first_seen=float(ts), last_seen=float(ts))
+        ident.add_view(v, self.max_views)
+        ident.touch(ts, camera_id, bbox)
+        self._ids[gid] = ident  # caller runs evict() with its protected (live) identities
+        return ident
+
+    def get(self, gid: str) -> Optional[Identity]:
+        return self._ids.get(gid)
+
+    def __contains__(self, gid: str) -> bool:
+        return gid in self._ids
+
+    def __len__(self) -> int:
+        return len(self._ids)
+
+    def identities(self) -> List[Identity]:
+        return list(self._ids.values())
+
+    def remove(self, gid: str) -> None:
+        self._ids.pop(gid, None)
+
+    def evict(self, protected: Iterable[str] = ()) -> int:
+        """Drop the least recently seen identities above ``max_identities``."""
+        if len(self._ids) <= self.max_identities:
+            return 0
+        keep, n = set(protected), 0
+        for gid, _ in sorted(self._ids.items(), key=lambda kv: kv[1].last_seen):
+            if len(self._ids) <= self.max_identities:
+                break
+            if gid not in keep:
+                del self._ids[gid]
+                n += 1
+        return n
+
+    def prune_older_than(self, cutoff_ts: float, protected: Iterable[str] = ()) -> int:
+        keep = set(protected)
+        old = [g for g, i in self._ids.items() if i.last_seen < cutoff_ts and g not in keep]
+        for g in old:
+            del self._ids[g]
+        return len(old)
+
+    # ── search ──
+    def similarity_matrix(self, queries: np.ndarray, gids: Sequence[str]) -> np.ndarray:
+        """(Q, G) best-view cosine similarity."""
+        Q = np.asarray(queries, np.float32).reshape(-1, EMBEDDING_DIM)
+        out = np.full((len(Q), len(gids)), -1.0, np.float32)
+        for j, gid in enumerate(gids):
+            ident = self._ids.get(gid)
+            if ident is None or not ident.views:
+                continue
+            out[:, j] = (Q @ np.stack(ident.views).T).max(axis=1)
+        return out
+
+    def search(self, q: np.ndarray, top_k: int = 10, threshold: float = 0.0, exclude: Iterable[str] = ()) -> List[Dict[str, object]]:
+        ex = set(exclude)
+        gids = [g for g in self._ids if g not in ex]
+        if not gids:
+            return []
+        sims = self.similarity_matrix(l2n(q)[None, :], gids)[0]
+        order = np.argsort(-sims)[: max(1, int(top_k))]
+        return [
+            {"id": gids[i], "global_id": gids[i], "similarity": round(float(sims[i]), 4)}
+            for i in order
+            if sims[i] >= threshold
+        ]
+
+    def stats(self) -> Dict[str, object]:
+        n_views = sum(len(i.views) for i in self._ids.values())
+        return {
+            "total_identities": len(self._ids),
+            "total_views": n_views,
+            "max_identities": self.max_identities,
+            "max_views": self.max_views,
+            "id_counter": self._counter,
+        }

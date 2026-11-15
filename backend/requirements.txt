@@ -1,48 +1,67 @@
 # ============================================================
-# OmniTrack AI — Python Dependencies (Proposal-compliant)
+# OmniTrack AI — Python dependencies (pinned)
 # ============================================================
-# Lightweight CV stack; no heavy face-analysis runtime is required.
+# Target: Python 3.12 (tested). numpy 2.5 / scipy 1.18 need >= 3.12, and
+# torch/torchreid are not reliable on 3.14 yet, so 3.12 is the supported line.
+# Versions are pinned to the set the app and the eval/ scripts were verified with.
+#
+#   uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -r requirements.txt
+#
+# CPU-only Linux box (smaller download, what CI uses):
+#   uv pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
+# NVIDIA GPU box (demo PC, RTX 3060 Ti): after installing this file, swap in CUDA builds
+# (PyPI torch on Windows is CPU-only):
+#   pip install --force-reinstall torch==2.15.0 torchvision==0.29.2 --index-url https://download.pytorch.org/whl/cu132
+#   pip uninstall -y onnxruntime && pip install onnxruntime-gpu==1.32.0
+# Model weights are not in git:  python scripts/download_default_weights.py
 
 # --- Core Framework ---
-fastapi>=0.115.0
-uvicorn[standard]>=0.34.0
-pydantic>=2.10.0
-pydantic-settings>=2.7.0
-python-multipart>=0.0.20
+fastapi==0.162.7
+starlette==1.10.0
+uvicorn[standard]==0.54.0
+pydantic==2.14.3
+pydantic-settings==2.16.3
+python-multipart==0.0.33
 
 # --- Database ---
-sqlalchemy[asyncio]>=2.0.30
-asyncpg>=0.29.0
-pgvector>=0.3.0
-alembic>=1.14.0
-greenlet>=3.0.0
-sqladmin>=0.20.0
+sqlalchemy[asyncio]==2.1.8
+asyncpg==0.32.0
+pgvector==0.5.1
+alembic==1.20.1
+greenlet==3.5.6
+sqladmin==0.32.0
 
 # --- Auth & Security ---
-itsdangerous>=2.1.2
-python-jose[cryptography]>=3.3.0
-bcrypt>=4.0.0
-pycryptodome>=3.21.0
-# Adversarial robustness (proposal): pip install adversarial-robustness-toolbox[torch]
+itsdangerous==2.2.0
+python-jose[cryptography]==3.5.0
+cryptography==50.0.2
+bcrypt==5.0.0
+pycryptodome==4.4.0
+# Adversarial robustness evaluation (eval/adversarial.py) only:
+#   pip install adversarial-robustness-toolbox[pytorch]
 
 # --- AI / Computer Vision ---
-ultralytics>=8.3.0
-lap>=0.5.12
-torch>=2.1.0
-torchvision>=0.16.0
-torchreid>=0.2.5
-tensorboard>=2.14.0          # required by torchreid at import time
-opencv-python-headless>=4.10.0
-numpy>=1.24.0
-scipy>=1.11.0
-Pillow>=10.0.0
+ultralytics==8.4.212
+onnxruntime==1.32.0            # emotion classifier (HSEmotion ONNX); onnxruntime-gpu on NVIDIA
+lap==0.5.14
+torch==2.15.0
+torchvision==0.29.2
+torchreid==0.2.5
+tensorboard==2.21.0            # required by torchreid at import time
+gdown==6.5.1                   # required by torchreid at import time (undeclared)
+opencv-python-headless==4.14.0.94   # OpenCV 5 moved CascadeClassifier out of core
+opencv-python==4.14.0.94            # pulled in by ultralytics; keep it on the same version
+numpy==2.5.4
+scipy==1.18.1
+Pillow==13.0.0
+psutil==7.2.2
 
 # --- Real-time & Caching ---
-redis>=5.2.0
-websockets>=14.0
+redis==8.1.0
+websockets==17.4
 
 # --- Utilities ---
-python-dotenv>=1.0.0
-httpx>=0.28.0
-aiofiles>=24.0.0
-loguru>=0.7.0
+python-dotenv==1.2.4
+httpx==0.28.1
+aiofiles==25.1.0
+loguru==0.8.0

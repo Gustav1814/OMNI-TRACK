@@ -20,9 +20,9 @@ if (-not $healthy) {
 }
 
 Write-Host "Infrastructure ready." -ForegroundColor Green
-Write-Host "  PostgreSQL: localhost:5432  (omnitrack / omnitrack_secret / omnitrack_db)"
+Write-Host "  PostgreSQL: localhost:5432  (credentials: DATABASE_URL in backend\.env)"
 Write-Host "  Redis:      localhost:6379"
 Write-Host ""
 Write-Host "Next:" -ForegroundColor Yellow
 Write-Host "  cd backend"
-Write-Host "  .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
+Write-Host "  .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --timeout-graceful-shutdown 3"

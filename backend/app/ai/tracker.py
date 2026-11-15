@@ -1,329 +1,304 @@
 """
-OmniTrack AI — ByteTrack Multi-Object Tracker
-Per-camera track ID management with occlusion recovery.
-Uses Ultralytics built-in tracker or falls back to simple IoU tracking.
+OmniTrack AI — per-camera person tracker (ByteTrack + track lifecycle).
+
+One instance per camera. Detections come straight from the single person
+detector (``conf`` already as low as 0.1); ByteTrack decides which boxes become
+tracks. Each returned ByteTrack row carries the index of the detection it was
+built from (``idx``), so track IDs are attached without any secondary IoU
+matching.
+
+Lifecycle (on top of ByteTrack's own state):
+
+* ``tentative``  – the track exists but has fewer than ``min_hits`` matched
+  updates. It is never drawn, counted, Re-ID'd or analysed.
+* ``confirmed``  – at least ``min_hits`` matched updates. Emits
+  ``track_confirmed`` once, then ``track_updated`` on every matched update.
+* ``occluded``   – ByteTrack lost it this frame but it is still inside the
+  buffer (``buffer_s`` seconds). Not drawn, not counted; it can come back with
+  the same ID.
+* ``lost``       – it left ByteTrack's buffer. Emits ``track_lost`` (for
+  confirmed tracks only) and every per-track structure is dropped.
 """
 
+from __future__ import annotations
+
+import inspect
+from dataclasses import dataclass, field
+from types import SimpleNamespace
+from typing import Dict, List, Optional, Tuple
+
 import numpy as np
-from typing import List, Dict, Optional
-from dataclasses import dataclass
 from loguru import logger
 
 try:
-    from ultralytics import YOLO
     from ultralytics.trackers.byte_tracker import BYTETracker
-    from ultralytics.utils import IterableSimpleNamespace
-    from ultralytics.utils.checks import check_yaml
-    import yaml
-    ULTRALYTICS_AVAILABLE = True
-except ImportError:
-    YOLO = None
+
+    BYTETRACK_AVAILABLE = True
+except Exception as _e:  # pragma: no cover - ultralytics is a hard requirement in prod
     BYTETracker = None
-    IterableSimpleNamespace = None
-    check_yaml = None
-    yaml = None
-    ULTRALYTICS_AVAILABLE = False
+    BYTETRACK_AVAILABLE = False
+    logger.error(f"ByteTrack unavailable ({_e}); person tracking is disabled.")
+
+
+TENTATIVE = "tentative"
+CONFIRMED = "confirmed"
+OCCLUDED = "occluded"
+LOST = "lost"
 
 
 @dataclass
 class Track:
+    """State of one track on one camera. Boxes are pixel ``x1, y1, x2, y2``."""
+
     track_id: int
-    bbox: List[float]  # [x, y, w, h]
+    xyxy: Tuple[float, float, float, float]
     confidence: float
+    state: str = TENTATIVE
+    hits: int = 0
+    first_ts: float = 0.0
+    last_ts: float = 0.0
+    first_frame: int = 0
+    last_frame: int = 0
+    det_index: int = -1  # index into this frame's detection array, -1 when not matched this frame
     class_name: str = "person"
-    age: int = 0  # frames since first seen
-    hits: int = 1
-    time_since_update: int = 0
-    velocity: Optional[List[float]] = None
+
+    @property
+    def bbox_xywh(self) -> List[float]:
+        """Top-left ``[x, y, w, h]`` (the format used across the API and DB)."""
+        x1, y1, x2, y2 = self.xyxy
+        return [float(x1), float(y1), float(x2 - x1), float(y2 - y1)]
+
+    @property
+    def foot_point(self) -> Tuple[float, float]:
+        x1, _y1, x2, y2 = self.xyxy
+        return (float((x1 + x2) / 2.0), float(y2))
+
+    @property
+    def is_confirmed(self) -> bool:
+        return self.state == CONFIRMED
+
+    def snapshot(self) -> Dict[str, object]:
+        return {
+            "track_id": self.track_id,
+            "bbox": [round(v, 1) for v in self.bbox_xywh],
+            "xyxy": [round(float(v), 1) for v in self.xyxy],
+            "confidence": round(float(self.confidence), 3),
+            "state": self.state,
+            "hits": self.hits,
+            "first_ts": self.first_ts,
+            "last_ts": self.last_ts,
+            "class_name": self.class_name,
+        }
 
 
-class _ByteTrackDetections:
-    """Minimal Ultralytics Results-like adapter for BYTETracker.update()."""
+@dataclass
+class TrackEvent:
+    type: str  # track_confirmed | track_updated | track_lost
+    track_id: int
+    ts: float
+    track: Dict[str, object] = field(default_factory=dict)
 
-    def __init__(self, xywh: np.ndarray, conf: np.ndarray, cls: np.ndarray):
-        self.xywh = np.asarray(xywh, dtype=np.float32).reshape(-1, 4)
+
+@dataclass
+class TrackerOutput:
+    tracks: List[Track]  # every track matched this frame (tentative + confirmed)
+    events: List[TrackEvent]
+    det_to_track: np.ndarray  # (N,) track id per detection, -1 when unassigned
+
+    @property
+    def confirmed(self) -> List[Track]:
+        return [t for t in self.tracks if t.state == CONFIRMED]
+
+
+class _Dets:
+    """Minimal Results-like adapter accepted by ``BYTETracker.update``."""
+
+    def __init__(self, xyxy: np.ndarray, conf: np.ndarray, cls: np.ndarray):
+        self.xyxy = np.asarray(xyxy, dtype=np.float32).reshape(-1, 4)
         self.conf = np.asarray(conf, dtype=np.float32).reshape(-1)
         self.cls = np.asarray(cls, dtype=np.float32).reshape(-1)
-        if len(self.xywh):
-            half_w = self.xywh[:, 2] / 2.0
-            half_h = self.xywh[:, 3] / 2.0
-            self.xyxy = np.column_stack((
-                self.xywh[:, 0] - half_w,
-                self.xywh[:, 1] - half_h,
-                self.xywh[:, 0] + half_w,
-                self.xywh[:, 1] + half_h,
-            )).astype(np.float32)
-        else:
-            self.xyxy = np.empty((0, 4), dtype=np.float32)
+        wh = self.xyxy[:, 2:4] - self.xyxy[:, 0:2]
+        self.xywh = np.concatenate([self.xyxy[:, 0:2] + wh / 2.0, wh], axis=1).astype(np.float32)
 
     def __len__(self) -> int:
         return len(self.conf)
 
-    def __getitem__(self, idx):
-        return _ByteTrackDetections(self.xywh[idx], self.conf[idx], self.cls[idx])
+    def __getitem__(self, idx) -> "_Dets":
+        return _Dets(self.xyxy[idx], self.conf[idx], self.cls[idx])
 
 
-class MultiObjectTracker:
-    """
-    ByteTrack-based multi-object tracker.
-    Maintains per-camera track states with occlusion recovery.
-    """
+def bytetrack_args(
+    fps: float,
+    track_high_thresh: float = 0.5,
+    track_low_thresh: float = 0.1,
+    new_track_thresh: float = 0.6,
+    match_thresh: float = 0.8,
+    buffer_s: float = 3.0,
+    fuse_score: bool = True,
+) -> SimpleNamespace:
+    fps = max(0.5, float(fps))
+    return SimpleNamespace(
+        tracker_type="bytetrack",
+        track_high_thresh=float(track_high_thresh),
+        track_low_thresh=float(track_low_thresh),
+        new_track_thresh=float(new_track_thresh),
+        match_thresh=float(match_thresh),
+        track_buffer=max(1, int(round(buffer_s * fps))),
+        fuse_score=bool(fuse_score),
+        frame_rate=int(round(fps)),
+    )
+
+
+class PersonTracker:
+    """ByteTrack for one camera, plus the tentative/confirmed/lost lifecycle."""
 
     def __init__(
         self,
-        model_path: str = "yolov8n.pt",
-        tracker_config: str = "bytetrack.yaml",
-        max_age: int = 30,
+        fps: float,
+        track_high_thresh: float = 0.5,
+        track_low_thresh: float = 0.1,
+        new_track_thresh: float = 0.6,
+        match_thresh: float = 0.8,
+        buffer_s: float = 3.0,
         min_hits: int = 3,
-        iou_threshold: float = 0.3,
-        use_model: bool = True,
-        classes: Optional[List[int]] = None,
+        fuse_score: bool = True,
     ):
-        self.model_path = model_path
-        self.tracker_config = tracker_config
-        self.max_age = max_age
-        self.min_hits = min_hits
-        self.iou_threshold = iou_threshold
-        self.classes = classes
-        self.model = None
-        self.byte_tracker = None
-        self.last_backend = "uninitialized"
-        self.last_error: Optional[str] = None
-        self.tracks: Dict[int, Track] = {}
-        self.next_id = 1
-        self.frame_count = 0
-        if use_model:
-            self._load_model()
-        self._load_byte_tracker()
-
-    def _load_model(self):
-        if not ULTRALYTICS_AVAILABLE:
-            logger.warning("Running tracker in simple IoU mode (no ultralytics)")
-            return
-        try:
-            self.model = YOLO(self.model_path)
-            logger.info(f"Loaded tracker model: {self.model_path}")
-        except Exception as e:
-            logger.error(f"Failed to load tracker model: {e}")
-            self.model = None
-
-    def _load_byte_tracker(self):
-        """Load the low-level ByteTrack engine for externally supplied detections."""
-        if not ULTRALYTICS_AVAILABLE or BYTETracker is None:
-            return
-        try:
-            cfg_path = check_yaml(self.tracker_config)
-            with open(cfg_path, "r", encoding="utf-8") as f:
-                args = IterableSimpleNamespace(**yaml.safe_load(f))
-            self.byte_tracker = BYTETracker(args)
-        except Exception as e:
-            logger.warning(f"Failed to load detection-driven ByteTrack: {e}")
-            self.byte_tracker = None
-
-    def update(self, frame: np.ndarray) -> List[Track]:
-        """Process a frame and return active tracks with IDs."""
-        self.frame_count += 1
-
-        if self.model is not None:
-            return self._track_with_ultralytics(frame)
-        else:
-            return self._simple_track(frame)
-
-    def update_from_detections(self, detections: List[Dict]) -> List[Track]:
-        """
-        Track externally supplied detector boxes.
-        Uses ByteTrack when available, otherwise falls back to simple IoU tracking.
-        """
-        if self.byte_tracker is not None:
-            tracks = self._bytetrack_from_detections(detections)
-            if tracks is not None:
-                self.last_backend = "bytetrack"
-                self.last_error = None
-                return tracks
-        self.last_backend = "iou_fallback"
-        return self._iou_track_from_detections(detections)
-
-    def _bytetrack_from_detections(self, detections: List[Dict]) -> Optional[List[Track]]:
-        self.frame_count += 1
-        xywh = []
-        conf = []
-        cls = []
-        class_names: Dict[int, str] = {}
-        for det in detections:
-            bbox = det.get("bbox") or det.get("box") or []
-            if len(bbox) < 4:
-                continue
-            x, y, w, h = [float(v) for v in bbox[:4]]
-            class_id = int(det.get("class_id", 0) or 0)
-            xywh.append([x + w / 2.0, y + h / 2.0, w, h])
-            conf.append(float(det.get("confidence", 0.0)))
-            cls.append(float(class_id))
-            class_names[class_id] = str(det.get("class_name", f"class_{class_id}"))
-
-        results = _ByteTrackDetections(
-            np.asarray(xywh, dtype=np.float32).reshape(-1, 4),
-            np.asarray(conf, dtype=np.float32),
-            np.asarray(cls, dtype=np.float32),
+        if not BYTETRACK_AVAILABLE:
+            raise RuntimeError("ultralytics ByteTrack is not installed")
+        self.min_hits = max(1, int(min_hits))
+        self.buffer_s = float(buffer_s)
+        self._cfg = dict(
+            track_high_thresh=track_high_thresh,
+            track_low_thresh=track_low_thresh,
+            new_track_thresh=new_track_thresh,
+            match_thresh=match_thresh,
+            buffer_s=buffer_s,
+            fuse_score=fuse_score,
         )
-        try:
-            tracked = self.byte_tracker.update(results)
-        except Exception as e:
-            logger.warning(f"Detection-driven ByteTrack failed; using IoU tracker: {e}")
-            self.last_error = str(e)
-            return None
+        self.fps = max(0.5, float(fps))
+        self._bt = self._make(self.fps)
+        self._tracks: Dict[int, Track] = {}
+        self._frame = 0
 
-        active_tracks: List[Track] = []
-        for row in np.asarray(tracked).reshape(-1, 8):
-            x1, y1, x2, y2, track_id, score, class_id, _idx = row.tolist()
-            cid = int(class_id)
-            tid = int(track_id)
-            previous = self.tracks.get(tid)
-            track = Track(
-                track_id=tid,
-                bbox=[float(x1), float(y1), float(x2 - x1), float(y2 - y1)],
-                confidence=float(score),
-                class_name=class_names.get(cid, f"class_{cid}"),
-                age=(previous.age + 1) if previous else 0,
-                hits=(previous.hits + 1) if previous else 1,
-            )
-            self.tracks[track.track_id] = track
-            active_tracks.append(track)
-        return active_tracks
-
-    def _iou_track_from_detections(self, detections: List[Dict]) -> List[Track]:
-        self.frame_count += 1
-        matched_existing = set()
-        active_tracks: List[Track] = []
-
-        for det in detections:
-            bbox = det.get("bbox") or det.get("box") or []
-            if len(bbox) < 4:
-                continue
-            confidence = float(det.get("confidence", 0.0))
-            class_name = str(det.get("class_name", "person"))
-            best_id = None
-            best_iou = 0.0
-            for track_id, track in self.tracks.items():
-                if track_id in matched_existing:
-                    continue
-                iou = self._bbox_iou(bbox, track.bbox)
-                if iou > best_iou:
-                    best_id = track_id
-                    best_iou = iou
-
-            if best_id is not None and best_iou >= self.iou_threshold:
-                track = self.tracks[best_id]
-                track.bbox = [float(v) for v in bbox[:4]]
-                track.confidence = confidence
-                track.class_name = class_name
-                track.age += 1
-                track.hits += 1
-                track.time_since_update = 0
-                matched_existing.add(best_id)
-            else:
-                best_id = self.next_id
-                self.next_id += 1
-                track = Track(
-                    track_id=best_id,
-                    bbox=[float(v) for v in bbox[:4]],
-                    confidence=confidence,
-                    class_name=class_name,
-                )
-                self.tracks[best_id] = track
-                matched_existing.add(best_id)
-            active_tracks.append(track)
-
-        for track_id in list(self.tracks.keys()):
-            if track_id not in matched_existing:
-                self.tracks[track_id].time_since_update += 1
-                if self.tracks[track_id].time_since_update > self.max_age:
-                    del self.tracks[track_id]
-
-        return active_tracks
-
-    @staticmethod
-    def _bbox_iou(a: List[float], b: List[float]) -> float:
-        ax1, ay1, aw, ah = [float(v) for v in a[:4]]
-        bx1, by1, bw, bh = [float(v) for v in b[:4]]
-        ax2, ay2 = ax1 + aw, ay1 + ah
-        bx2, by2 = bx1 + bw, by1 + bh
-        ix1, iy1 = max(ax1, bx1), max(ay1, by1)
-        ix2, iy2 = min(ax2, bx2), min(ay2, by2)
-        iw, ih = max(0.0, ix2 - ix1), max(0.0, iy2 - iy1)
-        inter = iw * ih
-        union = aw * ah + bw * bh - inter
-        return inter / union if union > 0 else 0.0
-
-    def _track_with_ultralytics(self, frame: np.ndarray) -> List[Track]:
-        """Use Ultralytics built-in ByteTrack."""
-        results = self.model.track(
-            source=frame,
-            persist=True,
-            tracker=self.tracker_config,
-            conf=0.25,
-            verbose=False,
-            **({"classes": self.classes} if self.classes is not None else {}),
-        )
-
-        active_tracks = []
-        for result in results:
-            if result.boxes is None or result.boxes.id is None:
-                continue
-            for box, track_id in zip(result.boxes, result.boxes.id):
-                xyxy = box.xyxy[0].cpu().numpy()
-                tid = int(track_id)
-                class_id = int(box.cls[0]) if getattr(box, "cls", None) is not None else 0
-                class_name = self.model.names.get(class_id, f"class_{class_id}") if self.model else "object"
-                previous = self.tracks.get(tid)
-                track = Track(
-                    track_id=tid,
-                    bbox=[float(xyxy[0]), float(xyxy[1]),
-                          float(xyxy[2] - xyxy[0]), float(xyxy[3] - xyxy[1])],
-                    confidence=float(box.conf[0]),
-                    class_name=class_name,
-                    age=(previous.age + 1) if previous else 0,
-                    hits=(previous.hits + 1) if previous else 1,
-                )
-                self.tracks[tid] = track
-                active_tracks.append(track)
-
-        return active_tracks
-
-    def to_detections(self, tracks: List[Track]) -> List[Dict]:
-        """Represent current tracks as detection-like dicts for downstream code."""
-        return [
-            {
-                "bbox": [float(v) for v in track.bbox[:4]],
-                "confidence": float(track.confidence),
-                "class_name": track.class_name,
-                "track_id": int(track.track_id),
-            }
-            for track in tracks
-        ]
-
-    def _simple_track(self, frame: np.ndarray) -> List[Track]:
-        """Fallback: simple IoU-based tracking for mock/testing."""
-        h, w = frame.shape[:2]
-        mock_tracks = [
-            Track(track_id=1, bbox=[w * 0.3, h * 0.2, w * 0.15, h * 0.6], confidence=0.92),
-            Track(track_id=2, bbox=[w * 0.6, h * 0.25, w * 0.12, h * 0.55], confidence=0.87),
-        ]
-        return mock_tracks
-
-    def get_track(self, track_id: int) -> Optional[Track]:
-        return self.tracks.get(track_id)
-
-    def get_active_count(self) -> int:
-        return len(self.tracks)
-
-    def reset(self):
-        self.tracks.clear()
-        self.next_id = 1
-        self.frame_count = 0
-        self.last_backend = "uninitialized"
-        self.last_error = None
-        self._load_byte_tracker()
+    # ── construction ──────────────────────────────────────────────
+    def _make(self, fps: float):
+        args = bytetrack_args(fps, **self._cfg)
+        # Older ultralytics took ``frame_rate`` as a ctor arg and derived the buffer from it.
+        if "frame_rate" in inspect.signature(BYTETracker.__init__).parameters:
+            return BYTETracker(args, frame_rate=args.frame_rate)
+        return BYTETracker(args)
 
     @property
-    def is_loaded(self) -> bool:
-        return self.model is not None
+    def track_buffer_frames(self) -> int:
+        return int(self._bt.max_frames_lost if hasattr(self._bt, "max_frames_lost") else self._bt.max_time_lost)
+
+    def set_fps(self, fps: float) -> None:
+        """Keep the lost-track buffer at ``buffer_s`` seconds when the real processing rate changes."""
+        fps = max(0.5, float(fps))
+        if abs(fps - self.fps) / self.fps < 0.15:
+            return
+        self.fps = fps
+        frames = max(1, int(round(self.buffer_s * fps)))
+        self._bt.args.track_buffer = frames
+        self._bt.args.frame_rate = int(round(fps))
+        if hasattr(self._bt, "max_frames_lost"):
+            self._bt.max_frames_lost = frames
+        else:  # pragma: no cover - older ultralytics
+            self._bt.max_time_lost = frames
+
+    def reset(self) -> List[TrackEvent]:
+        """Drop every track (camera restart). Returns ``track_lost`` for confirmed tracks."""
+        events = [
+            TrackEvent("track_lost", t.track_id, t.last_ts, t.snapshot())
+            for t in self._tracks.values()
+            if t.state in (CONFIRMED, OCCLUDED) and t.hits >= self.min_hits
+        ]
+        self._tracks.clear()
+        self._bt = self._make(self.fps)
+        self._frame = 0
+        return events
+
+    # ── per frame ─────────────────────────────────────────────────
+    def update(self, xyxy: np.ndarray, conf: np.ndarray, ts: float) -> TrackerOutput:
+        """Advance the tracker by one processed frame.
+
+        ``xyxy`` (N, 4) and ``conf`` (N,) are the person detections for this frame
+        (all of them, including low-confidence ones for ByteTrack's second stage).
+        """
+        self._frame += 1
+        xyxy = np.asarray(xyxy, dtype=np.float32).reshape(-1, 4)
+        conf = np.asarray(conf, dtype=np.float32).reshape(-1)
+        n = len(conf)
+        det_to_track = np.full(n, -1, dtype=np.int64)
+        rows = self._bt.update(_Dets(xyxy, conf, np.zeros(n, np.float32)))
+        events: List[TrackEvent] = []
+        matched: List[Track] = []
+        seen: set[int] = set()
+
+        for row in np.asarray(rows).reshape(-1, 8) if len(rows) else []:
+            tid = int(row[4])
+            idx = int(row[7])
+            if 0 <= idx < n:
+                # Report the detector's box, not the Kalman-smoothed one: it is what was observed.
+                box = tuple(float(v) for v in xyxy[idx])
+                score = float(conf[idx])
+                det_to_track[idx] = tid
+            else:  # defensive: should not happen with current ultralytics
+                box = tuple(float(v) for v in row[:4])
+                score = float(row[5])
+            t = self._tracks.get(tid)
+            if t is None:
+                t = Track(track_id=tid, xyxy=box, confidence=score, first_ts=ts, first_frame=self._frame)
+                self._tracks[tid] = t
+            t.xyxy = box
+            t.confidence = score
+            t.hits += 1
+            t.last_ts = ts
+            t.last_frame = self._frame
+            t.det_index = idx
+            if t.state in (TENTATIVE, OCCLUDED) and t.hits >= self.min_hits:
+                was_confirmed = t.state == OCCLUDED  # came back inside the buffer: same person, no new event
+                t.state = CONFIRMED
+                if not was_confirmed:
+                    events.append(TrackEvent("track_confirmed", tid, ts, t.snapshot()))
+                else:
+                    events.append(TrackEvent("track_updated", tid, ts, t.snapshot()))
+            elif t.state == CONFIRMED:
+                events.append(TrackEvent("track_updated", tid, ts, t.snapshot()))
+            seen.add(tid)
+            matched.append(t)
+
+        alive = {s.track_id for s in self._bt.tracked_stracks} | {s.track_id for s in self._bt.lost_stracks}
+        for tid in list(self._tracks):
+            if tid in seen:
+                continue
+            t = self._tracks[tid]
+            t.det_index = -1
+            if tid in alive:
+                if t.state == CONFIRMED:
+                    t.state = OCCLUDED
+                continue
+            # Left ByteTrack's buffer (or an unconfirmed ByteTrack track was dropped).
+            if t.hits >= self.min_hits:
+                t.state = LOST
+                events.append(TrackEvent("track_lost", tid, ts, t.snapshot()))
+            del self._tracks[tid]
+
+        # ByteTrack's own removed list is only needed for id bookkeeping; keep it bounded.
+        if len(self._bt.removed_stracks) > 256:
+            del self._bt.removed_stracks[:-256]
+
+        return TrackerOutput(tracks=matched, events=events, det_to_track=det_to_track)
+
+    # ── introspection ─────────────────────────────────────────────
+    def tracks(self) -> List[Track]:
+        return list(self._tracks.values())
+
+    def confirmed_tracks(self) -> List[Track]:
+        return [t for t in self._tracks.values() if t.state == CONFIRMED]
+
+    def get_track(self, track_id: int) -> Optional[Track]:
+        return self._tracks.get(track_id)
+
+    def __len__(self) -> int:
+        return len(self._tracks)

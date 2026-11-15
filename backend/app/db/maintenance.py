@@ -20,7 +20,7 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 from loguru import logger
 from sqlalchemy import delete, text
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.config import settings
 from app.database import AsyncSessionLocal, engine
@@ -33,6 +33,7 @@ from app.models.analytics import (
 )
 from app.models.detection import Detection
 from app.models.embedding import Embedding
+from app.models.zones import EmotionAggregate, FireIncident, TrackVisit, ZoneEvent, ZoneSample
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 _ANALYTICS_TABLES = (
@@ -62,9 +63,9 @@ def run_migrations() -> str:
     """Apply pending Alembic migrations synchronously (uses async env.py)."""
     cfg = _alembic_config()
     script = ScriptDirectory.from_config(cfg)
-    head = script.get_current_head() or "none"
-    logger.info(f"Running Alembic migrations → head ({head})")
-    command.upgrade(cfg, "head")
+    head = ",".join(sorted(script.get_heads())) or "none"
+    logger.info(f"Running Alembic migrations → heads ({head})")
+    command.upgrade(cfg, "heads")
     return head
 
 
@@ -72,7 +73,7 @@ def get_migration_revision() -> Optional[str]:
     """Return applied Alembic revision from alembic_version, if any."""
     cfg = _alembic_config()
     script = ScriptDirectory.from_config(cfg)
-    return script.get_current_head()
+    return ",".join(sorted(script.get_heads())) or None
 
 
 async def _fetch_scalar(conn, sql: str) -> Any:
@@ -228,7 +229,7 @@ async def _fetch_revision_from_db() -> Optional[str]:
         async with engine.connect() as conn:
             return await _fetch_scalar(
                 conn,
-                "SELECT version_num FROM alembic_version LIMIT 1",
+                "SELECT string_agg(version_num, ',' ORDER BY version_num) FROM alembic_version",
             )
     except Exception:
         return None
@@ -359,6 +360,21 @@ async def apply_retention_policy() -> Dict[str, int]:
                     ts_col = getattr(model, "timestamp", None) or getattr(model, "date")
                     result = await db.execute(delete(model).where(ts_col < cutoff))
                     deleted[key] = result.rowcount or 0
+                # Zone analytics tables (app/analytics). Open fire incidents are kept.
+                for model, ts_col, key in (
+                    (ZoneEvent, ZoneEvent.ts, "zone_events"),
+                    (ZoneSample, ZoneSample.ts, "zone_samples"),
+                    (TrackVisit, TrackVisit.last_seen, "track_visits"),
+                    (EmotionAggregate, EmotionAggregate.bucket_start, "emotion_aggregates"),
+                ):
+                    result = await db.execute(delete(model).where(ts_col < cutoff))
+                    deleted[key] = result.rowcount or 0
+                result = await db.execute(
+                    delete(FireIncident).where(
+                        FireIncident.started_at < cutoff, FireIncident.cleared_at.is_not(None)
+                    )
+                )
+                deleted["fire_incidents"] = result.rowcount or 0
 
             await db.commit()
             if any(deleted.values()):
@@ -367,6 +383,17 @@ async def apply_retention_policy() -> Dict[str, int]:
             await db.rollback()
             logger.warning(f"Retention policy skipped: {e}")
             deleted["error"] = 1
+
+    # Alert evidence files/rows (retention + quota) and orphaned acknowledgements.
+    async with AsyncSessionLocal() as db:
+        try:
+            from app.services.evidence import purge_expired
+
+            deleted.update(await purge_expired(db, now))
+            await db.commit()
+        except Exception as e:
+            await db.rollback()
+            logger.warning(f"Evidence retention skipped: {e}")
 
     return deleted
 
@@ -404,7 +431,7 @@ async def get_database_health(db_engine: AsyncEngine = engine) -> Dict[str, Any]
                 )
                 rev = await _fetch_scalar(
                     conn,
-                    "SELECT version_num FROM alembic_version LIMIT 1",
+                    "SELECT string_agg(version_num, ',' ORDER BY version_num) FROM alembic_version",
                 )
                 health["revision"] = rev
 

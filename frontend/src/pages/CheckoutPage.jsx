@@ -1,114 +1,173 @@
 /**
- * OmniTrack AI — Checkout (live)
- * Polls /api/checkout/metrics and /api/checkout/summary.
+ * OmniTrack AI — Queues (checkout)
+ * Lanes are queue + counter zones that share a lane name. Wait = queue entry
+ * to counter entry, service = time at the counter, from /api/checkout/*.
  */
 
-import React from 'react';
-import { ShoppingCart, Clock, TrendingUp } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import {
-    BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, Cell,
+    Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import { checkoutAPI } from '../services/api';
 import useLivePoll from '../hooks/useLivePoll';
-import useGradientColors from '../hooks/useGradientColors';
-import StatCard from '../components/ui/StatCard';
-import ContentCard from '../components/ui/ContentCard';
+import Metric from '../components/ui/Metric';
+import { useTokens, withAlpha } from '../lib/tokens';
+import { rechartsTheme } from '../lib/chartTheme';
+import {
+    AnalyticsPage, DASH, Definitions, FeatureCard, HeroRow, NoData, Panel, WindowSelect,
+    durationMetric, fmtDuration, fmtNum, fmtPct, isNum, pctMetric,
+} from '../components/zones/analyticsUi';
 
-export default function CheckoutPage() {
-    const { a } = useGradientColors();
-    const { data: metrics } = useLivePoll(() => checkoutAPI.metrics(), { intervalMs: 4000 });
-    const { data: summary } = useLivePoll(() => checkoutAPI.summary(), { intervalMs: 10000 });
+export default function CheckoutPage({ embedded = false }) {
+    const [win, setWin] = useState('');
+    const { data: metrics, error, refresh: refreshMetrics } = useLivePoll(
+        () => checkoutAPI.metrics(win || undefined), { intervalMs: 4000 },
+    );
+    const { data: summary, refresh: refreshSummary } = useLivePoll(
+        () => checkoutAPI.summary(win || undefined), { intervalMs: 10000 },
+    );
+    useEffect(() => { refreshMetrics(); refreshSummary(); }, [win, refreshMetrics, refreshSummary]);
+    const t = useTokens();
+    const th = rechartsTheme(t);
 
-    const lanes = Array.isArray(metrics) ? metrics : [];
-    const chartData = lanes.map((l) => ({
-        name: l.lane_id,
-        queue: l.queue_length,
-        wait: l.current_wait_estimate,
-    }));
+    const lanes = metrics?.lanes || [];
+    const unpaired = lanes.filter((l) => !l.paired);
+    const longQueues = lanes.filter((l) => l.long_queue_alert);
+    const waitMetric = durationMetric(summary?.median_wait_s);
+    const serviceMetric = durationMetric(summary?.median_service_s);
+    const abandon = pctMetric(summary?.abandonment_rate);
+    const windowLabel = metrics?.window?.label || summary?.window?.label;
 
-    const totalQueue = lanes.reduce((a, l) => a + (l.queue_length || 0), 0);
-    const avgWait = lanes.length
-        ? lanes.reduce((a, l) => a + (l.current_wait_estimate || 0), 0) / lanes.length
-        : 0;
-    const avgService = lanes.length
-        ? lanes.reduce((a, l) => a + (l.avg_service_time || 0), 0) / lanes.length
-        : 0;
-    const throughput = lanes.reduce((a, l) => a + (l.throughput || 0), 0);
+    const waits = lanes
+        .filter((l) => isNum(l.median_wait_s))
+        .map((l) => ({ lane: l.lane, wait: Math.round(l.median_wait_s) }))
+        .sort((a, b) => b.wait - a.wait);
+    const longest = waits[0]?.lane;
+
+    const lanesPanel = (
+        <Panel title="Lanes" sub={windowLabel ? windowLabel.charAt(0).toUpperCase() + windowLabel.slice(1) : undefined}>
+            {lanes.length === 0 ? (
+                <NoData title="No checkout lanes configured" setupLink>
+                    Draw a queue zone where customers wait and a counter zone where they are served, and give both the same lane name.
+                </NoData>
+            ) : (
+                <>
+                    {unpaired.length > 0 && (
+                        <div className="alert-banner info">
+                            <span>
+                                {unpaired.map((l) => l.lane).join(', ')}: needs both a queue zone and a counter zone with the same lane name before wait can be measured.
+                            </span>
+                        </div>
+                    )}
+                    <div className="table-scroll">
+                        <table className="data-table an-table">
+                            <thead>
+                                <tr>
+                                    <th>Lane</th>
+                                    <th className="num">Queue now</th>
+                                    <th className="num">Median wait</th>
+                                    <th className="num">P90 wait</th>
+                                    <th className="num">Served</th>
+                                    <th className="num">Median service</th>
+                                    <th className="num">Per hour</th>
+                                    <th className="num">Left queue</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {lanes.map((l) => (
+                                    <tr key={`${l.camera_id}-${l.lane}`}>
+                                        <td>
+                                            <div className="rank-name">{l.lane}</div>
+                                            <div className="rank-sub">
+                                                Camera {l.camera_id} · {l.queue_zone?.name || 'no queue zone'} → {l.counter_zone?.name || 'no counter zone'}
+                                            </div>
+                                        </td>
+                                        <td className="num">
+                                            {l.queue_length_now != null
+                                                ? <>{l.queue_length_now}{l.long_queue_alert ? <> <span className="pill pill-warn">long</span></> : null}</>
+                                                : <span className="an-row-val--muted">not live</span>}
+                                        </td>
+                                        <td className="num">{fmtDuration(l.median_wait_s)}</td>
+                                        <td className="num">{fmtDuration(l.p90_wait_s)}</td>
+                                        <td className="num">{fmtNum(l.served)}</td>
+                                        <td className="num">{fmtDuration(l.median_service_s)}</td>
+                                        <td className="num">{fmtNum(l.throughput_per_hour, 1)}</td>
+                                        <td className="num">{l.abandoned != null ? `${l.abandoned} (${fmtPct(l.abandonment_rate)})` : DASH}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                    {metrics?.status === 'no_data' && (
+                        <p className="an-note">No checkout activity measured in this window yet. Start a camera that covers these lanes.</p>
+                    )}
+                </>
+            )}
+            <Definitions items={metrics?.definitions} />
+        </Panel>
+    );
 
     return (
-        <div className="page-scroll">
-            <div className="page-header">
-                <div>
-                    <h1 className="page-title">Checkout Analytics</h1>
-                    <p className="page-subtitle">Queue lengths, wait times, service times, throughput</p>
+        <AnalyticsPage
+            embedded={embedded}
+            title="Queues"
+            subtitle="Queue length, wait and service time per lane, measured from tracked people."
+            controls={<WindowSelect value={win} onChange={setWin} />}
+        >
+            {error && <div className="alert-banner danger">Unable to reach checkout analytics.</div>}
+            {longQueues.map((l) => (
+                <div key={`${l.camera_id}-${l.lane}`} className="alert-banner warning" role="alert">
+                    <AlertTriangle size={16} strokeWidth={1.75} />
+                    <span>Long queue at lane <strong>{l.lane}</strong>: {l.queue_length_now} waiting.</span>
                 </div>
-            </div>
+            ))}
 
-            <div className="stats-grid">
-                <StatCard icon={ShoppingCart} label="Total in Queue" value={totalQueue} accent="teal" />
-                <StatCard icon={Clock} label="Avg Wait" value={avgWait.toFixed(1)} suffix="s" accent="coral" />
-                <StatCard icon={Clock} label="Avg Service Time" value={avgService.toFixed(1)} suffix="s" accent="cyan" />
-                <StatCard icon={TrendingUp} label="Throughput" value={Math.round(throughput)} suffix=" /hr" accent="emerald" />
-            </div>
+            <HeroRow
+                hero={{
+                    label: 'Median wait',
+                    value: waitMetric.value,
+                    unit: waitMetric.unit,
+                    decimals: waitMetric.decimals,
+                    foot: waitMetric.value != null
+                        ? `From joining a queue to reaching the counter${windowLabel ? `, ${windowLabel.toLowerCase()}` : ''}`
+                        : 'Wait is measured once someone moves from a queue zone to its counter zone',
+                }}
+            >
+                <Metric label="In queues now" value={summary?.queue_length_now ?? null} />
+                <Metric label="Median service" value={serviceMetric.value} unit={serviceMetric.unit} decimals={serviceMetric.decimals} />
+                <Metric label="Left the queue" value={abandon.value} unit={abandon.unit} sub={abandon.value != null ? 'before reaching a counter' : undefined} />
+            </HeroRow>
 
-            <ContentCard title="Per-Lane Queue Length" subtitle="Updates every 4s" accent="sky">
-                {chartData.length === 0 ? (
-                    <div className="page-empty-hint">
-                        No checkout lanes configured. Add cameras with checkout zones to see live metrics.
-                    </div>
-                ) : (
-                    <div style={{ height: 300 }}>
+            <div className="an-grid an-grid--feature">
+                <FeatureCard
+                    label="Customers waited"
+                    value={summary?.customers_waited ?? null}
+                    sub={summary?.customers_waited != null
+                        ? `${fmtNum(summary.served ?? 0)} served at a counter${windowLabel ? `, ${windowLabel.toLowerCase()}` : ''}`
+                        : 'Counted once someone stands in a queue zone'}
+                />
+                {waits.length > 1 ? (
+                <Panel title="Median wait by lane" sub={`Seconds${windowLabel ? `, ${windowLabel.toLowerCase()}` : ''}. Longest wait highlighted.`}>
+                    <div className="an-chart an-chart--sm">
                         <ResponsiveContainer>
-                            <BarChart data={chartData}>
-                                <CartesianGrid stroke="rgba(255,255,255,0.05)" />
-                                <XAxis dataKey="name" stroke="#71717a" fontSize={11} />
-                                <YAxis stroke="#71717a" fontSize={11} />
-                                <Tooltip contentStyle={{ background: '#111', border: '1px solid #222' }} />
-                                <Bar dataKey="queue" radius={[6, 6, 0, 0]} fill={a}>
-                                    {chartData.map((_, i) => <Cell key={i} fill={a} />)}
+                            <BarChart data={waits} layout="vertical" margin={{ top: 0, right: 48, left: 0, bottom: 0 }}>
+                                <CartesianGrid {...th.grid} horizontal={false} vertical />
+                                <XAxis type="number" {...th.xAxis} allowDecimals={false} />
+                                <YAxis type="category" dataKey="lane" {...th.yAxis} width={88} />
+                                <Tooltip {...th.tooltip} cursor={{ fill: withAlpha(t.text, 0.04) }} formatter={(v) => [fmtDuration(v), 'Median wait']} />
+                                <Bar dataKey="wait" name="Median wait" radius={[0, 4, 4, 0]} maxBarSize={20}>
+                                    {waits.map((w) => <Cell key={w.lane} fill={w.lane === longest ? t.highlight : t.neutral} />)}
+                                    <LabelList dataKey="wait" position="right" formatter={(v) => fmtDuration(v)} {...th.xAxis.tick} />
                                 </Bar>
                             </BarChart>
                         </ResponsiveContainer>
                     </div>
-                )}
-            </ContentCard>
+                </Panel>
+                ) : lanesPanel}
+            </div>
 
-            <ContentCard title="Lanes" accent="teal">
-                <div className="ui-feed-list">
-                    {lanes.map((l) => (
-                        <div
-                            key={l.lane_id}
-                            className="ui-lane-row"
-                            style={{ gridTemplateColumns: '1fr repeat(4, 120px)' }}
-                        >
-                            <div>
-                                <div className="ui-lane-row-title">Lane {l.lane_id}</div>
-                                <div className="ui-lane-row-sub">cam {l.camera_id}</div>
-                            </div>
-                            <Cell2 label="Queue" value={l.queue_length} />
-                            <Cell2 label="Wait" value={`${(l.current_wait_estimate || 0).toFixed(0)}s`} />
-                            <Cell2 label="Service" value={`${(l.avg_service_time || 0).toFixed(0)}s`} />
-                            <Cell2 label="Throughput" value={`${Math.round(l.throughput || 0)}/hr`} />
-                        </div>
-                    ))}
-                </div>
-            </ContentCard>
-
-            {summary && (
-                <ContentCard title="Summary" accent="cyan">
-                    <pre className="ui-code-block">{JSON.stringify(summary, null, 2)}</pre>
-                </ContentCard>
-            )}
-        </div>
-    );
-}
-
-
-function Cell2({ label, value }) {
-    return (
-        <div style={{ textAlign: 'center' }}>
-            <div className="ui-lane-row-label">{label}</div>
-            <div className="ui-lane-row-value">{value}</div>
-        </div>
+            {waits.length > 1 ? lanesPanel : null}
+        </AnalyticsPage>
     );
 }

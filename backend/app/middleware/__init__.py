@@ -16,6 +16,8 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from loguru import logger
 
+from app.security.client_ip import client_ip as resolve_request_ip
+
 
 class RequestTracingMiddleware(BaseHTTPMiddleware):
     """
@@ -85,26 +87,45 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # Security headers
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
-        response.headers["X-XSS-Protection"] = "1; mode=block"
+        # Legacy XSS auditors are themselves exploitable; modern guidance is to disable them.
+        response.headers["X-XSS-Protection"] = "0"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+        if request.url.scheme == "https":
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
 
-        # Cache control for API responses
+        # API responses are data, never documents: forbid scripts/framing outright.
         if request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+            response.headers.setdefault(
+                "Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; sandbox"
+            )
 
         return response
+
+
+def _is_media_path(path: str, method: str) -> bool:
+    """GET/HEAD of evidence files/thumbnails and served footage."""
+    if method not in ("GET", "HEAD"):
+        return False
+    if path.startswith("/api/evidence/") and (path.endswith("/file") or path.endswith("/thumb")):
+        return True
+    return path.startswith("/api/footage/serve/")
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """
     Rate limiting middleware using sliding window algorithm.
     
-    Limits:
-      - 120 requests/minute for authenticated users
-      - 30 requests/minute for unauthenticated users
-      - Separate limits for login endpoint (10/minute to prevent brute force)
+    Limits (per real client IP — see app/security/client_ip.py):
+      - 10/minute on /api/auth/login and /admin/login (brute force; account
+        lockout in routers/auth.py is the second layer)
+      - 30/minute on the other /api/auth/* endpoints
+      - 120/minute per top-level API area for everything else
     """
+
+    _LOCAL_MAX_KEYS = 50_000  # bound the in-memory fallback (IP-spray cannot exhaust RAM)
 
     def __init__(self, app, cache=None):
         super().__init__(app)
@@ -117,18 +138,29 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if path in ("/api/health", "/docs", "/redoc", "/openapi.json"):
             return await call_next(request)
 
-        # Determine rate limit
-        client_ip = request.client.host if request.client else "unknown"
+        # Real client IP: X-Forwarded-For is honoured only from TRUSTED_PROXIES.
+        client_ip = resolve_request_ip(request)
         
         # Stricter limit for auth endpoints
-        if "/auth/login" in path:
+        if path in ("/api/auth/login", "/admin/login"):
             max_requests, window = 10, 60   # 10 login attempts per minute
-        elif "/auth/" in path:
+        elif path.startswith("/api/auth/"):
             max_requests, window = 30, 60   # 30 auth requests per minute
+        elif _is_media_path(path, request.method):
+            # Media reads (<img>/<video> incl. ranged seeks): browsing-shaped but still bounded,
+            # and in their own bucket so a gallery page cannot exhaust the API bucket.
+            max_requests, window = 900, 60
         else:
             max_requests, window = 120, 60  # 120 general requests per minute
 
-        identifier = f"{client_ip}:{path.split('/')[2] if len(path.split('/')) > 2 else 'general'}"
+        segments = path.split("/")
+        if max_requests == 10:
+            bucket = "login"
+        elif max_requests == 900:
+            bucket = "media"
+        else:
+            bucket = segments[2] if len(segments) > 2 else "general"
+        identifier = f"{client_ip}:{bucket}"
 
         # Check rate limit
         if self._cache:
@@ -137,6 +169,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             # Simple in-memory fallback
             now = time.time()
             key = f"rl:{identifier}"
+            if key not in self._local_counts and len(self._local_counts) >= self._LOCAL_MAX_KEYS:
+                cutoff = now - window
+                self._local_counts = {
+                    k: v for k, v in self._local_counts.items() if v and v[-1] > cutoff
+                }
             if key not in self._local_counts:
                 self._local_counts[key] = []
             self._local_counts[key] = [t for t in self._local_counts[key] if t > now - window]

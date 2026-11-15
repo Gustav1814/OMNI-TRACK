@@ -16,9 +16,10 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from app.config import settings
+from app.config import BACKEND_ROOT, settings
 from app.models.user import User
-from app.security.dependencies import get_current_user
+from app.models.user import UserRole
+from app.security.dependencies import get_current_user, require_role
 
 router = APIRouter(prefix="/api/footage", tags=["Footage"])
 
@@ -88,8 +89,8 @@ async def list_footage(
 @router.post("/upload")
 async def upload_footage(
     file: UploadFile = File(...),
-    camera_id: int = Query(1, description="Camera ID for this clip"),
-    current_user: User = Depends(get_current_user),
+    camera_id: int = Query(1, ge=1, description="Camera ID for this clip"),
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
 ):
     """Upload a CCTV clip (e.g. from store export). Stored as camera_{id}_{timestamp}.ext."""
     _ensure_footage_dir()
@@ -142,7 +143,18 @@ async def serve_footage(
 # Detection Logs
 # ────────────────────────────────────────────────────────────────
 
-LOGS_DIR = Path("storage/logs")
+LOGS_DIR = BACKEND_ROOT / "storage" / "logs"
+
+
+def _log_path(log_filename: str) -> Path:
+    """Resolve a detection-log name strictly inside LOGS_DIR."""
+    name = os.path.basename(log_filename or "")
+    if not SAFE_NAME_RE.match(name) or not name.endswith(".json"):
+        raise HTTPException(400, "Invalid log filename")
+    path = LOGS_DIR / name
+    if not _within_dir(path, LOGS_DIR) or not path.is_file():
+        raise HTTPException(404, "Detection log not found")
+    return path
 
 
 @router.get("/logs/list")
@@ -178,10 +190,7 @@ async def get_log(
     current_user: User = Depends(get_current_user),
 ):
     """Get full detection log contents."""
-    log_filename = os.path.basename(log_filename)
-    path = LOGS_DIR / log_filename
-    if not path.is_file():
-        raise HTTPException(404, "Log file not found")
+    path = _log_path(log_filename)
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -192,10 +201,7 @@ async def get_log_tracks(
     current_user: User = Depends(get_current_user),
 ):
     """Get summary of all unique track_ids in a log with their frame ranges and class names."""
-    log_filename = os.path.basename(log_filename)
-    path = LOGS_DIR / log_filename
-    if not path.is_file():
-        raise HTTPException(404, "Log file not found")
+    path = _log_path(log_filename)
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
     tracks = {}
@@ -239,10 +245,7 @@ async def get_log_analytics(
     heatmap cells, per-track timelines, frame counts, travel distance, and fall candidates.
     Inspired by the retail-vision-analytics notebook, but served as an API response.
     """
-    log_filename = os.path.basename(log_filename)
-    path = LOGS_DIR / log_filename
-    if not path.is_file():
-        raise HTTPException(404, "Log file not found")
+    path = _log_path(log_filename)
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
@@ -363,21 +366,18 @@ async def get_log_analytics(
 
 
 @router.post("/trim/by-track")
-async def trim_by_track(
+def trim_by_track(  # sync: runs in the threadpool (blocking OpenCV I/O)
     log_filename: str = Query(..., description="Detection log filename (e.g., camera_1_1778278505.json)"),
     track_id: int = Query(..., description="Track ID to extract"),
-    padding_frames: int = Query(5, description="Extra frames before/after each appearance"),
-    current_user: User = Depends(get_current_user),
+    padding_frames: int = Query(5, ge=0, le=300, description="Extra frames before/after each appearance"),
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
 ):
     """
     Trim the original recorded video to only frames where a specific track_id is visible.
     Uses the detection log to find frame numbers, then extracts those segments from the video.
     Output is saved as a new clip in storage/footage.
     """
-    log_filename = os.path.basename(log_filename)
-    log_path = LOGS_DIR / log_filename
-    if not log_path.is_file():
-        raise HTTPException(404, "Detection log not found")
+    log_path = _log_path(log_filename)
 
     with open(log_path, "r", encoding="utf-8") as f:
         log_data = json.load(f)
@@ -462,9 +462,8 @@ async def trim_by_track(
 
     return {
         "trimmed_video": out_name,
-        "path": str(out_path),
         "track_id": track_id,
         "segments": segments,
         "frames_written": frames_written,
-        "original_video": video_file,
+        "original_video": Path(video_file).name,
     }

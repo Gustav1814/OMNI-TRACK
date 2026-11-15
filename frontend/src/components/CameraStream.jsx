@@ -4,8 +4,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { motion } from 'framer-motion';
-import { Maximize2, Minimize2, X } from 'lucide-react';
+import { Maximize2, Minimize2, RotateCw, X } from 'lucide-react';
 import { liveStreamUrl } from '../services/api';
 
 export default function CameraStream({
@@ -14,14 +13,15 @@ export default function CameraStream({
     zone,
     fps,
     connected = true,
-    onClose,
+    finished = false,
+    onClose = undefined,
     compact = false,
-    detectionCount,
-    trackCount,
+    detectionCount = undefined,
+    trackCount = undefined,
     minimized = false,
     maximized = false,
-    onMinimize,
-    onMaximize,
+    onMinimize = undefined,
+    onMaximize = undefined,
 }) {
     const [loaded, setLoaded] = useState(false);
     const [error, setError] = useState(false);
@@ -42,101 +42,102 @@ export default function CameraStream({
         setUrl(`${nextUrl}${nextUrl.includes('?') ? '&' : '?'}t=${Date.now()}`);
     };
 
+    const state = finished ? 'ended' : connected ? 'live' : 'offline';
+    const stateLabel = finished ? 'Ended' : connected ? 'Rec' : 'Offline';
+    const dotClass = state === 'live' ? 'is-live' : state === 'ended' ? '' : 'is-bad';
+    const name = label || `Camera ${cameraId}`;
+    const hasStats = detectionCount != null || trackCount != null;
+
+    const controls = (restoreTitle) => (
+        <span className="camera-control-group">
+            {onMinimize && (
+                <button className="camera-control" onClick={onMinimize} title={restoreTitle} aria-label={restoreTitle} type="button">
+                    {minimized ? <Maximize2 size={14} strokeWidth={1.75} /> : <Minimize2 size={14} strokeWidth={1.75} />}
+                </button>
+            )}
+            {onMaximize && !minimized && (
+                <button
+                    className="camera-control"
+                    onClick={onMaximize}
+                    title={maximized ? 'Restore feed size' : 'Maximize feed'}
+                    aria-label={maximized ? 'Restore feed size' : 'Maximize feed'}
+                    aria-pressed={maximized}
+                    type="button"
+                >
+                    {maximized ? <Minimize2 size={14} strokeWidth={1.75} /> : <Maximize2 size={14} strokeWidth={1.75} />}
+                </button>
+            )}
+            {onClose && (
+                <button className="camera-control camera-control-danger" onClick={onClose} title="Stop feed" aria-label="Stop feed" type="button">
+                    <X size={14} strokeWidth={1.75} />
+                </button>
+            )}
+        </span>
+    );
+
     return (
-        <motion.div
-            className={`camera-tile ${compact ? 'camera-tile-compact' : ''} ${minimized ? 'camera-tile-minimized' : ''} ${maximized ? 'camera-tile-maximized' : ''}`}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.25 }}
+        <div
+            className={`camera-tile camera-tile--${state} ${compact ? 'camera-tile-compact' : ''} ${minimized ? 'camera-tile-minimized' : ''} ${maximized ? 'camera-tile-maximized' : ''}`.replace(/\s+/g, ' ').trim()}
         >
             {minimized ? (
                 <div className="camera-minimized-row">
-                    <div className="camera-minimized-meta">
-                        <span className={`camera-live-badge ${connected ? '' : 'offline'}`}>
-                            <span className="dot" />
-                            {connected ? 'LIVE' : 'OFFLINE'}
+                    <div className="camera-minimized-meta osd-strip">
+                        <span className={`camera-live-badge camera-live-badge--${state}`}>
+                            <span className={`live-dot ${dotClass}`} aria-hidden />
+                            {stateLabel}
                         </span>
-                        <strong>{label || `Camera ${cameraId}`}</strong>
-                        {zone && <span className="camera-zone">· {zone}</span>}
+                        <strong>{name}</strong>
+                        {zone && <span className="camera-zone">{zone}</span>}
+                        {detectionCount != null && <span className="camera-stat">{detectionCount} dets</span>}
+                        {trackCount != null && <span className="camera-stat">{trackCount} tracks</span>}
                     </div>
-                    <div className="camera-minimized-actions">
-                        {(detectionCount != null || trackCount != null) && (
-                            <span className="camera-stats camera-stats-inline">
-                                {detectionCount != null && <span>{detectionCount} dets</span>}
-                                {trackCount != null && <span>{trackCount} tracks</span>}
-                            </span>
-                        )}
-                        {onMinimize && (
-                            <button className="camera-control" onClick={onMinimize} title="Restore feed" type="button">
-                                <Maximize2 size={14} />
-                            </button>
-                        )}
-                        {onClose && (
-                            <button className="camera-control camera-control-danger" onClick={onClose} title="Stop feed" type="button">
-                                <X size={14} />
-                            </button>
-                        )}
-                    </div>
+                    {controls('Restore feed')}
                 </div>
             ) : (
-                <div className="camera-tile-video">
+                <div className="camera-tile-video vf vf--on-media">
                     {!error ? (
                         <img
                             ref={imgRef}
                             src={url}
-                            alt={`Camera ${cameraId}`}
+                            alt={`Live view, ${name}`}
                             onLoad={() => setLoaded(true)}
                             onError={() => setError(true)}
                         />
                     ) : (
-                        <div className="camera-tile-error">
-                            <div>Stream unavailable</div>
-                            <button className="btn-secondary btn-xs" onClick={retry} type="button">Retry</button>
+                        <div className="camera-tile-error" role="status">
+                            <span className="camera-tile-error-title">Stream unavailable</span>
+                            <span className="camera-tile-error-sub">The backend did not return frames for this feed.</span>
+                            <button className="btn btn-secondary btn-xs" onClick={retry} type="button">
+                                <RotateCw size={14} strokeWidth={1.75} aria-hidden />
+                                Retry
+                            </button>
                         </div>
                     )}
-                    {!loaded && !error && <div className="camera-tile-loading">Connecting...</div>}
+                    {!loaded && !error && <div className="camera-tile-loading" role="status">Connecting…</div>}
                     <div className="camera-tile-overlay">
                         <div className="camera-tile-top">
-                            <div className="camera-tile-top-meta">
-                                <span className={`camera-live-badge ${connected ? '' : 'offline'}`}>
-                                    <span className="dot" />
-                                    {connected ? 'LIVE' : 'OFFLINE'}
+                            <div className="camera-osd osd-strip">
+                                <span className={`camera-live-badge camera-live-badge--${state}`}>
+                                    <span className={`live-dot ${dotClass}`} aria-hidden />
+                                    {stateLabel}
                                 </span>
-                                {fps != null && <span className="camera-fps">{Number(fps).toFixed(1)} fps</span>}
+                                <strong className="camera-label">{name}</strong>
+                                {zone && <span className="camera-zone">{zone}</span>}
                             </div>
-                            <span className="camera-control-group">
-                                {onMinimize && (
-                                    <button className="camera-control" onClick={onMinimize} title="Minimize feed" type="button">
-                                        <Minimize2 size={14} />
-                                    </button>
-                                )}
-                                {onMaximize && (
-                                    <button className="camera-control" onClick={onMaximize} title={maximized ? 'Restore feed size' : 'Maximize feed'} type="button">
-                                        {maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-                                    </button>
-                                )}
-                                {onClose && (
-                                    <button className="camera-control camera-control-danger" onClick={onClose} title="Stop feed" type="button">
-                                        <X size={14} />
-                                    </button>
-                                )}
-                            </span>
+                            {controls('Minimize feed')}
                         </div>
-                        <div className="camera-tile-bottom">
-                            <div className="camera-label">
-                                <strong>{label || `Camera ${cameraId}`}</strong>
-                                {zone && <span className="camera-zone">· {zone}</span>}
-                            </div>
-                            {(detectionCount != null || trackCount != null) && (
-                                <div className="camera-stats">
+                        {(fps != null || hasStats) && (
+                            <div className="camera-tile-bottom">
+                                <div className="camera-osd osd-strip camera-stats">
+                                    {fps != null && <span className="camera-fps">{Number(fps).toFixed(1)} fps</span>}
                                     {detectionCount != null && <span>{detectionCount} dets</span>}
                                     {trackCount != null && <span>{trackCount} tracks</span>}
                                 </div>
-                            )}
-                        </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
-        </motion.div>
+        </div>
     );
 }

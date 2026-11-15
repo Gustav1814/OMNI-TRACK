@@ -1,0 +1,2014 @@
+{
+ "dataset": "Mall dataset (Chen et al. 2012), 2,000 annotated frames",
+ "source": "https://personal.ie.cuhk.edu.hk/~ccloy/downloads_mall_dataset.html",
+ "license": "Mall dataset: research use with citation",
+ "split": "every 4th frame",
+ "params": {
+  "stride": 4
+ },
+ "items": [
+  {
+   "frame": "seq_000001.jpg",
+   "count": 29
+  },
+  {
+   "frame": "seq_000005.jpg",
+   "count": 26
+  },
+  {
+   "frame": "seq_000009.jpg",
+   "count": 29
+  },
+  {
+   "frame": "seq_000013.jpg",
+   "count": 41
+  },
+  {
+   "frame": "seq_000017.jpg",
+   "count": 42
+  },
+  {
+   "frame": "seq_000021.jpg",
+   "count": 38
+  },
+  {
+   "frame": "seq_000025.jpg",
+   "count": 37
+  },
+  {
+   "frame": "seq_000029.jpg",
+   "count": 36
+  },
+  {
+   "frame": "seq_000033.jpg",
+   "count": 37
+  },
+  {
+   "frame": "seq_000037.jpg",
+   "count": 33
+  },
+  {
+   "frame": "seq_000041.jpg",
+   "count": 27
+  },
+  {
+   "frame": "seq_000045.jpg",
+   "count": 22
+  },
+  {
+   "frame": "seq_000049.jpg",
+   "count": 18
+  },
+  {
+   "frame": "seq_000053.jpg",
+   "count": 16
+  },
+  {
+   "frame": "seq_000057.jpg",
+   "count": 22
+  },
+  {
+   "frame": "seq_000061.jpg",
+   "count": 23
+  },
+  {
+   "frame": "seq_000065.jpg",
+   "count": 22
+  },
+  {
+   "frame": "seq_000069.jpg",
+   "count": 20
+  },
+  {
+   "frame": "seq_000073.jpg",
+   "count": 25
+  },
+  {
+   "frame": "seq_000077.jpg",
+   "count": 16
+  },
+  {
+   "frame": "seq_000081.jpg",
+   "count": 16
+  },
+  {
+   "frame": "seq_000085.jpg",
+   "count": 16
+  },
+  {
+   "frame": "seq_000089.jpg",
+   "count": 15
+  },
+  {
+   "frame": "seq_000093.jpg",
+   "count": 16
+  },
+  {
+   "frame": "seq_000097.jpg",
+   "count": 24
+  },
+  {
+   "frame": "seq_000101.jpg",
+   "count": 31
+  },
+  {
+   "frame": "seq_000105.jpg",
+   "count": 33
+  },
+  {
+   "frame": "seq_000109.jpg",
+   "count": 23
+  },
+  {
+   "frame": "seq_000113.jpg",
+   "count": 22
+  },
+  {
+   "frame": "seq_000117.jpg",
+   "count": 26
+  },
+  {
+   "frame": "seq_000121.jpg",
+   "count": 24
+  },
+  {
+   "frame": "seq_000125.jpg",
+   "count": 26
+  },
+  {
+   "frame": "seq_000129.jpg",
+   "count": 29
+  },
+  {
+   "frame": "seq_000133.jpg",
+   "count": 27
+  },
+  {
+   "frame": "seq_000137.jpg",
+   "count": 27
+  },
+  {
+   "frame": "seq_000141.jpg",
+   "count": 22
+  },
+  {
+   "frame": "seq_000145.jpg",
+   "count": 23
+  },
+  {
+   "frame": "seq_000149.jpg",
+   "count": 22
+  },
+  {
+   "frame": "seq_000153.jpg",
+   "count": 20
+  },
+  {
+   "frame": "seq_000157.jpg",
+   "count": 24
+  },
+  {
+   "frame": "seq_000161.jpg",
+   "count": 20
+  },
+  {
+   "frame": "seq_000165.jpg",
+   "count": 27
+  },
+  {
+   "frame": "seq_000169.jpg",
+   "count": 22
+  },
+  {
+   "frame": "seq_000173.jpg",
+   "count": 18
+  },
+  {
+   "frame": "seq_000177.jpg",
+   "count": 17
+  },
+  {
+   "frame": "seq_000181.jpg",
+   "count": 20
+  },
+  {
+   "frame": "seq_000185.jpg",
+   "count": 23
+  },
+  {
+   "frame": "seq_000189.jpg",
+   "count": 29
+  },
+  {
+   "frame": "seq_000193.jpg",
+   "count": 22
+  },
+  {
+   "frame": "seq_000197.jpg",
+   "count": 22
+  },
+  {
+   "frame": "seq_000201.jpg",
+   "count": 26
+  },
+  {
+   "frame": "seq_000205.jpg",
+   "count": 23
+  },
+  {
+   "frame": "seq_000209.jpg",
+   "count": 26
+  },
+  {
+   "frame": "seq_000213.jpg",
+   "count": 20
+  },
+  {
+   "frame": "seq_000217.jpg",
+   "count": 23
+  },
+  {
+   "frame": "seq_000221.jpg",
+   "count": 24
+  },
+  {
+   "frame": "seq_000225.jpg",
+   "count": 21
+  },
+  {
+   "frame": "seq_000229.jpg",
+   "count": 23
+  },
+  {
+   "frame": "seq_000233.jpg",
+   "count": 20
+  },
+  {
+   "frame": "seq_000237.jpg",
+   "count": 24
+  },
+  {
+   "frame": "seq_000241.jpg",
+   "count": 26
+  },
+  {
+   "frame": "seq_000245.jpg",
+   "count": 20
+  },
+  {
+   "frame": "seq_000249.jpg",
+   "count": 14
+  },
+  {
+   "frame": "seq_000253.jpg",
+   "count": 19
+  },
+  {
+   "frame": "seq_000257.jpg",
+   "count": 18
+  },
+  {
+   "frame": "seq_000261.jpg",
+   "count": 23
+  },
+  {
+   "frame": "seq_000265.jpg",
+   "count": 27
+  },
+  {
+   "frame": "seq_000269.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_000273.jpg",
+   "count": 26
+  },
+  {
+   "frame": "seq_000277.jpg",
+   "count": 25
+  },
+  {
+   "frame": "seq_000281.jpg",
+   "count": 22
+  },
+  {
+   "frame": "seq_000285.jpg",
+   "count": 23
+  },
+  {
+   "frame": "seq_000289.jpg",
+   "count": 26
+  },
+  {
+   "frame": "seq_000293.jpg",
+   "count": 23
+  },
+  {
+   "frame": "seq_000297.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_000301.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_000305.jpg",
+   "count": 24
+  },
+  {
+   "frame": "seq_000309.jpg",
+   "count": 22
+  },
+  {
+   "frame": "seq_000313.jpg",
+   "count": 19
+  },
+  {
+   "frame": "seq_000317.jpg",
+   "count": 16
+  },
+  {
+   "frame": "seq_000321.jpg",
+   "count": 14
+  },
+  {
+   "frame": "seq_000325.jpg",
+   "count": 19
+  },
+  {
+   "frame": "seq_000329.jpg",
+   "count": 20
+  },
+  {
+   "frame": "seq_000333.jpg",
+   "count": 19
+  },
+  {
+   "frame": "seq_000337.jpg",
+   "count": 22
+  },
+  {
+   "frame": "seq_000341.jpg",
+   "count": 24
+  },
+  {
+   "frame": "seq_000345.jpg",
+   "count": 24
+  },
+  {
+   "frame": "seq_000349.jpg",
+   "count": 27
+  },
+  {
+   "frame": "seq_000353.jpg",
+   "count": 38
+  },
+  {
+   "frame": "seq_000357.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_000361.jpg",
+   "count": 35
+  },
+  {
+   "frame": "seq_000365.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_000369.jpg",
+   "count": 34
+  },
+  {
+   "frame": "seq_000373.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_000377.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_000381.jpg",
+   "count": 47
+  },
+  {
+   "frame": "seq_000385.jpg",
+   "count": 39
+  },
+  {
+   "frame": "seq_000389.jpg",
+   "count": 42
+  },
+  {
+   "frame": "seq_000393.jpg",
+   "count": 43
+  },
+  {
+   "frame": "seq_000397.jpg",
+   "count": 50
+  },
+  {
+   "frame": "seq_000401.jpg",
+   "count": 48
+  },
+  {
+   "frame": "seq_000405.jpg",
+   "count": 44
+  },
+  {
+   "frame": "seq_000409.jpg",
+   "count": 37
+  },
+  {
+   "frame": "seq_000413.jpg",
+   "count": 33
+  },
+  {
+   "frame": "seq_000417.jpg",
+   "count": 34
+  },
+  {
+   "frame": "seq_000421.jpg",
+   "count": 33
+  },
+  {
+   "frame": "seq_000425.jpg",
+   "count": 34
+  },
+  {
+   "frame": "seq_000429.jpg",
+   "count": 34
+  },
+  {
+   "frame": "seq_000433.jpg",
+   "count": 35
+  },
+  {
+   "frame": "seq_000437.jpg",
+   "count": 39
+  },
+  {
+   "frame": "seq_000441.jpg",
+   "count": 48
+  },
+  {
+   "frame": "seq_000445.jpg",
+   "count": 45
+  },
+  {
+   "frame": "seq_000449.jpg",
+   "count": 50
+  },
+  {
+   "frame": "seq_000453.jpg",
+   "count": 42
+  },
+  {
+   "frame": "seq_000457.jpg",
+   "count": 31
+  },
+  {
+   "frame": "seq_000461.jpg",
+   "count": 34
+  },
+  {
+   "frame": "seq_000465.jpg",
+   "count": 31
+  },
+  {
+   "frame": "seq_000469.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_000473.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_000477.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_000481.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_000485.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_000489.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_000493.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_000497.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_000501.jpg",
+   "count": 26
+  },
+  {
+   "frame": "seq_000505.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_000509.jpg",
+   "count": 29
+  },
+  {
+   "frame": "seq_000513.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_000517.jpg",
+   "count": 36
+  },
+  {
+   "frame": "seq_000521.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_000525.jpg",
+   "count": 33
+  },
+  {
+   "frame": "seq_000529.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_000533.jpg",
+   "count": 25
+  },
+  {
+   "frame": "seq_000537.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_000541.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_000545.jpg",
+   "count": 27
+  },
+  {
+   "frame": "seq_000549.jpg",
+   "count": 21
+  },
+  {
+   "frame": "seq_000553.jpg",
+   "count": 24
+  },
+  {
+   "frame": "seq_000557.jpg",
+   "count": 22
+  },
+  {
+   "frame": "seq_000561.jpg",
+   "count": 21
+  },
+  {
+   "frame": "seq_000565.jpg",
+   "count": 23
+  },
+  {
+   "frame": "seq_000569.jpg",
+   "count": 25
+  },
+  {
+   "frame": "seq_000573.jpg",
+   "count": 22
+  },
+  {
+   "frame": "seq_000577.jpg",
+   "count": 23
+  },
+  {
+   "frame": "seq_000581.jpg",
+   "count": 27
+  },
+  {
+   "frame": "seq_000585.jpg",
+   "count": 31
+  },
+  {
+   "frame": "seq_000589.jpg",
+   "count": 29
+  },
+  {
+   "frame": "seq_000593.jpg",
+   "count": 26
+  },
+  {
+   "frame": "seq_000597.jpg",
+   "count": 22
+  },
+  {
+   "frame": "seq_000601.jpg",
+   "count": 23
+  },
+  {
+   "frame": "seq_000605.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_000609.jpg",
+   "count": 40
+  },
+  {
+   "frame": "seq_000613.jpg",
+   "count": 41
+  },
+  {
+   "frame": "seq_000617.jpg",
+   "count": 45
+  },
+  {
+   "frame": "seq_000621.jpg",
+   "count": 41
+  },
+  {
+   "frame": "seq_000625.jpg",
+   "count": 42
+  },
+  {
+   "frame": "seq_000629.jpg",
+   "count": 36
+  },
+  {
+   "frame": "seq_000633.jpg",
+   "count": 38
+  },
+  {
+   "frame": "seq_000637.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_000641.jpg",
+   "count": 40
+  },
+  {
+   "frame": "seq_000645.jpg",
+   "count": 41
+  },
+  {
+   "frame": "seq_000649.jpg",
+   "count": 42
+  },
+  {
+   "frame": "seq_000653.jpg",
+   "count": 33
+  },
+  {
+   "frame": "seq_000657.jpg",
+   "count": 34
+  },
+  {
+   "frame": "seq_000661.jpg",
+   "count": 33
+  },
+  {
+   "frame": "seq_000665.jpg",
+   "count": 25
+  },
+  {
+   "frame": "seq_000669.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_000673.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_000677.jpg",
+   "count": 34
+  },
+  {
+   "frame": "seq_000681.jpg",
+   "count": 33
+  },
+  {
+   "frame": "seq_000685.jpg",
+   "count": 34
+  },
+  {
+   "frame": "seq_000689.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_000693.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_000697.jpg",
+   "count": 31
+  },
+  {
+   "frame": "seq_000701.jpg",
+   "count": 35
+  },
+  {
+   "frame": "seq_000705.jpg",
+   "count": 34
+  },
+  {
+   "frame": "seq_000709.jpg",
+   "count": 38
+  },
+  {
+   "frame": "seq_000713.jpg",
+   "count": 38
+  },
+  {
+   "frame": "seq_000717.jpg",
+   "count": 43
+  },
+  {
+   "frame": "seq_000721.jpg",
+   "count": 48
+  },
+  {
+   "frame": "seq_000725.jpg",
+   "count": 42
+  },
+  {
+   "frame": "seq_000729.jpg",
+   "count": 45
+  },
+  {
+   "frame": "seq_000733.jpg",
+   "count": 42
+  },
+  {
+   "frame": "seq_000737.jpg",
+   "count": 40
+  },
+  {
+   "frame": "seq_000741.jpg",
+   "count": 33
+  },
+  {
+   "frame": "seq_000745.jpg",
+   "count": 38
+  },
+  {
+   "frame": "seq_000749.jpg",
+   "count": 42
+  },
+  {
+   "frame": "seq_000753.jpg",
+   "count": 41
+  },
+  {
+   "frame": "seq_000757.jpg",
+   "count": 44
+  },
+  {
+   "frame": "seq_000761.jpg",
+   "count": 39
+  },
+  {
+   "frame": "seq_000765.jpg",
+   "count": 33
+  },
+  {
+   "frame": "seq_000769.jpg",
+   "count": 26
+  },
+  {
+   "frame": "seq_000773.jpg",
+   "count": 33
+  },
+  {
+   "frame": "seq_000777.jpg",
+   "count": 36
+  },
+  {
+   "frame": "seq_000781.jpg",
+   "count": 35
+  },
+  {
+   "frame": "seq_000785.jpg",
+   "count": 27
+  },
+  {
+   "frame": "seq_000789.jpg",
+   "count": 23
+  },
+  {
+   "frame": "seq_000793.jpg",
+   "count": 22
+  },
+  {
+   "frame": "seq_000797.jpg",
+   "count": 26
+  },
+  {
+   "frame": "seq_000801.jpg",
+   "count": 31
+  },
+  {
+   "frame": "seq_000805.jpg",
+   "count": 38
+  },
+  {
+   "frame": "seq_000809.jpg",
+   "count": 37
+  },
+  {
+   "frame": "seq_000813.jpg",
+   "count": 41
+  },
+  {
+   "frame": "seq_000817.jpg",
+   "count": 33
+  },
+  {
+   "frame": "seq_000821.jpg",
+   "count": 36
+  },
+  {
+   "frame": "seq_000825.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_000829.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_000833.jpg",
+   "count": 27
+  },
+  {
+   "frame": "seq_000837.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_000841.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_000845.jpg",
+   "count": 31
+  },
+  {
+   "frame": "seq_000849.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_000853.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_000857.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_000861.jpg",
+   "count": 36
+  },
+  {
+   "frame": "seq_000865.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_000869.jpg",
+   "count": 35
+  },
+  {
+   "frame": "seq_000873.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_000877.jpg",
+   "count": 26
+  },
+  {
+   "frame": "seq_000881.jpg",
+   "count": 31
+  },
+  {
+   "frame": "seq_000885.jpg",
+   "count": 31
+  },
+  {
+   "frame": "seq_000889.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_000893.jpg",
+   "count": 33
+  },
+  {
+   "frame": "seq_000897.jpg",
+   "count": 35
+  },
+  {
+   "frame": "seq_000901.jpg",
+   "count": 36
+  },
+  {
+   "frame": "seq_000905.jpg",
+   "count": 37
+  },
+  {
+   "frame": "seq_000909.jpg",
+   "count": 41
+  },
+  {
+   "frame": "seq_000913.jpg",
+   "count": 39
+  },
+  {
+   "frame": "seq_000917.jpg",
+   "count": 37
+  },
+  {
+   "frame": "seq_000921.jpg",
+   "count": 34
+  },
+  {
+   "frame": "seq_000925.jpg",
+   "count": 31
+  },
+  {
+   "frame": "seq_000929.jpg",
+   "count": 26
+  },
+  {
+   "frame": "seq_000933.jpg",
+   "count": 33
+  },
+  {
+   "frame": "seq_000937.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_000941.jpg",
+   "count": 31
+  },
+  {
+   "frame": "seq_000945.jpg",
+   "count": 33
+  },
+  {
+   "frame": "seq_000949.jpg",
+   "count": 35
+  },
+  {
+   "frame": "seq_000953.jpg",
+   "count": 44
+  },
+  {
+   "frame": "seq_000957.jpg",
+   "count": 45
+  },
+  {
+   "frame": "seq_000961.jpg",
+   "count": 44
+  },
+  {
+   "frame": "seq_000965.jpg",
+   "count": 49
+  },
+  {
+   "frame": "seq_000969.jpg",
+   "count": 47
+  },
+  {
+   "frame": "seq_000973.jpg",
+   "count": 38
+  },
+  {
+   "frame": "seq_000977.jpg",
+   "count": 35
+  },
+  {
+   "frame": "seq_000981.jpg",
+   "count": 29
+  },
+  {
+   "frame": "seq_000985.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_000989.jpg",
+   "count": 34
+  },
+  {
+   "frame": "seq_000993.jpg",
+   "count": 37
+  },
+  {
+   "frame": "seq_000997.jpg",
+   "count": 41
+  },
+  {
+   "frame": "seq_001001.jpg",
+   "count": 38
+  },
+  {
+   "frame": "seq_001005.jpg",
+   "count": 34
+  },
+  {
+   "frame": "seq_001009.jpg",
+   "count": 27
+  },
+  {
+   "frame": "seq_001013.jpg",
+   "count": 26
+  },
+  {
+   "frame": "seq_001017.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_001021.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_001025.jpg",
+   "count": 33
+  },
+  {
+   "frame": "seq_001029.jpg",
+   "count": 37
+  },
+  {
+   "frame": "seq_001033.jpg",
+   "count": 37
+  },
+  {
+   "frame": "seq_001037.jpg",
+   "count": 35
+  },
+  {
+   "frame": "seq_001041.jpg",
+   "count": 34
+  },
+  {
+   "frame": "seq_001045.jpg",
+   "count": 27
+  },
+  {
+   "frame": "seq_001049.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_001053.jpg",
+   "count": 29
+  },
+  {
+   "frame": "seq_001057.jpg",
+   "count": 31
+  },
+  {
+   "frame": "seq_001061.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_001065.jpg",
+   "count": 24
+  },
+  {
+   "frame": "seq_001069.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_001073.jpg",
+   "count": 31
+  },
+  {
+   "frame": "seq_001077.jpg",
+   "count": 29
+  },
+  {
+   "frame": "seq_001081.jpg",
+   "count": 33
+  },
+  {
+   "frame": "seq_001085.jpg",
+   "count": 27
+  },
+  {
+   "frame": "seq_001089.jpg",
+   "count": 22
+  },
+  {
+   "frame": "seq_001093.jpg",
+   "count": 24
+  },
+  {
+   "frame": "seq_001097.jpg",
+   "count": 23
+  },
+  {
+   "frame": "seq_001101.jpg",
+   "count": 26
+  },
+  {
+   "frame": "seq_001105.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_001109.jpg",
+   "count": 25
+  },
+  {
+   "frame": "seq_001113.jpg",
+   "count": 29
+  },
+  {
+   "frame": "seq_001117.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_001121.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_001125.jpg",
+   "count": 27
+  },
+  {
+   "frame": "seq_001129.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_001133.jpg",
+   "count": 23
+  },
+  {
+   "frame": "seq_001137.jpg",
+   "count": 29
+  },
+  {
+   "frame": "seq_001141.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_001145.jpg",
+   "count": 40
+  },
+  {
+   "frame": "seq_001149.jpg",
+   "count": 44
+  },
+  {
+   "frame": "seq_001153.jpg",
+   "count": 40
+  },
+  {
+   "frame": "seq_001157.jpg",
+   "count": 39
+  },
+  {
+   "frame": "seq_001161.jpg",
+   "count": 36
+  },
+  {
+   "frame": "seq_001165.jpg",
+   "count": 34
+  },
+  {
+   "frame": "seq_001169.jpg",
+   "count": 41
+  },
+  {
+   "frame": "seq_001173.jpg",
+   "count": 40
+  },
+  {
+   "frame": "seq_001177.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_001181.jpg",
+   "count": 27
+  },
+  {
+   "frame": "seq_001185.jpg",
+   "count": 27
+  },
+  {
+   "frame": "seq_001189.jpg",
+   "count": 27
+  },
+  {
+   "frame": "seq_001193.jpg",
+   "count": 31
+  },
+  {
+   "frame": "seq_001197.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_001201.jpg",
+   "count": 29
+  },
+  {
+   "frame": "seq_001205.jpg",
+   "count": 27
+  },
+  {
+   "frame": "seq_001209.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_001213.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_001217.jpg",
+   "count": 23
+  },
+  {
+   "frame": "seq_001221.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_001225.jpg",
+   "count": 33
+  },
+  {
+   "frame": "seq_001229.jpg",
+   "count": 39
+  },
+  {
+   "frame": "seq_001233.jpg",
+   "count": 37
+  },
+  {
+   "frame": "seq_001237.jpg",
+   "count": 33
+  },
+  {
+   "frame": "seq_001241.jpg",
+   "count": 29
+  },
+  {
+   "frame": "seq_001245.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_001249.jpg",
+   "count": 24
+  },
+  {
+   "frame": "seq_001253.jpg",
+   "count": 26
+  },
+  {
+   "frame": "seq_001257.jpg",
+   "count": 24
+  },
+  {
+   "frame": "seq_001261.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_001265.jpg",
+   "count": 33
+  },
+  {
+   "frame": "seq_001269.jpg",
+   "count": 37
+  },
+  {
+   "frame": "seq_001273.jpg",
+   "count": 35
+  },
+  {
+   "frame": "seq_001277.jpg",
+   "count": 36
+  },
+  {
+   "frame": "seq_001281.jpg",
+   "count": 34
+  },
+  {
+   "frame": "seq_001285.jpg",
+   "count": 38
+  },
+  {
+   "frame": "seq_001289.jpg",
+   "count": 31
+  },
+  {
+   "frame": "seq_001293.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_001297.jpg",
+   "count": 31
+  },
+  {
+   "frame": "seq_001301.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_001305.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_001309.jpg",
+   "count": 34
+  },
+  {
+   "frame": "seq_001313.jpg",
+   "count": 35
+  },
+  {
+   "frame": "seq_001317.jpg",
+   "count": 34
+  },
+  {
+   "frame": "seq_001321.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_001325.jpg",
+   "count": 34
+  },
+  {
+   "frame": "seq_001329.jpg",
+   "count": 27
+  },
+  {
+   "frame": "seq_001333.jpg",
+   "count": 23
+  },
+  {
+   "frame": "seq_001337.jpg",
+   "count": 20
+  },
+  {
+   "frame": "seq_001341.jpg",
+   "count": 21
+  },
+  {
+   "frame": "seq_001345.jpg",
+   "count": 23
+  },
+  {
+   "frame": "seq_001349.jpg",
+   "count": 24
+  },
+  {
+   "frame": "seq_001353.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_001357.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_001361.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_001365.jpg",
+   "count": 26
+  },
+  {
+   "frame": "seq_001369.jpg",
+   "count": 23
+  },
+  {
+   "frame": "seq_001373.jpg",
+   "count": 17
+  },
+  {
+   "frame": "seq_001377.jpg",
+   "count": 20
+  },
+  {
+   "frame": "seq_001381.jpg",
+   "count": 22
+  },
+  {
+   "frame": "seq_001385.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_001389.jpg",
+   "count": 27
+  },
+  {
+   "frame": "seq_001393.jpg",
+   "count": 29
+  },
+  {
+   "frame": "seq_001397.jpg",
+   "count": 25
+  },
+  {
+   "frame": "seq_001401.jpg",
+   "count": 27
+  },
+  {
+   "frame": "seq_001405.jpg",
+   "count": 35
+  },
+  {
+   "frame": "seq_001409.jpg",
+   "count": 35
+  },
+  {
+   "frame": "seq_001413.jpg",
+   "count": 31
+  },
+  {
+   "frame": "seq_001417.jpg",
+   "count": 33
+  },
+  {
+   "frame": "seq_001421.jpg",
+   "count": 39
+  },
+  {
+   "frame": "seq_001425.jpg",
+   "count": 36
+  },
+  {
+   "frame": "seq_001429.jpg",
+   "count": 40
+  },
+  {
+   "frame": "seq_001433.jpg",
+   "count": 37
+  },
+  {
+   "frame": "seq_001437.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_001441.jpg",
+   "count": 37
+  },
+  {
+   "frame": "seq_001445.jpg",
+   "count": 34
+  },
+  {
+   "frame": "seq_001449.jpg",
+   "count": 36
+  },
+  {
+   "frame": "seq_001453.jpg",
+   "count": 40
+  },
+  {
+   "frame": "seq_001457.jpg",
+   "count": 45
+  },
+  {
+   "frame": "seq_001461.jpg",
+   "count": 36
+  },
+  {
+   "frame": "seq_001465.jpg",
+   "count": 37
+  },
+  {
+   "frame": "seq_001469.jpg",
+   "count": 34
+  },
+  {
+   "frame": "seq_001473.jpg",
+   "count": 29
+  },
+  {
+   "frame": "seq_001477.jpg",
+   "count": 29
+  },
+  {
+   "frame": "seq_001481.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_001485.jpg",
+   "count": 34
+  },
+  {
+   "frame": "seq_001489.jpg",
+   "count": 35
+  },
+  {
+   "frame": "seq_001493.jpg",
+   "count": 35
+  },
+  {
+   "frame": "seq_001497.jpg",
+   "count": 37
+  },
+  {
+   "frame": "seq_001501.jpg",
+   "count": 45
+  },
+  {
+   "frame": "seq_001505.jpg",
+   "count": 47
+  },
+  {
+   "frame": "seq_001509.jpg",
+   "count": 43
+  },
+  {
+   "frame": "seq_001513.jpg",
+   "count": 39
+  },
+  {
+   "frame": "seq_001517.jpg",
+   "count": 34
+  },
+  {
+   "frame": "seq_001521.jpg",
+   "count": 33
+  },
+  {
+   "frame": "seq_001525.jpg",
+   "count": 29
+  },
+  {
+   "frame": "seq_001529.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_001533.jpg",
+   "count": 34
+  },
+  {
+   "frame": "seq_001537.jpg",
+   "count": 34
+  },
+  {
+   "frame": "seq_001541.jpg",
+   "count": 33
+  },
+  {
+   "frame": "seq_001545.jpg",
+   "count": 42
+  },
+  {
+   "frame": "seq_001549.jpg",
+   "count": 39
+  },
+  {
+   "frame": "seq_001553.jpg",
+   "count": 43
+  },
+  {
+   "frame": "seq_001557.jpg",
+   "count": 45
+  },
+  {
+   "frame": "seq_001561.jpg",
+   "count": 46
+  },
+  {
+   "frame": "seq_001565.jpg",
+   "count": 33
+  },
+  {
+   "frame": "seq_001569.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_001573.jpg",
+   "count": 22
+  },
+  {
+   "frame": "seq_001577.jpg",
+   "count": 26
+  },
+  {
+   "frame": "seq_001581.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_001585.jpg",
+   "count": 29
+  },
+  {
+   "frame": "seq_001589.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_001593.jpg",
+   "count": 33
+  },
+  {
+   "frame": "seq_001597.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_001601.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_001605.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_001609.jpg",
+   "count": 31
+  },
+  {
+   "frame": "seq_001613.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_001617.jpg",
+   "count": 36
+  },
+  {
+   "frame": "seq_001621.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_001625.jpg",
+   "count": 33
+  },
+  {
+   "frame": "seq_001629.jpg",
+   "count": 41
+  },
+  {
+   "frame": "seq_001633.jpg",
+   "count": 46
+  },
+  {
+   "frame": "seq_001637.jpg",
+   "count": 45
+  },
+  {
+   "frame": "seq_001641.jpg",
+   "count": 40
+  },
+  {
+   "frame": "seq_001645.jpg",
+   "count": 44
+  },
+  {
+   "frame": "seq_001649.jpg",
+   "count": 41
+  },
+  {
+   "frame": "seq_001653.jpg",
+   "count": 44
+  },
+  {
+   "frame": "seq_001657.jpg",
+   "count": 39
+  },
+  {
+   "frame": "seq_001661.jpg",
+   "count": 37
+  },
+  {
+   "frame": "seq_001665.jpg",
+   "count": 36
+  },
+  {
+   "frame": "seq_001669.jpg",
+   "count": 27
+  },
+  {
+   "frame": "seq_001673.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_001677.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_001681.jpg",
+   "count": 31
+  },
+  {
+   "frame": "seq_001685.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_001689.jpg",
+   "count": 26
+  },
+  {
+   "frame": "seq_001693.jpg",
+   "count": 26
+  },
+  {
+   "frame": "seq_001697.jpg",
+   "count": 20
+  },
+  {
+   "frame": "seq_001701.jpg",
+   "count": 21
+  },
+  {
+   "frame": "seq_001705.jpg",
+   "count": 26
+  },
+  {
+   "frame": "seq_001709.jpg",
+   "count": 34
+  },
+  {
+   "frame": "seq_001713.jpg",
+   "count": 29
+  },
+  {
+   "frame": "seq_001717.jpg",
+   "count": 34
+  },
+  {
+   "frame": "seq_001721.jpg",
+   "count": 38
+  },
+  {
+   "frame": "seq_001725.jpg",
+   "count": 27
+  },
+  {
+   "frame": "seq_001729.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_001733.jpg",
+   "count": 26
+  },
+  {
+   "frame": "seq_001737.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_001741.jpg",
+   "count": 34
+  },
+  {
+   "frame": "seq_001745.jpg",
+   "count": 34
+  },
+  {
+   "frame": "seq_001749.jpg",
+   "count": 33
+  },
+  {
+   "frame": "seq_001753.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_001757.jpg",
+   "count": 39
+  },
+  {
+   "frame": "seq_001761.jpg",
+   "count": 37
+  },
+  {
+   "frame": "seq_001765.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_001769.jpg",
+   "count": 35
+  },
+  {
+   "frame": "seq_001773.jpg",
+   "count": 36
+  },
+  {
+   "frame": "seq_001777.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_001781.jpg",
+   "count": 35
+  },
+  {
+   "frame": "seq_001785.jpg",
+   "count": 36
+  },
+  {
+   "frame": "seq_001789.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_001793.jpg",
+   "count": 34
+  },
+  {
+   "frame": "seq_001797.jpg",
+   "count": 37
+  },
+  {
+   "frame": "seq_001801.jpg",
+   "count": 37
+  },
+  {
+   "frame": "seq_001805.jpg",
+   "count": 37
+  },
+  {
+   "frame": "seq_001809.jpg",
+   "count": 45
+  },
+  {
+   "frame": "seq_001813.jpg",
+   "count": 44
+  },
+  {
+   "frame": "seq_001817.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_001821.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_001825.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_001829.jpg",
+   "count": 29
+  },
+  {
+   "frame": "seq_001833.jpg",
+   "count": 40
+  },
+  {
+   "frame": "seq_001837.jpg",
+   "count": 36
+  },
+  {
+   "frame": "seq_001841.jpg",
+   "count": 37
+  },
+  {
+   "frame": "seq_001845.jpg",
+   "count": 42
+  },
+  {
+   "frame": "seq_001849.jpg",
+   "count": 42
+  },
+  {
+   "frame": "seq_001853.jpg",
+   "count": 35
+  },
+  {
+   "frame": "seq_001857.jpg",
+   "count": 33
+  },
+  {
+   "frame": "seq_001861.jpg",
+   "count": 36
+  },
+  {
+   "frame": "seq_001865.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_001869.jpg",
+   "count": 26
+  },
+  {
+   "frame": "seq_001873.jpg",
+   "count": 29
+  },
+  {
+   "frame": "seq_001877.jpg",
+   "count": 27
+  },
+  {
+   "frame": "seq_001881.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_001885.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_001889.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_001893.jpg",
+   "count": 27
+  },
+  {
+   "frame": "seq_001897.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_001901.jpg",
+   "count": 33
+  },
+  {
+   "frame": "seq_001905.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_001909.jpg",
+   "count": 29
+  },
+  {
+   "frame": "seq_001913.jpg",
+   "count": 35
+  },
+  {
+   "frame": "seq_001917.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_001921.jpg",
+   "count": 35
+  },
+  {
+   "frame": "seq_001925.jpg",
+   "count": 25
+  },
+  {
+   "frame": "seq_001929.jpg",
+   "count": 29
+  },
+  {
+   "frame": "seq_001933.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_001937.jpg",
+   "count": 29
+  },
+  {
+   "frame": "seq_001941.jpg",
+   "count": 25
+  },
+  {
+   "frame": "seq_001945.jpg",
+   "count": 27
+  },
+  {
+   "frame": "seq_001949.jpg",
+   "count": 27
+  },
+  {
+   "frame": "seq_001953.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_001957.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_001961.jpg",
+   "count": 29
+  },
+  {
+   "frame": "seq_001965.jpg",
+   "count": 32
+  },
+  {
+   "frame": "seq_001969.jpg",
+   "count": 25
+  },
+  {
+   "frame": "seq_001973.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_001977.jpg",
+   "count": 30
+  },
+  {
+   "frame": "seq_001981.jpg",
+   "count": 29
+  },
+  {
+   "frame": "seq_001985.jpg",
+   "count": 36
+  },
+  {
+   "frame": "seq_001989.jpg",
+   "count": 26
+  },
+  {
+   "frame": "seq_001993.jpg",
+   "count": 28
+  },
+  {
+   "frame": "seq_001997.jpg",
+   "count": 27
+  }
+ ],
+ "frozen_at": "2026-11-14T22:40:38+00:00",
+ "n_items": 500,
+ "items_sha256": "08bf3e351af28e1579f4d707db8e91b6e6afc8d7735d57f219f63476a617e3b5"
+}

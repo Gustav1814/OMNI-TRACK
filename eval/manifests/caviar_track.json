@@ -1,0 +1,63 @@
+{
+ "dataset": "CAVIAR shopping centre, tracking subset (4 sequences x 2 views)",
+ "source": "https://homepages.inf.ed.ac.uk/rbf/CAVIARDATA1/",
+ "license": "CAVIAR terms: free for research use with acknowledgement",
+ "split": "EnterExitCrossingPaths1, OneStopMoveEnter1, ThreePastShop1, TwoEnterShop1; every 2th frame; GT h<24px = ignore",
+ "params": {
+  "step": 2,
+  "min_height_px": 24.0
+ },
+ "items": [
+  {
+   "seq": "EnterExitCrossingPaths1",
+   "view": "cam1_corridor",
+   "frames": 383,
+   "step": 2
+  },
+  {
+   "seq": "EnterExitCrossingPaths1",
+   "view": "cam2_front",
+   "frames": 383,
+   "step": 2
+  },
+  {
+   "seq": "OneStopMoveEnter1",
+   "view": "cam1_corridor",
+   "frames": 1590,
+   "step": 2
+  },
+  {
+   "seq": "OneStopMoveEnter1",
+   "view": "cam2_front",
+   "frames": 1590,
+   "step": 2
+  },
+  {
+   "seq": "ThreePastShop1",
+   "view": "cam1_corridor",
+   "frames": 1650,
+   "step": 2
+  },
+  {
+   "seq": "ThreePastShop1",
+   "view": "cam2_front",
+   "frames": 1650,
+   "step": 2
+  },
+  {
+   "seq": "TwoEnterShop1",
+   "view": "cam1_corridor",
+   "frames": 1645,
+   "step": 2
+  },
+  {
+   "seq": "TwoEnterShop1",
+   "view": "cam2_front",
+   "frames": 1645,
+   "step": 2
+  }
+ ],
+ "frozen_at": "2026-11-14T23:16:57+00:00",
+ "n_items": 8,
+ "items_sha256": "50d0b5bcc1f380464e5a5f43aa56243b6a5c2d58c7733765c95797ced50ff64d"
+}

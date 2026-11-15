@@ -1,0 +1,15 @@
+# Extra packages for the eval/ scripts, on top of backend/requirements.txt:
+#   uv pip install --python backend/.venv/bin/python -r eval/requirements.txt
+#
+# eval/track.py - HOTA / CLEAR (MOTA) / Identity (IDF1) via the official TrackEval code.
+# Pinned to a commit (no PyPI release). It still uses np.float/np.int, which
+# eval/track.py shims before import.
+trackeval @ git+https://github.com/JonathonLuiten/TrackEval.git@12c8791b303e0a0b50f753af204249e622d0281a
+#
+# eval/adversarial.py only - FGSM / PGD (app.security.adversarial_eval imports it lazily).
+adversarial-robustness-toolbox==1.20.1
+#
+# eval/demographics.py + eval/report_figures.py - FairFace parquet reader and the report charts
+# (matplotlib also arrives with ultralytics; pinned here so the figures render the same everywhere).
+polars==2.1.0
+matplotlib==3.11.2

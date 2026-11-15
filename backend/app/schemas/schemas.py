@@ -3,10 +3,9 @@ OmniTrack AI — Pydantic Schemas
 Request/response models for all API endpoints
 """
 
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
-from enum import Enum
 from app.models.user import UserRole
 
 
@@ -15,13 +14,13 @@ from app.models.user import UserRole
 class UserCreate(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
     email: str = Field(..., max_length=100)
-    password: str = Field(..., min_length=6)
-    full_name: Optional[str] = None
+    password: str = Field(..., min_length=10, max_length=128)
+    full_name: Optional[str] = Field(None, max_length=100)
 
 
 class UserLogin(BaseModel):
-    username: str
-    password: str
+    username: str = Field(..., max_length=50)
+    password: str = Field(..., max_length=128)
 
 
 class UserResponse(BaseModel):
@@ -146,15 +145,6 @@ class SynopsisRequest(BaseModel):
     compression_ratio: float = 10.0
 
 
-class SynopsisResponse(BaseModel):
-    id: int
-    camera_id: int
-    original_duration: float
-    synopsis_duration: float
-    compression_ratio: float
-    output_path: str
-    status: str
-
 
 # ---- Shelf Analytics ----
 
@@ -236,24 +226,6 @@ class EmotionZoneAggregation(BaseModel):
 
 # ---- Audit ----
 
-class AuditEntry(BaseModel):
-    id: int
-    event_type: str
-    user_id: Optional[int]
-    description: Optional[str]
-    current_hash: str
-    previous_hash: Optional[str]
-    timestamp: datetime
-    is_valid: Optional[bool] = None
-
-    class Config:
-        from_attributes = True
-
-
-class AuditChainStatus(BaseModel):
-    valid: bool
-    broken_at: Optional[int]
-    total: int
 
 
 # ---- Store Vibe (NEW) ----

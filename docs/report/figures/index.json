@@ -1,0 +1,41 @@
+{
+ "entries": {
+  "emotion_per_class.png": {
+   "file": "figures/emotion_per_class.png",
+   "group": "emotion",
+   "caption": "Per-class recall of the shipped AffectNet-trained emotion model on the FER-2013 test split (cross-dataset); the dashed line is the overall 7-class accuracy. Measured on CPU (12th Gen Intel(R) Core(TM) i5-1245U).",
+   "source": "eval/results/emotion.json",
+   "dataset": "FER-2013 public test split - test (PublicTest + PrivateTest, all 7,178 images) | measured on CPU (12th Gen Intel(R) Core(TM) i5-1245U)",
+   "numbers": [
+    "overall accuracy 0.5599",
+    "macro recall 0.5232",
+    "angry: 0.5115 (n=958)",
+    "disgusted: 0.5045 (n=111)",
+    "fearful: 0.3838 (n=1024)",
+    "happy: 0.8517 (n=1774)",
+    "neutral: 0.5645 (n=1233)",
+    "sad: 0.4074 (n=1247)",
+    "surprised: 0.4392 (n=831)"
+   ],
+   "generated": "2026-11-15 04:30"
+  },
+  "emotion_confusion.png": {
+   "file": "figures/emotion_confusion.png",
+   "group": "emotion",
+   "caption": "Row-normalised confusion matrix (percent of the true class, with counts) on FER-2013 test.",
+   "source": "eval/results/emotion.json",
+   "dataset": "FER-2013 public test split - test (PublicTest + PrivateTest, all 7,178 images) | measured on CPU (12th Gen Intel(R) Core(TM) i5-1245U)",
+   "numbers": [
+    "angry: angry 490, disgusted 72, fearful 164, happy 39, neutral 92, sad 63, surprised 38",
+    "disgusted: angry 28, disgusted 56, fearful 14, happy 2, neutral 2, sad 8, surprised 1",
+    "fearful: angry 144, disgusted 15, fearful 393, happy 52, neutral 152, sad 209, surprised 59",
+    "happy: angry 18, disgusted 21, fearful 60, happy 1511, neutral 54, sad 14, surprised 96",
+    "neutral: angry 107, disgusted 19, fearful 63, happy 132, neutral 696, sad 157, surprised 59",
+    "sad: angry 180, disgusted 20, fearful 128, happy 70, neutral 314, sad 508, surprised 27",
+    "surprised: angry 13, disgusted 1, fearful 396, happy 34, neutral 15, sad 7, surprised 365"
+   ],
+   "generated": "2026-11-15 04:30"
+  }
+ },
+ "gaps": {}
+}

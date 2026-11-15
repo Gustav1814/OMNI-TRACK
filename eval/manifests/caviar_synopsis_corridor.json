@@ -1,0 +1,141 @@
+{
+ "dataset": "CAVIAR corridor camera, every sequence concatenated in name order",
+ "split": "all",
+ "source": "https://groups.inf.ed.ac.uk/vision/CAVIAR/CAVIARDATA1/",
+ "license": "CAVIAR: free for research use with acknowledgement (EC IST-2001-37540)",
+ "items": [
+  {
+   "sequence": "EnterExitCrossingPaths1",
+   "video": "EnterExitCrossingPaths1_cam1_corridor.mpg",
+   "sha256": "f8363a5492e57787647c0e9e525b749a864e3bcbaee48a7353060525428a1367"
+  },
+  {
+   "sequence": "EnterExitCrossingPaths2",
+   "video": "EnterExitCrossingPaths2_cam1_corridor.mpg",
+   "sha256": "38748ca0c32cd602729f36c55830eb9667f7ecdbbc9b627e84099107319ab036"
+  },
+  {
+   "sequence": "OneLeaveShop1",
+   "video": "OneLeaveShop1_cam1_corridor.mpg",
+   "sha256": "283b4abe464feea871d06dee6fd7b2248dc6f967ce30cd89480d9603c00254a8"
+  },
+  {
+   "sequence": "OneLeaveShop2",
+   "video": "OneLeaveShop2_cam1_corridor.mpg",
+   "sha256": "00834361773343472f81282fa86a5c4f9965cbab379dabbe3c639f0c7b2e5397"
+  },
+  {
+   "sequence": "OneLeaveShopReenter1",
+   "video": "OneLeaveShopReenter1_cam1_corridor.mpg",
+   "sha256": "14d55141103159aedfaf9f2be798396536cdc00a4e5113f99063276181edf937"
+  },
+  {
+   "sequence": "OneLeaveShopReenter2",
+   "video": "OneLeaveShopReenter2_cam1_corridor.mpg",
+   "sha256": "162ea10eec2cf6910b6933663595f06a2bd435999b4d84cc005e5e68c05024bf"
+  },
+  {
+   "sequence": "OneShopOneWait1",
+   "video": "OneShopOneWait1_cam1_corridor.mpg",
+   "sha256": "ffa3caf85910d40938755c6417c7ee123f746e2a101909132bb690c143099ff0"
+  },
+  {
+   "sequence": "OneShopOneWait2",
+   "video": "OneShopOneWait2_cam1_corridor.mpg",
+   "sha256": "5adeb464ec45aa7b20e742115a42dec3328e99630362103aa2bba562a8f69ef3"
+  },
+  {
+   "sequence": "OneStopEnter1",
+   "video": "OneStopEnter1_cam1_corridor.mpg",
+   "sha256": "05340115b48889f344f45c05593322b0c3cb9852081092226833f8e73d3ffb83"
+  },
+  {
+   "sequence": "OneStopEnter2",
+   "video": "OneStopEnter2_cam1_corridor.mpg",
+   "sha256": "4ae90160f7de448ce12ff337f3abb356e1a7ea10ea80e8b9ae829f0eba6379b9"
+  },
+  {
+   "sequence": "OneStopMoveEnter1",
+   "video": "OneStopMoveEnter1_cam1_corridor.mpg",
+   "sha256": "c9743f99f30002d7817fdfc10b599ef4b8ccb738477a00bae8e98175a98157ef"
+  },
+  {
+   "sequence": "OneStopMoveEnter2",
+   "video": "OneStopMoveEnter2_cam1_corridor.mpg",
+   "sha256": "676ae02d0a3ed46b94452d53631371edd6422e325344a168db68de43fbc7e9e5"
+  },
+  {
+   "sequence": "OneStopMoveNoEnter1",
+   "video": "OneStopMoveNoEnter1_cam1_corridor.mpg",
+   "sha256": "19b5956bb9e2c38784062ee1f612e21dc6880c41d2eb5e485741a8c147646dbd"
+  },
+  {
+   "sequence": "OneStopMoveNoEnter2",
+   "video": "OneStopMoveNoEnter2_cam1_corridor.mpg",
+   "sha256": "0d82dcd4a027937f77a767160c0705970fbdff582df1cf7665f891bdb5d6665e"
+  },
+  {
+   "sequence": "OneStopNoEnter1",
+   "video": "OneStopNoEnter1_cam1_corridor.mpg",
+   "sha256": "8f9e99b59aaa78f639dadc0d6b2d0b4c58d83bc967efc5e2c8368cec19498698"
+  },
+  {
+   "sequence": "OneStopNoEnter2",
+   "video": "OneStopNoEnter2_cam1_corridor.mpg",
+   "sha256": "4d75be05a62b05a94509918f169a5b9778cdb3c2f33a60ebd61fda470c71d7c0"
+  },
+  {
+   "sequence": "ShopAssistant1",
+   "video": "ShopAssistant1_cam1_corridor.mpg",
+   "sha256": "504caed65c426688f1002426dbabdf9513ff78a6bfde6b971e6a6866198eba8a"
+  },
+  {
+   "sequence": "ShopAssistant2",
+   "video": "ShopAssistant2_cam1_corridor.mpg",
+   "sha256": "c0a3a23f9af1706a34082e6efb2e35dabbfc746dcd6691dad13e66122830a379"
+  },
+  {
+   "sequence": "ThreePastShop1",
+   "video": "ThreePastShop1_cam1_corridor.mpg",
+   "sha256": "8a2aabaaf1b10234a1ab806006d37f78784c688bff809f661b7f0c617de02a88"
+  },
+  {
+   "sequence": "ThreePastShop2",
+   "video": "ThreePastShop2_cam1_corridor.mpg",
+   "sha256": "1fa7d41d113332c2dde21b49c6bfb0a19f01a9720637247338830384620115d6"
+  },
+  {
+   "sequence": "TwoEnterShop1",
+   "video": "TwoEnterShop1_cam1_corridor.mpg",
+   "sha256": "6dbee6a37f09f0fc0fba9f6409dbf4876dec6389579da6ecdbab962378b5408b"
+  },
+  {
+   "sequence": "TwoEnterShop2",
+   "video": "TwoEnterShop2_cam1_corridor.mpg",
+   "sha256": "baf85c387735dbe30d7f1426a383ed6a6f323e5c79d1bf4b72fa8c89ce11ac0e"
+  },
+  {
+   "sequence": "TwoEnterShop3",
+   "video": "TwoEnterShop3_cam1_corridor.mpg",
+   "sha256": "c6d9dd79af1b8ee4cf6c6cf665aea9d0462dfd74c00d01d1f559fe29b30030cd"
+  },
+  {
+   "sequence": "TwoLeaveShop1",
+   "video": "TwoLeaveShop1_cam1_corridor.mpg",
+   "sha256": "21b76f5840741efbb49ed0d3ada1caed3ab3cc96308e92c7b3c3904253b36776"
+  },
+  {
+   "sequence": "TwoLeaveShop2",
+   "video": "TwoLeaveShop2_cam1_corridor.mpg",
+   "sha256": "aa396f40f645e9e837d6ff41dae4530792f195abf17033131777d56def664ca4"
+  },
+  {
+   "sequence": "WalkByShop1",
+   "video": "WalkByShop1_cam1_corridor.mpg",
+   "sha256": "8adc5aa3a54080fc389f47d5d44e6a326e592fd8843db645ab1d7d5af079183f"
+  }
+ ],
+ "frozen_at": "2026-11-15T00:11:26+00:00",
+ "n_items": 26,
+ "items_sha256": "8dac1eb59f0231eef44db8a3908cb6fb178da7eaa1504a974bdf0472f11a5e7f"
+}

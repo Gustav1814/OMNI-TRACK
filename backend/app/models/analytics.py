@@ -79,6 +79,13 @@ class DemographicSnapshot(Base):
     count = Column(Integer, default=1)
     confidence = Column(Float, nullable=True)
     timestamp = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    # Per-visit aggregation (005_alerts_evidence): one row per track visit.
+    track_id = Column(Integer, nullable=True)
+    global_id = Column(String(64), nullable=True)
+    age_band = Column(String(16), nullable=True)
+    sample_count = Column(Integer, nullable=True)
+    visit_start = Column(DateTime(timezone=True), nullable=True)
+    visit_end = Column(DateTime(timezone=True), nullable=True)
 
 
 class StoreVibeScore(Base):

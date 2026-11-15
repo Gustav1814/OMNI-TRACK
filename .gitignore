@@ -27,13 +27,33 @@ frontend/build/
 .env.local
 .env.*.local
 
-# AI Models (large files — download at runtime)
+# AI Models (never in git: fetch + sha256-verify with
+#   backend/.venv/bin/python backend/scripts/download_default_weights.py)
 *.pt
 *.pth
 *.onnx
 *.engine
 *.weights
+*.part
+backend/model_weight/*
 !backend/model_weight/.gitkeep
+!backend/model_weight/yolov8n.pt
+!backend/model_weight/yolo11n.pt
+!backend/model_weight/yolo26n.pt
+!backend/model_weight/general_pe_n_11_pt.pt
+!backend/model_weight/face11n.pt
+!backend/model_weight/fire-smoke.pt
+!backend/model_weight/general_product_detection.pt
+*_openvino_model/
+
+# Archives / datasets (datasets live in backend/storage/datasets, manifests in eval/manifests)
+*.rar
+*.zip
+*.7z
+*.tar
+*.tar.gz
+eval/.cache/
+eval/results/logs/
 
 # Local databases
 *.db
@@ -71,6 +91,13 @@ backend/alembic/versions/__pycache__/
 
 # Docker
 docker-compose.override.yml
+
+# Test / lint caches
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+frontend/coverage/
 
 # Misc
 *.bak

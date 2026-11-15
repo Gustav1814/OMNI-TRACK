@@ -36,7 +36,9 @@ export default function useUserRole() {
             isAdmin: role === 'admin',
             isOperator: role === 'operator',
             isViewer: role === 'viewer',
-            canOperate: role === 'admin' || role === 'operator',
+            // The backend requires the admin role on every state-changing route
+            // (deny-by-default policy); operators/viewers are read-only.
+            canOperate: role === 'admin',
             canAdmin: role === 'admin',
         };
     }, [revision]);

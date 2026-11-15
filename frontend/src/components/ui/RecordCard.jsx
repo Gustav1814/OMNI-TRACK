@@ -1,42 +1,26 @@
 import React from 'react';
-import useGradientColors from '../../hooks/useGradientColors';
-import { resolveAccentRgb } from '../../lib/gradientPresets';
 
-const ACCENT_ALIAS = {
-    indigo: 'teal',
-    violet: 'teal',
-    gold: 'coral',
-    amber: 'coral',
-    cyan: 'sky',
-};
-
-function resolveAccent(accent) {
-    return ACCENT_ALIAS[accent] || accent || 'neutral';
-}
+/**
+ * Compact record row (icon, title, body, meta) on a `.raised` surface.
+ * `accent` maps to a status edge only for status values (danger/warn/success/info); others are neutral.
+ */
+const STATUS = { danger: 'danger', rose: 'danger', red: 'danger', warn: 'warn', amber: 'warn', gold: 'warn', coral: 'warn', success: 'success', ok: 'success', emerald: 'success', green: 'success', info: 'info', sky: 'info', cyan: 'info' };
 
 export default function RecordCard({
     icon: Icon,
     title,
-    children,
-    meta,
+    children = undefined,
+    meta = undefined,
     accent = 'neutral',
     className = '',
 }) {
-    const { preset } = useGradientColors();
-    const resolved = resolveAccent(accent);
-    const rgb = resolved === 'neutral'
-        ? '100, 116, 139'
-        : resolveAccentRgb(resolved, preset);
-
+    const tone = STATUS[accent] || 'neutral';
     return (
-        <div
-            className={`ui-record-card ui-record-card--${accent} ${className}`.trim()}
-            style={{ '--record-rgb': rgb }}
-        >
+        <div className={`raised ui-record-card ui-record-card--${tone} ${className}`.trim()}>
             {Icon ? (
-                <div className="ui-record-card-icon">
-                    <Icon size={18} strokeWidth={2} />
-                </div>
+                <span className="ui-record-card-icon" aria-hidden>
+                    <Icon size={16} strokeWidth={1.75} />
+                </span>
             ) : null}
             <div className="ui-record-card-body">
                 {title ? <div className="ui-record-card-title">{title}</div> : null}

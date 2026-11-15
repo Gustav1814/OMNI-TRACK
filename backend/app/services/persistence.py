@@ -1,34 +1,41 @@
 """
-OmniTrack AI — Pipeline → Database Persistence
+OmniTrack AI — Pipeline -> Database persistence.
 
-This is the bridge that makes the backend PRODUCTION instead of SIMULATION.
+Registered with ``ProcessingPipeline.on_results`` (called at most ~4 Hz with the
+latest result per camera plus every Re-ID match / fire alert since the last call).
+Each call writes, in one transaction:
 
-Registered as a pipeline callback, it runs after every processing tick and:
-  1. Persists detections (per-camera batched inserts)
-  2. Persists Re-ID embeddings to pgvector (with detection_id join)
-  3. Persists foot traffic aggregates (every `FOOT_INTERVAL_S`)
-  4. Persists Store Vibe scores (every `VIBE_INTERVAL_S`)
-  5. Persists customer journey legs as Re-ID global_ids move across zones
-  6. Writes fire/smoke alerts into the SHA-256 audit chain
-     with AES-256-encrypted metadata
+  1. Detections: confirmed tracks only, at most one row per (camera, track) per
+     ``DETECTION_SAMPLE_S`` (a 6 FPS pipeline would otherwise write 6 rows/s/person).
+  2. Re-ID embeddings drained from the track coordinator (tracklet features of
+     identities, tagged with the Re-ID weights' ``model_version``).
+  3. Identity centroids (``reid_identities``) that changed since the last call.
+  4. Foot-traffic samples (confirmed people per camera) every ``FOOT_INTERVAL_S``.
+  5. Customer journey legs as global ids move across cameras.
+  6. Humanless-store session updates.
+  7. Fire/smoke incident start/reopen -> tamper-evident audit chain.
 
-The PersistencePipelineCallback also subscribes to pipeline lifecycle events
-(pipeline_started / pipeline_stopped / camera_added / camera_removed) and
-records them in the audit chain so operators can prove who touched what.
+Zone events, store vibe and fire incidents are persisted by the analytics engine
+(``app.analytics.zones_repo.persist_events``), not here.
 
-If the DB is unavailable the callback degrades silently (logged at DEBUG) so
-the pipeline keeps running for live viewing even during an outage.
+Lifecycle events (pipeline/camera start/stop) are written to the audit chain; on
+``pipeline_stopped`` the remaining embeddings, identities and open journey legs
+are flushed so nothing is lost at shutdown.
+
+If the DB is unavailable the callback logs (rate-limited) and the pipeline keeps
+running for live viewing.
 """
 
 from __future__ import annotations
 
-import asyncio
 import time
-from typing import Any, Dict, List, Optional, Set, Tuple
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Set, Tuple
 
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database import AsyncSessionLocal
 from app.services.crud import (
     AnalyticsService,
@@ -36,48 +43,41 @@ from app.services.crud import (
     CameraService,
     DetectionService,
     EmbeddingService,
+    ReIDIdentityService,
 )
 from app.services.humanless_store import HumanlessStoreService
 
 
 class PersistencePipelineCallback:
-    """
-    Callable registered with `ProcessingPipeline.on_results`. Also emits
-    audit log entries for pipeline lifecycle events (via `on_lifecycle`).
-    """
+    """Pipeline results -> PostgreSQL/pgvector. Also the lifecycle audit hook."""
 
-    VIBE_INTERVAL_S: float = 60.0
+    DETECTION_SAMPLE_S: float = 1.0
     FOOT_INTERVAL_S: float = 60.0
-    JOURNEY_LEG_TIMEOUT_S: float = 90.0  # Leg "ends" if a global_id hasn't been seen this long
+    JOURNEY_LEG_TIMEOUT_S: float = 90.0  # a leg ends when its global id is unseen this long
+    TRACK_KEY_TTL_S: float = 120.0
 
-    def __init__(
-        self,
-        pipeline,
-        session_maker=AsyncSessionLocal,
-        model_version: str = "osnet_x1_0",
-    ):
+    def __init__(self, pipeline, session_maker=AsyncSessionLocal, model_version: str | None = None):
         self._pipeline = pipeline
         self._session_maker = session_maker
-        self._model_version = model_version
+        self._model_version = model_version or settings.reid_model_version
 
-        self._last_vibe_write: float = 0.0
         self._last_foot_write: float = 0.0
-        self._fire_keys_written: Set[str] = set()
+        self._last_det_write: Dict[Tuple[int, int], float] = {}
+        self._fire_keys_written: Dict[str, float] = {}
         # (global_id, camera_id, zone) -> (started_at_epoch, last_seen_epoch)
         self._active_legs: Dict[Tuple[str, int, str], Tuple[float, float]] = {}
-        # rolling counter of DB failures so we can log at WARNING once per N skips
         self._consecutive_failures: int = 0
         self._known_db_cameras: Set[int] = set()
+        self.stats: Dict[str, int] = {
+            "detections": 0, "embeddings": 0, "identities": 0, "journey_legs": 0, "fire_audits": 0,
+        }
 
-    # ─────────────────────────────────────────────────────────────
-    # Tick callback (invoked after every pipeline cycle)
-    # ─────────────────────────────────────────────────────────────
-
+    # ── tick ────────────────────────────────────────────────────────
     async def __call__(self, results: Dict[int, Any], global_state: Any) -> None:
         try:
             async with self._session_maker() as db:
                 try:
-                    await self._persist_tick(db, results, global_state)
+                    await self._persist_tick(db, results)
                     await db.commit()
                     self._consecutive_failures = 0
                 except Exception:
@@ -87,204 +87,168 @@ class PersistencePipelineCallback:
             self._consecutive_failures += 1
             if self._consecutive_failures == 1 or self._consecutive_failures % 50 == 0:
                 logger.warning(
-                    f"Persistence skipped (DB unavailable?): {e} "
-                    f"[consecutive_failures={self._consecutive_failures}]"
+                    f"Persistence skipped: {e} [consecutive_failures={self._consecutive_failures}]"
                 )
 
-    async def _persist_tick(
-        self,
-        db: AsyncSession,
-        results: Dict[int, Any],
-        global_state: Any,
-    ) -> None:
+    async def _persist_tick(self, db: AsyncSession, results: Dict[int, Any]) -> None:
         now = time.time()
-        pipeline = self._pipeline
-
         await self._ensure_db_cameras(db, results)
+        await self._write_detections(db, results, now)
+        await self._write_reid(db)
 
-        # ── 1. Detections ─────────────────────────────────────────
-        detection_rows_by_cam: Dict[int, List[Any]] = {}
-        for cam_id, r in results.items():
-            if not r.detections:
-                continue
-            zone = pipeline._camera_zones.get(cam_id, "default")
-            try:
-                rows = await DetectionService.create_batch_and_return(
-                    db, cam_id, r.detections, zone=zone
-                )
-                detection_rows_by_cam[cam_id] = rows
-            except Exception as e:
-                logger.debug(f"DetectionService batch failed for cam {cam_id}: {e}")
-
-        # ── 2. Embeddings (pgvector) ──────────────────────────────
-        pending = pipeline.get_and_clear_pending_embeddings()
-        if pending:
-            det_map: Dict[Tuple[int, Optional[int]], int] = {}
-            for cam_id, det_rows in detection_rows_by_cam.items():
-                for row in det_rows:
-                    det_map[(cam_id, row.track_id)] = row.id
-            emb_rows: List[Dict[str, Any]] = []
-            for e in pending:
-                det_id = det_map.get((e.get("camera_id"), e.get("track_id")))
-                emb_rows.append({
-                    "detection_id": det_id,
-                    "camera_id": e.get("camera_id"),
-                    "track_id": e.get("track_id"),
-                    "global_id": e.get("global_id"),
-                    "vector": e.get("embedding"),
-                    "confidence": e.get("confidence"),
-                })
-            try:
-                await EmbeddingService.store_batch(db, emb_rows, model_version=self._model_version)
-            except Exception as e:
-                logger.debug(f"EmbeddingService batch failed: {e}")
-
-        # ── 3. Foot traffic (bucketed every FOOT_INTERVAL_S) ──────
         if now - self._last_foot_write >= self.FOOT_INTERVAL_S:
             for cam_id, r in results.items():
-                status = r.crowd_status or {}
-                if not status:
-                    continue
-                zone = status.get("zone") or pipeline._camera_zones.get(cam_id, "default")
-                count = int(status.get("person_count", 0))
-                try:
-                    await AnalyticsService.save_foot_traffic(
-                        db, camera_id=cam_id, zone=zone, person_count=count,
-                    )
-                except Exception as e:
-                    logger.debug(f"FootTraffic save failed: {e}")
+                zone = self._zone(cam_id)
+                await AnalyticsService.save_foot_traffic(
+                    db, camera_id=int(cam_id), zone=zone, person_count=len(r.tracks or []),
+                )
             self._last_foot_write = now
 
-        # ── 4. Store Vibe score (bucketed every VIBE_INTERVAL_S) ──
-        if now - self._last_vibe_write >= self.VIBE_INTERVAL_S:
-            v = pipeline._latest_vibe
-            if v:
-                try:
-                    await AnalyticsService.save_vibe_score(
-                        db,
-                        overall_score=float(v.get("overall_score", 0)),
-                        sentiment_score=float(v.get("sentiment_score", 0)),
-                        energy_score=float(v.get("energy_score", 0)),
-                        engagement_score=float(v.get("engagement_score", 0)),
-                        foot_traffic_score=float(v.get("foot_traffic_score", 0)),
-                        label=str(v.get("vibe_label", "Steady")),
-                        breakdown=dict(global_state.zone_occupancy),
-                    )
-                    self._last_vibe_write = now
-                except Exception as e:
-                    logger.debug(f"Vibe save failed: {e}")
-
-        # ── 5. Customer journey legs ──────────────────────────────
         await self._update_journey_legs(db, results, now)
 
         try:
-            await HumanlessStoreService.process_pipeline_tick(
-                db,
-                results=results,
-                camera_zones=getattr(pipeline, "_camera_zones", {}),
-            )
+            async with db.begin_nested():
+                await HumanlessStoreService.process_pipeline_tick(
+                    db, results=results, camera_zones=getattr(self._pipeline, "_camera_zones", {}),
+                )
         except Exception as e:
-            logger.debug(f"Humanless session update skipped: {e}")
+            logger.warning(f"Humanless session update skipped: {e}")
 
-        # ── 6. Fire alerts → audit chain (SHA-256 + AES-256) ─────
+        await self._audit_fire(db, results, now)
+
+    def _zone(self, cam_id: int) -> str:
+        return getattr(self._pipeline, "_camera_zones", {}).get(cam_id, "default")
+
+    async def _write_detections(self, db: AsyncSession, results: Dict[int, Any], now: float) -> None:
         for cam_id, r in results.items():
-            for alert in (r.fire_alerts or []):
-                key = f"{alert.get('timestamp')}|{cam_id}|{alert.get('alert_type')}|{alert.get('confidence')}"
-                if key in self._fire_keys_written:
+            rows = []
+            for det in r.detections or []:
+                tid = det.get("track_id")
+                key = (int(cam_id), int(tid) if tid is not None else -1)
+                if now - self._last_det_write.get(key, 0.0) < self.DETECTION_SAMPLE_S:
                     continue
-                self._fire_keys_written.add(key)
-                if len(self._fire_keys_written) > 5000:
-                    # Keep set bounded
-                    self._fire_keys_written = set(list(self._fire_keys_written)[-2500:])
-                try:
-                    await AuditService.log_event(
-                        db,
-                        event_type="fire_alert",
-                        user_id=None,
-                        description=(
-                            f"{alert.get('alert_type', 'fire/smoke')} detected on camera "
-                            f"{cam_id} (conf={float(alert.get('confidence', 0)):.2f})"
-                        ),
-                        metadata={
-                            "camera_id": cam_id,
-                            "alert_type": alert.get("alert_type"),
-                            "confidence": alert.get("confidence"),
-                            "bbox": alert.get("bbox"),
-                            "zone": alert.get("zone"),
-                            "timestamp": alert.get("timestamp"),
-                        },
-                    )
-                except Exception as e:
-                    logger.debug(f"AuditService fire_alert failed: {e}")
+                self._last_det_write[key] = now
+                rows.append(det)
+            if rows:
+                self.stats["detections"] += await DetectionService.create_batch(
+                    db, int(cam_id), rows, zone=self._zone(cam_id)
+                )
+        if len(self._last_det_write) > 4096:
+            cutoff = now - self.TRACK_KEY_TTL_S
+            self._last_det_write = {k: t for k, t in self._last_det_write.items() if t >= cutoff}
+
+    async def _write_reid(self, db: AsyncSession) -> None:
+        pending = self._pipeline.get_and_clear_pending_embeddings()
+        if pending:
+            rows = [{
+                "detection_id": None,
+                "camera_id": e.get("camera_id"),
+                "track_id": e.get("track_id"),
+                "global_id": e.get("global_id"),
+                "vector": e.get("embedding"),
+                "confidence": e.get("confidence"),
+            } for e in pending]
+            self.stats["embeddings"] += await EmbeddingService.store_batch(
+                db, rows, model_version=self._model_version
+            )
+        dirty = self._pipeline.get_dirty_identities()
+        if dirty:
+            self.stats["identities"] += await ReIDIdentityService.upsert_batch(
+                db, dirty, model_version=self._model_version
+            )
+
+    async def _audit_fire(self, db: AsyncSession, results: Dict[int, Any], now: float) -> None:
+        """One audit entry per incident start/reopen (the incident row itself is the engine's)."""
+        for cam_id, r in results.items():
+            for alert in r.fire_alerts or []:
+                key = f"{alert.get('incident_key')}|{alert.get('action')}"
+                if alert.get("incident_key") is None or key in self._fire_keys_written:
+                    continue
+                self._fire_keys_written[key] = now
+                await AuditService.log_event(
+                    db,
+                    event_type="fire_alert",
+                    user_id=None,
+                    description=(
+                        f"{alert.get('alert_type', 'fire/smoke')} incident {alert.get('action')} on camera "
+                        f"{cam_id} (peak conf={float(alert.get('confidence') or 0):.2f})"
+                    ),
+                    metadata={
+                        "camera_id": cam_id,
+                        "incident_key": alert.get("incident_key"),
+                        "action": alert.get("action"),
+                        "alert_type": alert.get("alert_type"),
+                        "confidence": alert.get("confidence"),
+                        "bbox": alert.get("bbox"),
+                        "zone": alert.get("zone"),
+                        "timestamp": alert.get("timestamp"),
+                    },
+                )
+                self.stats["fire_audits"] += 1
+        if len(self._fire_keys_written) > 2000:
+            cutoff = now - 86400.0
+            self._fire_keys_written = {k: t for k, t in self._fire_keys_written.items() if t >= cutoff}
+
+    def active_legs(self, global_id: str) -> List[Dict[str, Any]]:
+        """Legs of ``global_id`` that are still open (not yet written to customer_journeys)."""
+        return [
+            {"camera_id": cam_id, "zone": zone, "started": started, "last_seen": last_seen}
+            for (gid, cam_id, zone), (started, last_seen) in list(self._active_legs.items())
+            if gid == global_id
+        ]
 
     async def _update_journey_legs(
-        self,
-        db: AsyncSession,
-        results: Dict[int, Any],
-        now: float,
+        self, db: AsyncSession, results: Dict[int, Any], now: float, flush_all: bool = False
     ) -> None:
-        """
-        Maintain per-(global_id, camera, zone) leg start/end timestamps. When a
-        leg is no longer seen for JOURNEY_LEG_TIMEOUT_S we flush it to the DB.
-        """
-        seen_keys: Set[Tuple[str, int, str]] = set()
-        pipeline = self._pipeline
+        """Track (global_id, camera, zone) legs from Re-ID matches; write a leg once it
+        has been unseen for ``JOURNEY_LEG_TIMEOUT_S`` (or on shutdown)."""
         for cam_id, r in results.items():
-            zone = pipeline._camera_zones.get(cam_id, "default")
-            for match in (r.reid_matches or []):
+            zone = self._zone(cam_id)
+            for match in r.reid_matches or []:
                 gid = match.get("global_id")
                 if not gid:
                     continue
-                key = (gid, int(cam_id), zone)
-                seen_keys.add(key)
-                started, _ = self._active_legs.get(key, (now, now))
-                self._active_legs[key] = (started, now)
+                ts = float(match.get("timestamp") or now)
+                key = (str(gid), int(cam_id), zone)
+                started, last = self._active_legs.get(key, (ts, ts))
+                self._active_legs[key] = (min(started, ts), max(last, ts))
 
-        # Flush legs that haven't been updated this tick and are old enough
         expired = [
-            key for key, (_started, last_seen) in self._active_legs.items()
-            if key not in seen_keys and (now - last_seen) > self.JOURNEY_LEG_TIMEOUT_S
+            key for key, (_s, last_seen) in self._active_legs.items()
+            if flush_all or (now - last_seen) > self.JOURNEY_LEG_TIMEOUT_S
         ]
         for key in expired:
             started, last_seen = self._active_legs.pop(key)
             gid, cam_id, zone = key
-            from datetime import datetime, timezone
-            try:
-                await AnalyticsService.save_journey_leg(
-                    db,
-                    global_id=gid,
-                    camera_id=cam_id,
-                    zone=zone,
-                    entry_time=datetime.fromtimestamp(started, tz=timezone.utc),
-                    dwell_time=max(0.0, last_seen - started),
-                )
-            except Exception as e:
-                logger.debug(f"Journey leg save failed for {gid}: {e}")
+            await AnalyticsService.save_journey_leg(
+                db,
+                global_id=gid,
+                camera_id=cam_id,
+                zone=zone,
+                entry_time=datetime.fromtimestamp(started, tz=timezone.utc),
+                dwell_time=max(0.0, last_seen - started),
+            )
+            self.stats["journey_legs"] += 1
 
-    # ─────────────────────────────────────────────────────────────
-    # Lifecycle hook (audit chain)
-    # ─────────────────────────────────────────────────────────────
-
+    # ── lifecycle (audit chain) ─────────────────────────────────────
     async def on_lifecycle(self, event: str, payload: Dict[str, Any]) -> None:
-        """
-        Subscriber for pipeline lifecycle events. Writes a tamper-evident
-        SHA-256 audit entry with AES-256-encrypted metadata.
-        """
         description_map = {
             "pipeline_started": "Processing pipeline started",
             "pipeline_stopped": "Processing pipeline stopped",
             "camera_added": f"Camera added: {payload.get('camera_id')} ({payload.get('zone')})",
             "camera_removed": f"Camera removed: {payload.get('camera_id')}",
         }
-        description = description_map.get(event, event)
         try:
             async with self._session_maker() as db:
                 try:
+                    if event == "pipeline_stopped":
+                        await self._write_reid(db)
+                        await self._update_journey_legs(db, {}, time.time(), flush_all=True)
                     await AuditService.log_event(
                         db,
                         event_type=event,
                         user_id=None,
-                        description=description,
+                        description=description_map.get(event, event),
                         metadata=payload,
                     )
                     await db.commit()
@@ -292,44 +256,30 @@ class PersistencePipelineCallback:
                     await db.rollback()
                     raise
         except Exception as e:
-            logger.debug(f"Lifecycle audit log failed for {event}: {e}")
+            logger.warning(f"Lifecycle persistence failed for {event}: {e}")
 
-    # ─────────────────────────────────────────────────────────────
-    # Gallery warm-up
-    # ─────────────────────────────────────────────────────────────
-
-    async def warm_reid_gallery_from_db(self, max_rows: int = 2000) -> int:
-        """
-        Load recent embeddings into the in-memory Re-ID gallery so cross-camera
-        identities survive backend restarts.
-        """
-        try:
-            async with self._session_maker() as db:
-                rows = await EmbeddingService.list_recent_gallery(db, max_rows=max_rows)
-            return self._pipeline.warm_reid_gallery(rows)
-        except Exception as e:
-            logger.warning(f"Re-ID gallery warm-up failed (DB not ready?): {e}")
-            return 0
+    # ── gallery warm-up ─────────────────────────────────────────────
+    async def warm_reid_gallery_from_db(self, max_rows: int | None = None) -> int:
+        """Restore recent identities into the coordinator so global ids survive restarts.
+        Returns the number of identities restored (the pipeline logs the count)."""
+        limit = int(max_rows or settings.REID_WARM_START_ROWS)
+        async with self._session_maker() as db:
+            rows = await EmbeddingService.list_recent_gallery(
+                db, max_rows=limit, model_version=self._model_version
+            )
+        return self._pipeline.warm_reid_gallery(rows)
 
     async def _ensure_db_cameras(self, db: AsyncSession, results: Dict[int, Any]) -> None:
-        """Auto-register pipeline cameras so partitioned write tables keep FK integrity."""
+        """Auto-register pipeline cameras so FK-constrained tables accept their rows."""
         streams = getattr(getattr(self._pipeline, "stream_manager", None), "_streams", {})
         for cam_id in results.keys():
             if cam_id in self._known_db_cameras:
                 continue
-            stream = streams.get(cam_id)
-            config = getattr(stream, "config", None)
+            config = getattr(streams.get(cam_id), "config", None)
             source = getattr(config, "source", f"pipeline://camera/{cam_id}")
-            fps = float(getattr(config, "fps_target", getattr(self._pipeline, "processing_fps", 15)))
-            zone = getattr(self._pipeline, "_camera_zones", {}).get(cam_id, "default")
-            try:
-                await CameraService.ensure_pipeline_camera(
-                    db,
-                    camera_id=int(cam_id),
-                    source=str(source),
-                    zone=zone,
-                    fps=fps,
-                )
-                self._known_db_cameras.add(int(cam_id))
-            except Exception as e:
-                logger.debug(f"Camera auto-registration skipped for cam {cam_id}: {e}")
+            fps = float(getattr(config, "fps_target", getattr(self._pipeline, "processing_fps", 6)))
+            await CameraService.ensure_pipeline_camera(
+                db, camera_id=int(cam_id), source=str(source), zone=self._zone(cam_id), fps=fps,
+            )
+            self._known_db_cameras.add(int(cam_id))
+

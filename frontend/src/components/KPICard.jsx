@@ -1,179 +1,70 @@
 /**
-
- * KPI card — animated value, delta badge, accent edge.
-
+ * KPI card: OSD label row, hero number (via Metric), optional delta and progress meter.
+ * `feature` makes it the page's one amber headline card (`.panel--feature` + viewfinder corners).
+ * `accent` is accepted for backward compatibility and ignored.
  */
-
 import React from 'react';
-
-import CountUp from './CountUp';
-
-import DeltaBadge from './ui/DeltaBadge';
-
-import { resolveKpiAccentRgb } from '../lib/kpiAccentColors';
-
-
-
-function isNumeric(value) {
-
-    if (typeof value === 'number') return true;
-
-    if (typeof value === 'string' && /^[\d,]+(\.\d+)?$/.test(value.replace(/,/g, ''))) return true;
-
-    return false;
-
-}
-
-
-
-function parseNumeric(value) {
-
-    if (typeof value === 'number') return value;
-
-    return parseFloat(String(value).replace(/,/g, '')) || 0;
-
-}
-
-
+import Metric, { toMetricValue } from './ui/Metric';
 
 export default function KPICard({
-
     icon: Icon,
-
     label,
-
     value,
-
-    suffix,
-
-    accent = 'teal',
-
+    suffix = undefined,
+    // eslint-disable-next-line no-unused-vars
+    accent = undefined,
     progress = 0,
-
     tag = 'Today',
-
-    hint,
-
-    delta,
-
-    deltaLabel,
-
+    hint = undefined,
+    delta = undefined,
+    deltaLabel = undefined,
     loading = false,
-
+    feature = false,
+    className = '',
 }) {
-
-    const rgb = resolveKpiAccentRgb(accent);
-
-    const numeric = isNumeric(value);
-
-
+    const cls = `panel kpi-card${feature ? ' panel--feature vf' : ''} ${className}`.trim();
 
     if (loading) {
-
         return (
-
-            <div className="exec-kpi exec-kpi-skeleton">
-
-                <div className="ui-skeleton-kpi">
-
-                    <div className="ui-skeleton ui-skeleton-icon" />
-
-                    <div className="ui-skeleton ui-skeleton-line ui-skeleton-line--sm" />
-
-                    <div className="ui-skeleton ui-skeleton-line ui-skeleton-line--lg" />
-
-                    <div className="ui-skeleton ui-skeleton-bar" />
-
+            <div className={`${cls} kpi-card--loading`} aria-busy="true">
+                <div className="kpi-card-top">
+                    <span className="ui-skeleton ui-skeleton-line ui-skeleton-line--sm" />
                 </div>
-
+                <span className="ui-skeleton ui-skeleton-line ui-skeleton-line--lg" />
+                <span className="ui-skeleton ui-skeleton-line ui-skeleton-line--xs" />
             </div>
-
         );
-
     }
 
-
+    const { value: v, decimals } = toMetricValue(value);
+    const unit = suffix ? String(suffix).trim() : undefined;
+    const numericDelta = delta == null || Number.isNaN(Number(delta)) ? undefined : Number(delta);
+    const pct = Math.max(0, Math.min(100, Number(progress) || 0));
+    const sub = [deltaLabel && numericDelta !== undefined ? deltaLabel : null, hint].filter(Boolean).join(' · ') || undefined;
 
     return (
-
-        <div className={`exec-kpi exec-kpi-${accent}`}>
-
-            <div className="exec-kpi-inner" style={{ '--kpi-rgb': rgb }}>
-
-                <div className="exec-kpi-top">
-
-                    <div className={`exec-kpi-icon exec-kpi-icon-${accent}`}>
-
-                        <Icon size={16} strokeWidth={2} />
-
-                    </div>
-
-                    <span className="exec-kpi-tag">{tag}</span>
-
-                </div>
-
-                <div className="exec-kpi-body">
-
-                    <span className="exec-kpi-label">{label}</span>
-
-                    <div className="exec-kpi-value-row">
-
-                        <div className="exec-kpi-value">
-
-                            {numeric ? (
-
-                                <>
-
-                                    <CountUp
-
-                                        value={parseNumeric(value)}
-
-                                        format={(n) => (Number.isInteger(n) ? n.toLocaleString() : n.toFixed(1))}
-
-                                    />
-
-                                    {suffix ? <span className="exec-kpi-suffix">{suffix}</span> : null}
-
-                                </>
-
-                            ) : (
-
-                                <>
-
-                                    {value}
-
-                                    {suffix ? <span className="exec-kpi-suffix">{suffix}</span> : null}
-
-                                </>
-
-                            )}
-
-                        </div>
-
-                        {delta != null ? <DeltaBadge value={delta} label={deltaLabel} size="xs" /> : null}
-
-                    </div>
-
-                    {hint ? <span className="exec-kpi-hint">{hint}</span> : null}
-
-                </div>
-
-                <div className="exec-kpi-foot">
-
-                    <div className="exec-kpi-bar">
-
-                        <span style={{ width: `${Math.max(4, Math.min(100, progress))}%` }} />
-
-                    </div>
-
-                </div>
-
+        <div className={cls}>
+            <div className="kpi-card-top">
+                <span className="kpi-card-label">
+                    {Icon ? <Icon size={14} strokeWidth={1.75} aria-hidden /> : null}
+                    {label}
+                </span>
+                {tag ? <span className="osd kpi-card-tag">{tag}</span> : null}
             </div>
-
+            <Metric
+                className="kpi-card-metric"
+                value={v}
+                decimals={decimals}
+                unit={unit}
+                delta={numericDelta}
+                sub={sub}
+                size={feature ? 'hero' : undefined}
+            />
+            {pct > 0 ? (
+                <div className="kpi-card-meter" aria-hidden>
+                    <span style={/** @type {React.CSSProperties} */ ({ '--value': `${pct}%` })} />
+                </div>
+            ) : null}
         </div>
-
     );
-
 }
-
-

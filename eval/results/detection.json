@@ -1,0 +1,109 @@
+{
+  "schema": 1,
+  "id": "detection",
+  "title": "Person detection",
+  "criterion": "Person detection mAP@0.5 > 85%",
+  "status": "measured",
+  "primary": {
+    "metric": "mAP@0.5",
+    "value": 0.8512,
+    "target": 0.85,
+    "op": ">",
+    "unit": "ratio",
+    "passed": true
+  },
+  "metrics": {
+    "primary": {
+      "ap50": 0.8512,
+      "max_recall": 0.9547,
+      "precision_at_conf0.5": 0.9117,
+      "recall_at_conf0.5": 0.7246,
+      "n_frames": 487,
+      "n_gt_boxes": 1169,
+      "ms_per_frame": 315.9,
+      "model": "yolo11s.pt",
+      "imgsz": 960
+    },
+    "variants": [
+      {
+        "ap50": 0.8512,
+        "max_recall": 0.9547,
+        "precision_at_conf0.5": 0.9117,
+        "recall_at_conf0.5": 0.7246,
+        "n_frames": 487,
+        "n_gt_boxes": 1169,
+        "ms_per_frame": 315.9,
+        "model": "yolo11s.pt",
+        "imgsz": 960
+      },
+      {
+        "ap50": 0.8462,
+        "max_recall": 0.9435,
+        "precision_at_conf0.5": 0.916,
+        "recall_at_conf0.5": 0.7365,
+        "n_frames": 487,
+        "n_gt_boxes": 1169,
+        "ms_per_frame": 145.9,
+        "model": "yolo11s.pt",
+        "imgsz": 640
+      },
+      {
+        "ap50": 0.8288,
+        "max_recall": 0.9572,
+        "precision_at_conf0.5": 0.9792,
+        "recall_at_conf0.5": 0.6031,
+        "n_frames": 487,
+        "n_gt_boxes": 1169,
+        "ms_per_frame": 58.8,
+        "model": "yolov8n.pt",
+        "imgsz": 640
+      }
+    ]
+  },
+  "dataset": {
+    "name": "CAVIAR shopping centre (both views, 26 sequences)",
+    "split": "every 150th frame (offset 75); GT h<24px = ignore",
+    "source": "https://homepages.inf.ed.ac.uk/rbf/CAVIARDATA1/",
+    "license": "CAVIAR terms: free for research use with acknowledgement",
+    "manifest": "eval/manifests/caviar_detect.json",
+    "manifest_sha256": "f6c3e88a3380f52244a511f90b6c1bc717979d90d4d9e6cabd4bca66177eaf7f",
+    "n_items": 487
+  },
+  "model": {
+    "imgsz": 960,
+    "conf": 0.001,
+    "iou": 0.6,
+    "classes": [
+      0
+    ],
+    "name": "yolo11s.pt",
+    "sha256": "85a76fe86dd8afe384648546b56a7a78580c7cb7b404fc595f97969322d502d5"
+  },
+  "hardware": {
+    "cpu": "12th Gen Intel(R) Core(TM) i5-1245U",
+    "logical_cores": 12,
+    "threads_used": 4,
+    "os": "Linux 7.0.0-43-generic",
+    "python": "3.12.16",
+    "device": "cpu",
+    "gpu": null,
+    "ram_gb": 15.8,
+    "torch": "2.15.0+cpu"
+  },
+  "git": {
+    "commit": "31c93786f870f23cc3676e793e2cc3ec326b7de5",
+    "branch": "main",
+    "dirty": true
+  },
+  "script": "eval/detect.py",
+  "command": "detect.py",
+  "created_at": "2026-11-14T19:51:09+00:00",
+  "duration_s": 330.1,
+  "peak_rss_mb": 980.7,
+  "notes": [
+    "GT boxes shorter than 24px are ignore regions (far-field people a few px tall).",
+    "CAVIAR labels only scenario-relevant people; unlabelled real people count as false positives.",
+    "MOT17 val and the 300 own-store CVAT frames are not yet included (no labels in repo); run with --yolo-dir once exported."
+  ],
+  "passed": true
+}

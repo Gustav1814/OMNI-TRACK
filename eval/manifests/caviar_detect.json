@@ -1,0 +1,2450 @@
+{
+ "dataset": "CAVIAR shopping centre (both views, 26 sequences)",
+ "source": "https://homepages.inf.ed.ac.uk/rbf/CAVIARDATA1/",
+ "license": "CAVIAR terms: free for research use with acknowledgement",
+ "split": "every 150th frame (offset 75); GT h<24px = ignore",
+ "params": {
+  "stride": 150,
+  "min_height_px": 24.0
+ },
+ "items": [
+  {
+   "seq": "EnterExitCrossingPaths1",
+   "view": "cam1_corridor",
+   "frame": 75
+  },
+  {
+   "seq": "EnterExitCrossingPaths1",
+   "view": "cam1_corridor",
+   "frame": 225
+  },
+  {
+   "seq": "EnterExitCrossingPaths1",
+   "view": "cam1_corridor",
+   "frame": 375
+  },
+  {
+   "seq": "EnterExitCrossingPaths1",
+   "view": "cam2_front",
+   "frame": 75
+  },
+  {
+   "seq": "EnterExitCrossingPaths1",
+   "view": "cam2_front",
+   "frame": 225
+  },
+  {
+   "seq": "EnterExitCrossingPaths1",
+   "view": "cam2_front",
+   "frame": 375
+  },
+  {
+   "seq": "EnterExitCrossingPaths2",
+   "view": "cam1_corridor",
+   "frame": 75
+  },
+  {
+   "seq": "EnterExitCrossingPaths2",
+   "view": "cam1_corridor",
+   "frame": 225
+  },
+  {
+   "seq": "EnterExitCrossingPaths2",
+   "view": "cam1_corridor",
+   "frame": 375
+  },
+  {
+   "seq": "EnterExitCrossingPaths2",
+   "view": "cam2_front",
+   "frame": 75
+  },
+  {
+   "seq": "EnterExitCrossingPaths2",
+   "view": "cam2_front",
+   "frame": 225
+  },
+  {
+   "seq": "EnterExitCrossingPaths2",
+   "view": "cam2_front",
+   "frame": 375
+  },
+  {
+   "seq": "OneLeaveShop1",
+   "view": "cam1_corridor",
+   "frame": 75
+  },
+  {
+   "seq": "OneLeaveShop1",
+   "view": "cam1_corridor",
+   "frame": 225
+  },
+  {
+   "seq": "OneLeaveShop1",
+   "view": "cam2_front",
+   "frame": 75
+  },
+  {
+   "seq": "OneLeaveShop1",
+   "view": "cam2_front",
+   "frame": 225
+  },
+  {
+   "seq": "OneLeaveShop2",
+   "view": "cam1_corridor",
+   "frame": 75
+  },
+  {
+   "seq": "OneLeaveShop2",
+   "view": "cam1_corridor",
+   "frame": 225
+  },
+  {
+   "seq": "OneLeaveShop2",
+   "view": "cam1_corridor",
+   "frame": 375
+  },
+  {
+   "seq": "OneLeaveShop2",
+   "view": "cam1_corridor",
+   "frame": 525
+  },
+  {
+   "seq": "OneLeaveShop2",
+   "view": "cam1_corridor",
+   "frame": 675
+  },
+  {
+   "seq": "OneLeaveShop2",
+   "view": "cam1_corridor",
+   "frame": 825
+  },
+  {
+   "seq": "OneLeaveShop2",
+   "view": "cam1_corridor",
+   "frame": 975
+  },
+  {
+   "seq": "OneLeaveShop2",
+   "view": "cam2_front",
+   "frame": 75
+  },
+  {
+   "seq": "OneLeaveShop2",
+   "view": "cam2_front",
+   "frame": 225
+  },
+  {
+   "seq": "OneLeaveShop2",
+   "view": "cam2_front",
+   "frame": 375
+  },
+  {
+   "seq": "OneLeaveShop2",
+   "view": "cam2_front",
+   "frame": 525
+  },
+  {
+   "seq": "OneLeaveShop2",
+   "view": "cam2_front",
+   "frame": 675
+  },
+  {
+   "seq": "OneLeaveShop2",
+   "view": "cam2_front",
+   "frame": 825
+  },
+  {
+   "seq": "OneLeaveShop2",
+   "view": "cam2_front",
+   "frame": 975
+  },
+  {
+   "seq": "OneLeaveShopReenter1",
+   "view": "cam1_corridor",
+   "frame": 75
+  },
+  {
+   "seq": "OneLeaveShopReenter1",
+   "view": "cam1_corridor",
+   "frame": 225
+  },
+  {
+   "seq": "OneLeaveShopReenter1",
+   "view": "cam1_corridor",
+   "frame": 375
+  },
+  {
+   "seq": "OneLeaveShopReenter1",
+   "view": "cam2_front",
+   "frame": 75
+  },
+  {
+   "seq": "OneLeaveShopReenter1",
+   "view": "cam2_front",
+   "frame": 225
+  },
+  {
+   "seq": "OneLeaveShopReenter1",
+   "view": "cam2_front",
+   "frame": 375
+  },
+  {
+   "seq": "OneLeaveShopReenter2",
+   "view": "cam1_corridor",
+   "frame": 75
+  },
+  {
+   "seq": "OneLeaveShopReenter2",
+   "view": "cam1_corridor",
+   "frame": 225
+  },
+  {
+   "seq": "OneLeaveShopReenter2",
+   "view": "cam1_corridor",
+   "frame": 375
+  },
+  {
+   "seq": "OneLeaveShopReenter2",
+   "view": "cam1_corridor",
+   "frame": 525
+  },
+  {
+   "seq": "OneLeaveShopReenter2",
+   "view": "cam2_front",
+   "frame": 75
+  },
+  {
+   "seq": "OneLeaveShopReenter2",
+   "view": "cam2_front",
+   "frame": 225
+  },
+  {
+   "seq": "OneLeaveShopReenter2",
+   "view": "cam2_front",
+   "frame": 375
+  },
+  {
+   "seq": "OneLeaveShopReenter2",
+   "view": "cam2_front",
+   "frame": 525
+  },
+  {
+   "seq": "OneShopOneWait1",
+   "view": "cam1_corridor",
+   "frame": 75
+  },
+  {
+   "seq": "OneShopOneWait1",
+   "view": "cam1_corridor",
+   "frame": 225
+  },
+  {
+   "seq": "OneShopOneWait1",
+   "view": "cam1_corridor",
+   "frame": 375
+  },
+  {
+   "seq": "OneShopOneWait1",
+   "view": "cam1_corridor",
+   "frame": 525
+  },
+  {
+   "seq": "OneShopOneWait1",
+   "view": "cam1_corridor",
+   "frame": 675
+  },
+  {
+   "seq": "OneShopOneWait1",
+   "view": "cam1_corridor",
+   "frame": 825
+  },
+  {
+   "seq": "OneShopOneWait1",
+   "view": "cam1_corridor",
+   "frame": 975
+  },
+  {
+   "seq": "OneShopOneWait1",
+   "view": "cam1_corridor",
+   "frame": 1125
+  },
+  {
+   "seq": "OneShopOneWait1",
+   "view": "cam1_corridor",
+   "frame": 1275
+  },
+  {
+   "seq": "OneShopOneWait1",
+   "view": "cam2_front",
+   "frame": 75
+  },
+  {
+   "seq": "OneShopOneWait1",
+   "view": "cam2_front",
+   "frame": 225
+  },
+  {
+   "seq": "OneShopOneWait1",
+   "view": "cam2_front",
+   "frame": 375
+  },
+  {
+   "seq": "OneShopOneWait1",
+   "view": "cam2_front",
+   "frame": 525
+  },
+  {
+   "seq": "OneShopOneWait1",
+   "view": "cam2_front",
+   "frame": 675
+  },
+  {
+   "seq": "OneShopOneWait1",
+   "view": "cam2_front",
+   "frame": 825
+  },
+  {
+   "seq": "OneShopOneWait1",
+   "view": "cam2_front",
+   "frame": 975
+  },
+  {
+   "seq": "OneShopOneWait1",
+   "view": "cam2_front",
+   "frame": 1125
+  },
+  {
+   "seq": "OneShopOneWait1",
+   "view": "cam2_front",
+   "frame": 1275
+  },
+  {
+   "seq": "OneShopOneWait2",
+   "view": "cam1_corridor",
+   "frame": 75
+  },
+  {
+   "seq": "OneShopOneWait2",
+   "view": "cam1_corridor",
+   "frame": 225
+  },
+  {
+   "seq": "OneShopOneWait2",
+   "view": "cam1_corridor",
+   "frame": 375
+  },
+  {
+   "seq": "OneShopOneWait2",
+   "view": "cam1_corridor",
+   "frame": 525
+  },
+  {
+   "seq": "OneShopOneWait2",
+   "view": "cam1_corridor",
+   "frame": 675
+  },
+  {
+   "seq": "OneShopOneWait2",
+   "view": "cam1_corridor",
+   "frame": 825
+  },
+  {
+   "seq": "OneShopOneWait2",
+   "view": "cam1_corridor",
+   "frame": 975
+  },
+  {
+   "seq": "OneShopOneWait2",
+   "view": "cam1_corridor",
+   "frame": 1125
+  },
+  {
+   "seq": "OneShopOneWait2",
+   "view": "cam1_corridor",
+   "frame": 1275
+  },
+  {
+   "seq": "OneShopOneWait2",
+   "view": "cam1_corridor",
+   "frame": 1425
+  },
+  {
+   "seq": "OneShopOneWait2",
+   "view": "cam2_front",
+   "frame": 75
+  },
+  {
+   "seq": "OneShopOneWait2",
+   "view": "cam2_front",
+   "frame": 225
+  },
+  {
+   "seq": "OneShopOneWait2",
+   "view": "cam2_front",
+   "frame": 375
+  },
+  {
+   "seq": "OneShopOneWait2",
+   "view": "cam2_front",
+   "frame": 525
+  },
+  {
+   "seq": "OneShopOneWait2",
+   "view": "cam2_front",
+   "frame": 675
+  },
+  {
+   "seq": "OneShopOneWait2",
+   "view": "cam2_front",
+   "frame": 825
+  },
+  {
+   "seq": "OneShopOneWait2",
+   "view": "cam2_front",
+   "frame": 975
+  },
+  {
+   "seq": "OneShopOneWait2",
+   "view": "cam2_front",
+   "frame": 1125
+  },
+  {
+   "seq": "OneShopOneWait2",
+   "view": "cam2_front",
+   "frame": 1275
+  },
+  {
+   "seq": "OneShopOneWait2",
+   "view": "cam2_front",
+   "frame": 1425
+  },
+  {
+   "seq": "OneStopEnter1",
+   "view": "cam1_corridor",
+   "frame": 75
+  },
+  {
+   "seq": "OneStopEnter1",
+   "view": "cam1_corridor",
+   "frame": 225
+  },
+  {
+   "seq": "OneStopEnter1",
+   "view": "cam1_corridor",
+   "frame": 375
+  },
+  {
+   "seq": "OneStopEnter1",
+   "view": "cam1_corridor",
+   "frame": 525
+  },
+  {
+   "seq": "OneStopEnter1",
+   "view": "cam1_corridor",
+   "frame": 675
+  },
+  {
+   "seq": "OneStopEnter1",
+   "view": "cam1_corridor",
+   "frame": 825
+  },
+  {
+   "seq": "OneStopEnter1",
+   "view": "cam1_corridor",
+   "frame": 975
+  },
+  {
+   "seq": "OneStopEnter1",
+   "view": "cam1_corridor",
+   "frame": 1125
+  },
+  {
+   "seq": "OneStopEnter1",
+   "view": "cam1_corridor",
+   "frame": 1275
+  },
+  {
+   "seq": "OneStopEnter1",
+   "view": "cam1_corridor",
+   "frame": 1425
+  },
+  {
+   "seq": "OneStopEnter1",
+   "view": "cam2_front",
+   "frame": 75
+  },
+  {
+   "seq": "OneStopEnter1",
+   "view": "cam2_front",
+   "frame": 225
+  },
+  {
+   "seq": "OneStopEnter1",
+   "view": "cam2_front",
+   "frame": 375
+  },
+  {
+   "seq": "OneStopEnter1",
+   "view": "cam2_front",
+   "frame": 525
+  },
+  {
+   "seq": "OneStopEnter1",
+   "view": "cam2_front",
+   "frame": 675
+  },
+  {
+   "seq": "OneStopEnter1",
+   "view": "cam2_front",
+   "frame": 825
+  },
+  {
+   "seq": "OneStopEnter1",
+   "view": "cam2_front",
+   "frame": 975
+  },
+  {
+   "seq": "OneStopEnter1",
+   "view": "cam2_front",
+   "frame": 1125
+  },
+  {
+   "seq": "OneStopEnter1",
+   "view": "cam2_front",
+   "frame": 1275
+  },
+  {
+   "seq": "OneStopEnter1",
+   "view": "cam2_front",
+   "frame": 1425
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam1_corridor",
+   "frame": 75
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam1_corridor",
+   "frame": 225
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam1_corridor",
+   "frame": 375
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam1_corridor",
+   "frame": 525
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam1_corridor",
+   "frame": 675
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam1_corridor",
+   "frame": 825
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam1_corridor",
+   "frame": 975
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam1_corridor",
+   "frame": 1125
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam1_corridor",
+   "frame": 1275
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam1_corridor",
+   "frame": 1425
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam1_corridor",
+   "frame": 1575
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam1_corridor",
+   "frame": 1725
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam1_corridor",
+   "frame": 1875
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam1_corridor",
+   "frame": 2025
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam1_corridor",
+   "frame": 2175
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam1_corridor",
+   "frame": 2325
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam1_corridor",
+   "frame": 2475
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam1_corridor",
+   "frame": 2625
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam2_front",
+   "frame": 75
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam2_front",
+   "frame": 225
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam2_front",
+   "frame": 375
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam2_front",
+   "frame": 525
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam2_front",
+   "frame": 675
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam2_front",
+   "frame": 825
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam2_front",
+   "frame": 975
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam2_front",
+   "frame": 1125
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam2_front",
+   "frame": 1275
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam2_front",
+   "frame": 1425
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam2_front",
+   "frame": 1575
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam2_front",
+   "frame": 1725
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam2_front",
+   "frame": 1875
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam2_front",
+   "frame": 2025
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam2_front",
+   "frame": 2175
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam2_front",
+   "frame": 2325
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam2_front",
+   "frame": 2475
+  },
+  {
+   "seq": "OneStopEnter2",
+   "view": "cam2_front",
+   "frame": 2625
+  },
+  {
+   "seq": "OneStopMoveEnter1",
+   "view": "cam1_corridor",
+   "frame": 75
+  },
+  {
+   "seq": "OneStopMoveEnter1",
+   "view": "cam1_corridor",
+   "frame": 225
+  },
+  {
+   "seq": "OneStopMoveEnter1",
+   "view": "cam1_corridor",
+   "frame": 375
+  },
+  {
+   "seq": "OneStopMoveEnter1",
+   "view": "cam1_corridor",
+   "frame": 525
+  },
+  {
+   "seq": "OneStopMoveEnter1",
+   "view": "cam1_corridor",
+   "frame": 675
+  },
+  {
+   "seq": "OneStopMoveEnter1",
+   "view": "cam1_corridor",
+   "frame": 825
+  },
+  {
+   "seq": "OneStopMoveEnter1",
+   "view": "cam1_corridor",
+   "frame": 975
+  },
+  {
+   "seq": "OneStopMoveEnter1",
+   "view": "cam1_corridor",
+   "frame": 1125
+  },
+  {
+   "seq": "OneStopMoveEnter1",
+   "view": "cam1_corridor",
+   "frame": 1275
+  },
+  {
+   "seq": "OneStopMoveEnter1",
+   "view": "cam1_corridor",
+   "frame": 1425
+  },
+  {
+   "seq": "OneStopMoveEnter1",
+   "view": "cam1_corridor",
+   "frame": 1575
+  },
+  {
+   "seq": "OneStopMoveEnter1",
+   "view": "cam2_front",
+   "frame": 75
+  },
+  {
+   "seq": "OneStopMoveEnter1",
+   "view": "cam2_front",
+   "frame": 225
+  },
+  {
+   "seq": "OneStopMoveEnter1",
+   "view": "cam2_front",
+   "frame": 375
+  },
+  {
+   "seq": "OneStopMoveEnter1",
+   "view": "cam2_front",
+   "frame": 525
+  },
+  {
+   "seq": "OneStopMoveEnter1",
+   "view": "cam2_front",
+   "frame": 675
+  },
+  {
+   "seq": "OneStopMoveEnter1",
+   "view": "cam2_front",
+   "frame": 825
+  },
+  {
+   "seq": "OneStopMoveEnter1",
+   "view": "cam2_front",
+   "frame": 975
+  },
+  {
+   "seq": "OneStopMoveEnter1",
+   "view": "cam2_front",
+   "frame": 1125
+  },
+  {
+   "seq": "OneStopMoveEnter1",
+   "view": "cam2_front",
+   "frame": 1275
+  },
+  {
+   "seq": "OneStopMoveEnter1",
+   "view": "cam2_front",
+   "frame": 1425
+  },
+  {
+   "seq": "OneStopMoveEnter1",
+   "view": "cam2_front",
+   "frame": 1575
+  },
+  {
+   "seq": "OneStopMoveEnter2",
+   "view": "cam1_corridor",
+   "frame": 75
+  },
+  {
+   "seq": "OneStopMoveEnter2",
+   "view": "cam1_corridor",
+   "frame": 225
+  },
+  {
+   "seq": "OneStopMoveEnter2",
+   "view": "cam1_corridor",
+   "frame": 375
+  },
+  {
+   "seq": "OneStopMoveEnter2",
+   "view": "cam1_corridor",
+   "frame": 525
+  },
+  {
+   "seq": "OneStopMoveEnter2",
+   "view": "cam1_corridor",
+   "frame": 675
+  },
+  {
+   "seq": "OneStopMoveEnter2",
+   "view": "cam1_corridor",
+   "frame": 825
+  },
+  {
+   "seq": "OneStopMoveEnter2",
+   "view": "cam1_corridor",
+   "frame": 975
+  },
+  {
+   "seq": "OneStopMoveEnter2",
+   "view": "cam1_corridor",
+   "frame": 1125
+  },
+  {
+   "seq": "OneStopMoveEnter2",
+   "view": "cam1_corridor",
+   "frame": 1275
+  },
+  {
+   "seq": "OneStopMoveEnter2",
+   "view": "cam1_corridor",
+   "frame": 1425
+  },
+  {
+   "seq": "OneStopMoveEnter2",
+   "view": "cam1_corridor",
+   "frame": 1575
+  },
+  {
+   "seq": "OneStopMoveEnter2",
+   "view": "cam1_corridor",
+   "frame": 1725
+  },
+  {
+   "seq": "OneStopMoveEnter2",
+   "view": "cam1_corridor",
+   "frame": 1875
+  },
+  {
+   "seq": "OneStopMoveEnter2",
+   "view": "cam1_corridor",
+   "frame": 2025
+  },
+  {
+   "seq": "OneStopMoveEnter2",
+   "view": "cam1_corridor",
+   "frame": 2175
+  },
+  {
+   "seq": "OneStopMoveEnter2",
+   "view": "cam2_front",
+   "frame": 75
+  },
+  {
+   "seq": "OneStopMoveEnter2",
+   "view": "cam2_front",
+   "frame": 225
+  },
+  {
+   "seq": "OneStopMoveEnter2",
+   "view": "cam2_front",
+   "frame": 375
+  },
+  {
+   "seq": "OneStopMoveEnter2",
+   "view": "cam2_front",
+   "frame": 525
+  },
+  {
+   "seq": "OneStopMoveEnter2",
+   "view": "cam2_front",
+   "frame": 675
+  },
+  {
+   "seq": "OneStopMoveEnter2",
+   "view": "cam2_front",
+   "frame": 825
+  },
+  {
+   "seq": "OneStopMoveEnter2",
+   "view": "cam2_front",
+   "frame": 975
+  },
+  {
+   "seq": "OneStopMoveEnter2",
+   "view": "cam2_front",
+   "frame": 1125
+  },
+  {
+   "seq": "OneStopMoveEnter2",
+   "view": "cam2_front",
+   "frame": 1275
+  },
+  {
+   "seq": "OneStopMoveEnter2",
+   "view": "cam2_front",
+   "frame": 1425
+  },
+  {
+   "seq": "OneStopMoveEnter2",
+   "view": "cam2_front",
+   "frame": 1575
+  },
+  {
+   "seq": "OneStopMoveEnter2",
+   "view": "cam2_front",
+   "frame": 1725
+  },
+  {
+   "seq": "OneStopMoveEnter2",
+   "view": "cam2_front",
+   "frame": 1875
+  },
+  {
+   "seq": "OneStopMoveEnter2",
+   "view": "cam2_front",
+   "frame": 2025
+  },
+  {
+   "seq": "OneStopMoveEnter2",
+   "view": "cam2_front",
+   "frame": 2175
+  },
+  {
+   "seq": "OneStopMoveNoEnter1",
+   "view": "cam1_corridor",
+   "frame": 75
+  },
+  {
+   "seq": "OneStopMoveNoEnter1",
+   "view": "cam1_corridor",
+   "frame": 225
+  },
+  {
+   "seq": "OneStopMoveNoEnter1",
+   "view": "cam1_corridor",
+   "frame": 375
+  },
+  {
+   "seq": "OneStopMoveNoEnter1",
+   "view": "cam1_corridor",
+   "frame": 525
+  },
+  {
+   "seq": "OneStopMoveNoEnter1",
+   "view": "cam1_corridor",
+   "frame": 675
+  },
+  {
+   "seq": "OneStopMoveNoEnter1",
+   "view": "cam1_corridor",
+   "frame": 825
+  },
+  {
+   "seq": "OneStopMoveNoEnter1",
+   "view": "cam1_corridor",
+   "frame": 975
+  },
+  {
+   "seq": "OneStopMoveNoEnter1",
+   "view": "cam1_corridor",
+   "frame": 1125
+  },
+  {
+   "seq": "OneStopMoveNoEnter1",
+   "view": "cam1_corridor",
+   "frame": 1275
+  },
+  {
+   "seq": "OneStopMoveNoEnter1",
+   "view": "cam1_corridor",
+   "frame": 1425
+  },
+  {
+   "seq": "OneStopMoveNoEnter1",
+   "view": "cam1_corridor",
+   "frame": 1575
+  },
+  {
+   "seq": "OneStopMoveNoEnter1",
+   "view": "cam2_front",
+   "frame": 75
+  },
+  {
+   "seq": "OneStopMoveNoEnter1",
+   "view": "cam2_front",
+   "frame": 225
+  },
+  {
+   "seq": "OneStopMoveNoEnter1",
+   "view": "cam2_front",
+   "frame": 375
+  },
+  {
+   "seq": "OneStopMoveNoEnter1",
+   "view": "cam2_front",
+   "frame": 525
+  },
+  {
+   "seq": "OneStopMoveNoEnter1",
+   "view": "cam2_front",
+   "frame": 675
+  },
+  {
+   "seq": "OneStopMoveNoEnter1",
+   "view": "cam2_front",
+   "frame": 825
+  },
+  {
+   "seq": "OneStopMoveNoEnter1",
+   "view": "cam2_front",
+   "frame": 975
+  },
+  {
+   "seq": "OneStopMoveNoEnter1",
+   "view": "cam2_front",
+   "frame": 1125
+  },
+  {
+   "seq": "OneStopMoveNoEnter1",
+   "view": "cam2_front",
+   "frame": 1275
+  },
+  {
+   "seq": "OneStopMoveNoEnter1",
+   "view": "cam2_front",
+   "frame": 1425
+  },
+  {
+   "seq": "OneStopMoveNoEnter1",
+   "view": "cam2_front",
+   "frame": 1575
+  },
+  {
+   "seq": "OneStopMoveNoEnter2",
+   "view": "cam1_corridor",
+   "frame": 75
+  },
+  {
+   "seq": "OneStopMoveNoEnter2",
+   "view": "cam1_corridor",
+   "frame": 225
+  },
+  {
+   "seq": "OneStopMoveNoEnter2",
+   "view": "cam1_corridor",
+   "frame": 375
+  },
+  {
+   "seq": "OneStopMoveNoEnter2",
+   "view": "cam1_corridor",
+   "frame": 525
+  },
+  {
+   "seq": "OneStopMoveNoEnter2",
+   "view": "cam1_corridor",
+   "frame": 675
+  },
+  {
+   "seq": "OneStopMoveNoEnter2",
+   "view": "cam1_corridor",
+   "frame": 825
+  },
+  {
+   "seq": "OneStopMoveNoEnter2",
+   "view": "cam1_corridor",
+   "frame": 975
+  },
+  {
+   "seq": "OneStopMoveNoEnter2",
+   "view": "cam2_front",
+   "frame": 75
+  },
+  {
+   "seq": "OneStopMoveNoEnter2",
+   "view": "cam2_front",
+   "frame": 225
+  },
+  {
+   "seq": "OneStopMoveNoEnter2",
+   "view": "cam2_front",
+   "frame": 375
+  },
+  {
+   "seq": "OneStopMoveNoEnter2",
+   "view": "cam2_front",
+   "frame": 525
+  },
+  {
+   "seq": "OneStopMoveNoEnter2",
+   "view": "cam2_front",
+   "frame": 675
+  },
+  {
+   "seq": "OneStopMoveNoEnter2",
+   "view": "cam2_front",
+   "frame": 825
+  },
+  {
+   "seq": "OneStopMoveNoEnter2",
+   "view": "cam2_front",
+   "frame": 975
+  },
+  {
+   "seq": "OneStopNoEnter1",
+   "view": "cam1_corridor",
+   "frame": 75
+  },
+  {
+   "seq": "OneStopNoEnter1",
+   "view": "cam1_corridor",
+   "frame": 225
+  },
+  {
+   "seq": "OneStopNoEnter1",
+   "view": "cam1_corridor",
+   "frame": 375
+  },
+  {
+   "seq": "OneStopNoEnter1",
+   "view": "cam1_corridor",
+   "frame": 525
+  },
+  {
+   "seq": "OneStopNoEnter1",
+   "view": "cam1_corridor",
+   "frame": 675
+  },
+  {
+   "seq": "OneStopNoEnter1",
+   "view": "cam2_front",
+   "frame": 75
+  },
+  {
+   "seq": "OneStopNoEnter1",
+   "view": "cam2_front",
+   "frame": 225
+  },
+  {
+   "seq": "OneStopNoEnter1",
+   "view": "cam2_front",
+   "frame": 375
+  },
+  {
+   "seq": "OneStopNoEnter1",
+   "view": "cam2_front",
+   "frame": 525
+  },
+  {
+   "seq": "OneStopNoEnter1",
+   "view": "cam2_front",
+   "frame": 675
+  },
+  {
+   "seq": "OneStopNoEnter2",
+   "view": "cam1_corridor",
+   "frame": 75
+  },
+  {
+   "seq": "OneStopNoEnter2",
+   "view": "cam1_corridor",
+   "frame": 225
+  },
+  {
+   "seq": "OneStopNoEnter2",
+   "view": "cam1_corridor",
+   "frame": 375
+  },
+  {
+   "seq": "OneStopNoEnter2",
+   "view": "cam1_corridor",
+   "frame": 525
+  },
+  {
+   "seq": "OneStopNoEnter2",
+   "view": "cam1_corridor",
+   "frame": 675
+  },
+  {
+   "seq": "OneStopNoEnter2",
+   "view": "cam1_corridor",
+   "frame": 825
+  },
+  {
+   "seq": "OneStopNoEnter2",
+   "view": "cam1_corridor",
+   "frame": 975
+  },
+  {
+   "seq": "OneStopNoEnter2",
+   "view": "cam1_corridor",
+   "frame": 1125
+  },
+  {
+   "seq": "OneStopNoEnter2",
+   "view": "cam1_corridor",
+   "frame": 1275
+  },
+  {
+   "seq": "OneStopNoEnter2",
+   "view": "cam1_corridor",
+   "frame": 1425
+  },
+  {
+   "seq": "OneStopNoEnter2",
+   "view": "cam2_front",
+   "frame": 75
+  },
+  {
+   "seq": "OneStopNoEnter2",
+   "view": "cam2_front",
+   "frame": 225
+  },
+  {
+   "seq": "OneStopNoEnter2",
+   "view": "cam2_front",
+   "frame": 375
+  },
+  {
+   "seq": "OneStopNoEnter2",
+   "view": "cam2_front",
+   "frame": 525
+  },
+  {
+   "seq": "OneStopNoEnter2",
+   "view": "cam2_front",
+   "frame": 675
+  },
+  {
+   "seq": "OneStopNoEnter2",
+   "view": "cam2_front",
+   "frame": 825
+  },
+  {
+   "seq": "OneStopNoEnter2",
+   "view": "cam2_front",
+   "frame": 975
+  },
+  {
+   "seq": "OneStopNoEnter2",
+   "view": "cam2_front",
+   "frame": 1125
+  },
+  {
+   "seq": "OneStopNoEnter2",
+   "view": "cam2_front",
+   "frame": 1275
+  },
+  {
+   "seq": "OneStopNoEnter2",
+   "view": "cam2_front",
+   "frame": 1425
+  },
+  {
+   "seq": "ShopAssistant1",
+   "view": "cam1_corridor",
+   "frame": 75
+  },
+  {
+   "seq": "ShopAssistant1",
+   "view": "cam1_corridor",
+   "frame": 225
+  },
+  {
+   "seq": "ShopAssistant1",
+   "view": "cam1_corridor",
+   "frame": 375
+  },
+  {
+   "seq": "ShopAssistant1",
+   "view": "cam1_corridor",
+   "frame": 525
+  },
+  {
+   "seq": "ShopAssistant1",
+   "view": "cam1_corridor",
+   "frame": 675
+  },
+  {
+   "seq": "ShopAssistant1",
+   "view": "cam1_corridor",
+   "frame": 825
+  },
+  {
+   "seq": "ShopAssistant1",
+   "view": "cam1_corridor",
+   "frame": 975
+  },
+  {
+   "seq": "ShopAssistant1",
+   "view": "cam1_corridor",
+   "frame": 1125
+  },
+  {
+   "seq": "ShopAssistant1",
+   "view": "cam1_corridor",
+   "frame": 1275
+  },
+  {
+   "seq": "ShopAssistant1",
+   "view": "cam1_corridor",
+   "frame": 1425
+  },
+  {
+   "seq": "ShopAssistant1",
+   "view": "cam1_corridor",
+   "frame": 1575
+  },
+  {
+   "seq": "ShopAssistant1",
+   "view": "cam2_front",
+   "frame": 75
+  },
+  {
+   "seq": "ShopAssistant1",
+   "view": "cam2_front",
+   "frame": 225
+  },
+  {
+   "seq": "ShopAssistant1",
+   "view": "cam2_front",
+   "frame": 375
+  },
+  {
+   "seq": "ShopAssistant1",
+   "view": "cam2_front",
+   "frame": 525
+  },
+  {
+   "seq": "ShopAssistant1",
+   "view": "cam2_front",
+   "frame": 675
+  },
+  {
+   "seq": "ShopAssistant1",
+   "view": "cam2_front",
+   "frame": 825
+  },
+  {
+   "seq": "ShopAssistant1",
+   "view": "cam2_front",
+   "frame": 975
+  },
+  {
+   "seq": "ShopAssistant1",
+   "view": "cam2_front",
+   "frame": 1125
+  },
+  {
+   "seq": "ShopAssistant1",
+   "view": "cam2_front",
+   "frame": 1275
+  },
+  {
+   "seq": "ShopAssistant1",
+   "view": "cam2_front",
+   "frame": 1425
+  },
+  {
+   "seq": "ShopAssistant1",
+   "view": "cam2_front",
+   "frame": 1575
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam1_corridor",
+   "frame": 75
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam1_corridor",
+   "frame": 225
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam1_corridor",
+   "frame": 375
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam1_corridor",
+   "frame": 525
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam1_corridor",
+   "frame": 675
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam1_corridor",
+   "frame": 825
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam1_corridor",
+   "frame": 975
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam1_corridor",
+   "frame": 1125
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam1_corridor",
+   "frame": 1275
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam1_corridor",
+   "frame": 1425
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam1_corridor",
+   "frame": 1575
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam1_corridor",
+   "frame": 1725
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam1_corridor",
+   "frame": 1875
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam1_corridor",
+   "frame": 2025
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam1_corridor",
+   "frame": 2175
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam1_corridor",
+   "frame": 2325
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam1_corridor",
+   "frame": 2475
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam1_corridor",
+   "frame": 2625
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam1_corridor",
+   "frame": 2775
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam1_corridor",
+   "frame": 2925
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam1_corridor",
+   "frame": 3075
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam1_corridor",
+   "frame": 3225
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam1_corridor",
+   "frame": 3375
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam1_corridor",
+   "frame": 3525
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam1_corridor",
+   "frame": 3675
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam2_front",
+   "frame": 75
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam2_front",
+   "frame": 225
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam2_front",
+   "frame": 375
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam2_front",
+   "frame": 525
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam2_front",
+   "frame": 675
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam2_front",
+   "frame": 825
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam2_front",
+   "frame": 975
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam2_front",
+   "frame": 1125
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam2_front",
+   "frame": 1275
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam2_front",
+   "frame": 1425
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam2_front",
+   "frame": 1575
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam2_front",
+   "frame": 1725
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam2_front",
+   "frame": 1875
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam2_front",
+   "frame": 2025
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam2_front",
+   "frame": 2175
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam2_front",
+   "frame": 2325
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam2_front",
+   "frame": 2475
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam2_front",
+   "frame": 2625
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam2_front",
+   "frame": 2775
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam2_front",
+   "frame": 2925
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam2_front",
+   "frame": 3075
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam2_front",
+   "frame": 3225
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam2_front",
+   "frame": 3375
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam2_front",
+   "frame": 3525
+  },
+  {
+   "seq": "ShopAssistant2",
+   "view": "cam2_front",
+   "frame": 3675
+  },
+  {
+   "seq": "ThreePastShop1",
+   "view": "cam1_corridor",
+   "frame": 75
+  },
+  {
+   "seq": "ThreePastShop1",
+   "view": "cam1_corridor",
+   "frame": 225
+  },
+  {
+   "seq": "ThreePastShop1",
+   "view": "cam1_corridor",
+   "frame": 375
+  },
+  {
+   "seq": "ThreePastShop1",
+   "view": "cam1_corridor",
+   "frame": 525
+  },
+  {
+   "seq": "ThreePastShop1",
+   "view": "cam1_corridor",
+   "frame": 675
+  },
+  {
+   "seq": "ThreePastShop1",
+   "view": "cam1_corridor",
+   "frame": 825
+  },
+  {
+   "seq": "ThreePastShop1",
+   "view": "cam1_corridor",
+   "frame": 975
+  },
+  {
+   "seq": "ThreePastShop1",
+   "view": "cam1_corridor",
+   "frame": 1125
+  },
+  {
+   "seq": "ThreePastShop1",
+   "view": "cam1_corridor",
+   "frame": 1275
+  },
+  {
+   "seq": "ThreePastShop1",
+   "view": "cam1_corridor",
+   "frame": 1425
+  },
+  {
+   "seq": "ThreePastShop1",
+   "view": "cam1_corridor",
+   "frame": 1575
+  },
+  {
+   "seq": "ThreePastShop1",
+   "view": "cam2_front",
+   "frame": 75
+  },
+  {
+   "seq": "ThreePastShop1",
+   "view": "cam2_front",
+   "frame": 225
+  },
+  {
+   "seq": "ThreePastShop1",
+   "view": "cam2_front",
+   "frame": 375
+  },
+  {
+   "seq": "ThreePastShop1",
+   "view": "cam2_front",
+   "frame": 525
+  },
+  {
+   "seq": "ThreePastShop1",
+   "view": "cam2_front",
+   "frame": 675
+  },
+  {
+   "seq": "ThreePastShop1",
+   "view": "cam2_front",
+   "frame": 825
+  },
+  {
+   "seq": "ThreePastShop1",
+   "view": "cam2_front",
+   "frame": 975
+  },
+  {
+   "seq": "ThreePastShop1",
+   "view": "cam2_front",
+   "frame": 1125
+  },
+  {
+   "seq": "ThreePastShop1",
+   "view": "cam2_front",
+   "frame": 1275
+  },
+  {
+   "seq": "ThreePastShop1",
+   "view": "cam2_front",
+   "frame": 1425
+  },
+  {
+   "seq": "ThreePastShop1",
+   "view": "cam2_front",
+   "frame": 1575
+  },
+  {
+   "seq": "ThreePastShop2",
+   "view": "cam1_corridor",
+   "frame": 75
+  },
+  {
+   "seq": "ThreePastShop2",
+   "view": "cam1_corridor",
+   "frame": 225
+  },
+  {
+   "seq": "ThreePastShop2",
+   "view": "cam1_corridor",
+   "frame": 375
+  },
+  {
+   "seq": "ThreePastShop2",
+   "view": "cam1_corridor",
+   "frame": 525
+  },
+  {
+   "seq": "ThreePastShop2",
+   "view": "cam1_corridor",
+   "frame": 675
+  },
+  {
+   "seq": "ThreePastShop2",
+   "view": "cam1_corridor",
+   "frame": 825
+  },
+  {
+   "seq": "ThreePastShop2",
+   "view": "cam1_corridor",
+   "frame": 975
+  },
+  {
+   "seq": "ThreePastShop2",
+   "view": "cam1_corridor",
+   "frame": 1125
+  },
+  {
+   "seq": "ThreePastShop2",
+   "view": "cam1_corridor",
+   "frame": 1275
+  },
+  {
+   "seq": "ThreePastShop2",
+   "view": "cam1_corridor",
+   "frame": 1425
+  },
+  {
+   "seq": "ThreePastShop2",
+   "view": "cam2_front",
+   "frame": 75
+  },
+  {
+   "seq": "ThreePastShop2",
+   "view": "cam2_front",
+   "frame": 225
+  },
+  {
+   "seq": "ThreePastShop2",
+   "view": "cam2_front",
+   "frame": 375
+  },
+  {
+   "seq": "ThreePastShop2",
+   "view": "cam2_front",
+   "frame": 525
+  },
+  {
+   "seq": "ThreePastShop2",
+   "view": "cam2_front",
+   "frame": 675
+  },
+  {
+   "seq": "ThreePastShop2",
+   "view": "cam2_front",
+   "frame": 825
+  },
+  {
+   "seq": "ThreePastShop2",
+   "view": "cam2_front",
+   "frame": 975
+  },
+  {
+   "seq": "ThreePastShop2",
+   "view": "cam2_front",
+   "frame": 1125
+  },
+  {
+   "seq": "ThreePastShop2",
+   "view": "cam2_front",
+   "frame": 1275
+  },
+  {
+   "seq": "ThreePastShop2",
+   "view": "cam2_front",
+   "frame": 1425
+  },
+  {
+   "seq": "TwoEnterShop1",
+   "view": "cam1_corridor",
+   "frame": 75
+  },
+  {
+   "seq": "TwoEnterShop1",
+   "view": "cam1_corridor",
+   "frame": 225
+  },
+  {
+   "seq": "TwoEnterShop1",
+   "view": "cam1_corridor",
+   "frame": 375
+  },
+  {
+   "seq": "TwoEnterShop1",
+   "view": "cam1_corridor",
+   "frame": 525
+  },
+  {
+   "seq": "TwoEnterShop1",
+   "view": "cam1_corridor",
+   "frame": 675
+  },
+  {
+   "seq": "TwoEnterShop1",
+   "view": "cam1_corridor",
+   "frame": 825
+  },
+  {
+   "seq": "TwoEnterShop1",
+   "view": "cam1_corridor",
+   "frame": 975
+  },
+  {
+   "seq": "TwoEnterShop1",
+   "view": "cam1_corridor",
+   "frame": 1125
+  },
+  {
+   "seq": "TwoEnterShop1",
+   "view": "cam1_corridor",
+   "frame": 1275
+  },
+  {
+   "seq": "TwoEnterShop1",
+   "view": "cam1_corridor",
+   "frame": 1425
+  },
+  {
+   "seq": "TwoEnterShop1",
+   "view": "cam1_corridor",
+   "frame": 1575
+  },
+  {
+   "seq": "TwoEnterShop1",
+   "view": "cam2_front",
+   "frame": 75
+  },
+  {
+   "seq": "TwoEnterShop1",
+   "view": "cam2_front",
+   "frame": 225
+  },
+  {
+   "seq": "TwoEnterShop1",
+   "view": "cam2_front",
+   "frame": 375
+  },
+  {
+   "seq": "TwoEnterShop1",
+   "view": "cam2_front",
+   "frame": 525
+  },
+  {
+   "seq": "TwoEnterShop1",
+   "view": "cam2_front",
+   "frame": 675
+  },
+  {
+   "seq": "TwoEnterShop1",
+   "view": "cam2_front",
+   "frame": 825
+  },
+  {
+   "seq": "TwoEnterShop1",
+   "view": "cam2_front",
+   "frame": 975
+  },
+  {
+   "seq": "TwoEnterShop1",
+   "view": "cam2_front",
+   "frame": 1125
+  },
+  {
+   "seq": "TwoEnterShop1",
+   "view": "cam2_front",
+   "frame": 1275
+  },
+  {
+   "seq": "TwoEnterShop1",
+   "view": "cam2_front",
+   "frame": 1425
+  },
+  {
+   "seq": "TwoEnterShop1",
+   "view": "cam2_front",
+   "frame": 1575
+  },
+  {
+   "seq": "TwoEnterShop2",
+   "view": "cam1_corridor",
+   "frame": 75
+  },
+  {
+   "seq": "TwoEnterShop2",
+   "view": "cam1_corridor",
+   "frame": 225
+  },
+  {
+   "seq": "TwoEnterShop2",
+   "view": "cam1_corridor",
+   "frame": 375
+  },
+  {
+   "seq": "TwoEnterShop2",
+   "view": "cam1_corridor",
+   "frame": 525
+  },
+  {
+   "seq": "TwoEnterShop2",
+   "view": "cam1_corridor",
+   "frame": 675
+  },
+  {
+   "seq": "TwoEnterShop2",
+   "view": "cam1_corridor",
+   "frame": 825
+  },
+  {
+   "seq": "TwoEnterShop2",
+   "view": "cam1_corridor",
+   "frame": 975
+  },
+  {
+   "seq": "TwoEnterShop2",
+   "view": "cam1_corridor",
+   "frame": 1125
+  },
+  {
+   "seq": "TwoEnterShop2",
+   "view": "cam1_corridor",
+   "frame": 1275
+  },
+  {
+   "seq": "TwoEnterShop2",
+   "view": "cam1_corridor",
+   "frame": 1425
+  },
+  {
+   "seq": "TwoEnterShop2",
+   "view": "cam1_corridor",
+   "frame": 1575
+  },
+  {
+   "seq": "TwoEnterShop2",
+   "view": "cam2_front",
+   "frame": 75
+  },
+  {
+   "seq": "TwoEnterShop2",
+   "view": "cam2_front",
+   "frame": 225
+  },
+  {
+   "seq": "TwoEnterShop2",
+   "view": "cam2_front",
+   "frame": 375
+  },
+  {
+   "seq": "TwoEnterShop2",
+   "view": "cam2_front",
+   "frame": 525
+  },
+  {
+   "seq": "TwoEnterShop2",
+   "view": "cam2_front",
+   "frame": 675
+  },
+  {
+   "seq": "TwoEnterShop2",
+   "view": "cam2_front",
+   "frame": 825
+  },
+  {
+   "seq": "TwoEnterShop2",
+   "view": "cam2_front",
+   "frame": 975
+  },
+  {
+   "seq": "TwoEnterShop2",
+   "view": "cam2_front",
+   "frame": 1125
+  },
+  {
+   "seq": "TwoEnterShop2",
+   "view": "cam2_front",
+   "frame": 1275
+  },
+  {
+   "seq": "TwoEnterShop2",
+   "view": "cam2_front",
+   "frame": 1425
+  },
+  {
+   "seq": "TwoEnterShop2",
+   "view": "cam2_front",
+   "frame": 1575
+  },
+  {
+   "seq": "TwoEnterShop3",
+   "view": "cam1_corridor",
+   "frame": 75
+  },
+  {
+   "seq": "TwoEnterShop3",
+   "view": "cam1_corridor",
+   "frame": 225
+  },
+  {
+   "seq": "TwoEnterShop3",
+   "view": "cam1_corridor",
+   "frame": 375
+  },
+  {
+   "seq": "TwoEnterShop3",
+   "view": "cam1_corridor",
+   "frame": 525
+  },
+  {
+   "seq": "TwoEnterShop3",
+   "view": "cam1_corridor",
+   "frame": 675
+  },
+  {
+   "seq": "TwoEnterShop3",
+   "view": "cam1_corridor",
+   "frame": 825
+  },
+  {
+   "seq": "TwoEnterShop3",
+   "view": "cam1_corridor",
+   "frame": 975
+  },
+  {
+   "seq": "TwoEnterShop3",
+   "view": "cam1_corridor",
+   "frame": 1125
+  },
+  {
+   "seq": "TwoEnterShop3",
+   "view": "cam2_front",
+   "frame": 75
+  },
+  {
+   "seq": "TwoEnterShop3",
+   "view": "cam2_front",
+   "frame": 225
+  },
+  {
+   "seq": "TwoEnterShop3",
+   "view": "cam2_front",
+   "frame": 375
+  },
+  {
+   "seq": "TwoEnterShop3",
+   "view": "cam2_front",
+   "frame": 525
+  },
+  {
+   "seq": "TwoEnterShop3",
+   "view": "cam2_front",
+   "frame": 675
+  },
+  {
+   "seq": "TwoEnterShop3",
+   "view": "cam2_front",
+   "frame": 825
+  },
+  {
+   "seq": "TwoEnterShop3",
+   "view": "cam2_front",
+   "frame": 975
+  },
+  {
+   "seq": "TwoLeaveShop1",
+   "view": "cam1_corridor",
+   "frame": 75
+  },
+  {
+   "seq": "TwoLeaveShop1",
+   "view": "cam1_corridor",
+   "frame": 225
+  },
+  {
+   "seq": "TwoLeaveShop1",
+   "view": "cam1_corridor",
+   "frame": 375
+  },
+  {
+   "seq": "TwoLeaveShop1",
+   "view": "cam1_corridor",
+   "frame": 525
+  },
+  {
+   "seq": "TwoLeaveShop1",
+   "view": "cam1_corridor",
+   "frame": 675
+  },
+  {
+   "seq": "TwoLeaveShop1",
+   "view": "cam1_corridor",
+   "frame": 825
+  },
+  {
+   "seq": "TwoLeaveShop1",
+   "view": "cam1_corridor",
+   "frame": 975
+  },
+  {
+   "seq": "TwoLeaveShop1",
+   "view": "cam1_corridor",
+   "frame": 1125
+  },
+  {
+   "seq": "TwoLeaveShop1",
+   "view": "cam1_corridor",
+   "frame": 1275
+  },
+  {
+   "seq": "TwoLeaveShop1",
+   "view": "cam2_front",
+   "frame": 75
+  },
+  {
+   "seq": "TwoLeaveShop1",
+   "view": "cam2_front",
+   "frame": 225
+  },
+  {
+   "seq": "TwoLeaveShop1",
+   "view": "cam2_front",
+   "frame": 375
+  },
+  {
+   "seq": "TwoLeaveShop1",
+   "view": "cam2_front",
+   "frame": 525
+  },
+  {
+   "seq": "TwoLeaveShop1",
+   "view": "cam2_front",
+   "frame": 675
+  },
+  {
+   "seq": "TwoLeaveShop1",
+   "view": "cam2_front",
+   "frame": 825
+  },
+  {
+   "seq": "TwoLeaveShop1",
+   "view": "cam2_front",
+   "frame": 975
+  },
+  {
+   "seq": "TwoLeaveShop1",
+   "view": "cam2_front",
+   "frame": 1125
+  },
+  {
+   "seq": "TwoLeaveShop1",
+   "view": "cam2_front",
+   "frame": 1275
+  },
+  {
+   "seq": "TwoLeaveShop2",
+   "view": "cam1_corridor",
+   "frame": 75
+  },
+  {
+   "seq": "TwoLeaveShop2",
+   "view": "cam1_corridor",
+   "frame": 225
+  },
+  {
+   "seq": "TwoLeaveShop2",
+   "view": "cam1_corridor",
+   "frame": 375
+  },
+  {
+   "seq": "TwoLeaveShop2",
+   "view": "cam1_corridor",
+   "frame": 525
+  },
+  {
+   "seq": "TwoLeaveShop2",
+   "view": "cam2_front",
+   "frame": 75
+  },
+  {
+   "seq": "TwoLeaveShop2",
+   "view": "cam2_front",
+   "frame": 225
+  },
+  {
+   "seq": "TwoLeaveShop2",
+   "view": "cam2_front",
+   "frame": 375
+  },
+  {
+   "seq": "TwoLeaveShop2",
+   "view": "cam2_front",
+   "frame": 525
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam1_corridor",
+   "frame": 75
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam1_corridor",
+   "frame": 225
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam1_corridor",
+   "frame": 375
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam1_corridor",
+   "frame": 525
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam1_corridor",
+   "frame": 675
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam1_corridor",
+   "frame": 825
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam1_corridor",
+   "frame": 975
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam1_corridor",
+   "frame": 1125
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam1_corridor",
+   "frame": 1275
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam1_corridor",
+   "frame": 1425
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam1_corridor",
+   "frame": 1575
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam1_corridor",
+   "frame": 1725
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam1_corridor",
+   "frame": 1875
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam1_corridor",
+   "frame": 2025
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam1_corridor",
+   "frame": 2175
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam1_corridor",
+   "frame": 2325
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam2_front",
+   "frame": 75
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam2_front",
+   "frame": 225
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam2_front",
+   "frame": 375
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam2_front",
+   "frame": 525
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam2_front",
+   "frame": 675
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam2_front",
+   "frame": 825
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam2_front",
+   "frame": 975
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam2_front",
+   "frame": 1125
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam2_front",
+   "frame": 1275
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam2_front",
+   "frame": 1425
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam2_front",
+   "frame": 1575
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam2_front",
+   "frame": 1725
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam2_front",
+   "frame": 1875
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam2_front",
+   "frame": 2025
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam2_front",
+   "frame": 2175
+  },
+  {
+   "seq": "WalkByShop1",
+   "view": "cam2_front",
+   "frame": 2325
+  }
+ ],
+ "frozen_at": "2026-11-14T19:45:42+00:00",
+ "n_items": 487,
+ "items_sha256": "f6c3e88a3380f52244a511f90b6c1bc717979d90d4d9e6cabd4bca66177eaf7f"
+}

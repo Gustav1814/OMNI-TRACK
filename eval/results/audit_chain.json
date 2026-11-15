@@ -1,0 +1,64 @@
+{
+  "schema": 1,
+  "id": "audit_chain",
+  "title": "Audit-log tamper detection",
+  "criterion": "100% tamper detection",
+  "status": "measured",
+  "primary": {
+    "metric": "Detection rate",
+    "value": 1.0,
+    "target": 1.0,
+    "op": ">=",
+    "unit": "ratio",
+    "passed": true
+  },
+  "metrics": {
+    "detection_rate": 1.0,
+    "per_attack": {
+      "mutate": 1.0,
+      "forge": 1.0,
+      "delete": 1.0,
+      "insert": 1.0,
+      "swap": 1.0,
+      "truncate": 1.0,
+      "downgrade": 1.0
+    },
+    "clean_chain_valid": true,
+    "entries": 1000,
+    "trials_per_attack": 100,
+    "total_attempts": 700
+  },
+  "dataset": {
+    "name": "synthetic audit chain (1000 entries, seed 0)",
+    "split": "n/a",
+    "source": "generated with app.security.audit_chain",
+    "n_items": 1000
+  },
+  "model": {
+    "name": "app.security.audit_chain (HMAC-SHA256 chain + signed anchor)"
+  },
+  "hardware": {
+    "cpu": "12th Gen Intel(R) Core(TM) i5-1245U",
+    "logical_cores": 12,
+    "threads_used": null,
+    "os": "Linux 7.0.0-43-generic",
+    "python": "3.12.16",
+    "device": "cpu",
+    "gpu": null,
+    "ram_gb": 15.8
+  },
+  "git": {
+    "commit": "31c93786f870f23cc3676e793e2cc3ec326b7de5",
+    "branch": "main",
+    "dirty": true
+  },
+  "script": "eval/audit_chain.py",
+  "command": "audit_chain.py --trials 100",
+  "created_at": "2026-11-14T20:00:03+00:00",
+  "duration_s": 12.7,
+  "peak_rss_mb": 21.1,
+  "notes": [
+    "Truncation of the newest rows is only detectable through the signed anchor file; the run supplies the anchor exactly as read_anchor() returns it."
+  ],
+  "passed": true
+}

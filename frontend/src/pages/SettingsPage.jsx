@@ -1,106 +1,128 @@
 /**
- * OmniTrack — Appearance & gradient settings
+ * OmniTrack — Account, user management (admin) and appearance settings.
+ * `embedded` renders the content without the page header and page wrapper,
+ * for the System hub.
  */
 
-import React from 'react';
-import { Check, Moon, Sun, Palette } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Moon, Sun } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
-import { GRADIENT_PRESETS } from '../lib/gradientPresets';
-import MagicCard from '../components/ui/MagicCard';
-import MagicPageHeader from '../components/ui/MagicPageHeader';
-import ContentCard from '../components/ui/ContentCard';
+import AccountPanel, { UserManagementPanel } from '../components/AccountPanel';
+import { apiErrorMessage, authAPI, tokenStore } from '../services/api';
+import useUserRole from '../hooks/useUserRole';
+import PageHeader from '../components/PageHeader';
 
-export default function SettingsPage() {
-    const { theme, setTheme, gradientPreset, setGradientPreset } = useTheme();
-    const active = GRADIENT_PRESETS.find((p) => p.id === gradientPreset) || GRADIENT_PRESETS[0];
+const THEMES = [
+    { id: 'light', label: 'Light', Icon: Sun },
+    { id: 'dark', label: 'Dark', Icon: Moon },
+];
+
+const ROLE_PILL = { admin: 'pill-accent', operator: 'pill-info' };
+const capitalise = (s) => (s ? `${s.charAt(0).toUpperCase()}${s.slice(1)}` : s);
+
+function Section({ title, desc, children }) {
+    return (
+        <section className="adm-section">
+            <div>
+                <h2 className="adm-section-title">{title}</h2>
+                {desc && <p className="adm-section-desc">{desc}</p>}
+            </div>
+            <div>{children}</div>
+        </section>
+    );
+}
+
+export default function SettingsPage({ embedded = false }) {
+    const { theme, setTheme } = useTheme();
+    const { canAdmin } = useUserRole();
+    const [me, setMe] = useState(() => tokenStore.getUser());
+    const [meError, setMeError] = useState(null);
+
+    const loadMe = () => {
+        setMeError(null);
+        authAPI.me()
+            .then((r) => { setMe(r.data); tokenStore.setUser(r.data); })
+            .catch((e) => setMeError(apiErrorMessage(e, 'Could not load your account')));
+    };
+
+    useEffect(loadMe, []);
+
+    const handle = [me?.username ? `@${me.username}` : null, me?.email].filter(Boolean).join(' · ');
 
     return (
-        <div className="page-scroll">
-            <MagicPageHeader>
-                <h1 className="page-title">Settings</h1>
-                <p className="page-subtitle">
-                    Appearance and interface accents for executive reporting. Dashboard KPI colors remain fixed.
-                </p>
-            </MagicPageHeader>
+        <div className={embedded ? 'adm-embedded' : 'adm-page'}>
+            {!embedded && (
+                <PageHeader
+                    title="Account and settings"
+                    subtitle={`Your account and sessions${canAdmin ? ', user access' : ''} and appearance.`}
+                />
+            )}
 
-            <ContentCard title="Theme" subtitle="Light workspace or high-contrast dark mode">
-                <div className="settings-theme-row">
-                    <button
-                        type="button"
-                        className={`settings-theme-btn${theme === 'light' ? ' is-active' : ''}`}
-                        onClick={() => setTheme('light')}
-                    >
-                        <Sun size={16} />
-                        Light
-                    </button>
-                    <button
-                        type="button"
-                        className={`settings-theme-btn${theme === 'dark' ? ' is-active' : ''}`}
-                        onClick={() => setTheme('dark')}
-                    >
-                        <Moon size={16} />
-                        Dark
-                    </button>
-                </div>
-            </ContentCard>
-
-            <ContentCard
-                title="Accent scheme"
-                subtitle="Choose a restrained palette for the canvas and UI chrome"
-            >
-                <div className="scheme-row">
-                    {GRADIENT_PRESETS.map((preset) => {
-                        const selected = preset.id === gradientPreset;
-                        return (
-                            <button
-                                key={preset.id}
-                                type="button"
-                                className={`scheme-dot${selected ? ' is-active' : ''}`}
-                                onClick={() => setGradientPreset(preset.id)}
-                                aria-pressed={selected}
-                                title={preset.name}
-                            >
-                                <span
-                                    className="scheme-dot-fill"
-                                    style={{ background: `linear-gradient(135deg, ${preset.a} 0%, ${preset.b} 100%)` }}
-                                />
-                                {selected ? (
-                                    <span className="scheme-dot-check" aria-hidden>
-                                        <Check size={14} strokeWidth={3} />
-                                    </span>
-                                ) : null}
-                            </button>
-                        );
-                    })}
-                </div>
-                <div className="scheme-caption">
-                    <span className="scheme-caption-name">{active.name}</span>
-                    <span className="scheme-caption-desc">{active.description}</span>
-                </div>
-            </ContentCard>
-
-            <ContentCard
-                title="Preview"
-                subtitle={`Active scheme: ${active.name}`}
-                actions={<Palette size={16} style={{ color: 'var(--gradient-a)' }} />}
-            >
-                <div className="settings-magic-preview">
-                    <MagicCard borderRadius={14}>
-                        <div className="settings-magic-preview-header">
-                            <h4 className="ui-content-card-title" style={{ margin: 0 }}>Interface sample</h4>
-                            <p className="ui-content-card-sub" style={{ margin: '4px 0 0' }}>
-                                Subtle accent on cards and navigation
-                            </p>
+            <section className="panel panel--flush adm-flush" aria-label="Signed in as">
+                <div className="panel-body">
+                    <div>
+                        <span className="metric-label">Signed in as</span>
+                        <h2 className="adm-big">{me?.full_name || me?.username || (meError ? 'Account not loaded' : 'Loading account…')}</h2>
+                        {handle && <p className="adm-big-sub osd">{handle}</p>}
+                        {meError && !me?.username && (
+                            <div className="adm-embed-bar adm-load-error">
+                                <span className="form-hint">{meError}</span>
+                                <button type="button" className="btn btn-secondary btn-sm" onClick={loadMe}>Try again</button>
+                            </div>
+                        )}
+                    </div>
+                    <div className="kpi-strip">
+                        <div className="metric">
+                            <span className="metric-label">Role</span>
+                            <span className={`pill ${ROLE_PILL[me?.role] || 'pill-neutral'}`}>{capitalise(me?.role) || '—'}</span>
                         </div>
-                        <div className="settings-magic-preview-body">
-                            <p style={{ fontSize: 13, color: 'var(--exec-muted)', margin: 0, lineHeight: 1.5 }}>
-                                The selected scheme applies a light canvas wash and tones the sidebar, controls, and panel chrome.
-                                Dashboard KPI metrics retain their standard operational colors.
-                            </p>
+                        <div className="metric">
+                            <span className="metric-label">Member since</span>
+                            <span className="adm-text-value is-mono">
+                                {me?.created_at ? new Date(me.created_at).toLocaleDateString() : '—'}
+                            </span>
                         </div>
-                    </MagicCard>
+                        <div className="metric">
+                            <span className="metric-label">Account</span>
+                            <span className={`pill ${me?.is_active === false ? 'pill-danger' : 'pill-success'}`}>
+                                {me?.is_active === false ? 'Disabled' : 'Active'}
+                            </span>
+                        </div>
+                    </div>
                 </div>
-            </ContentCard>
+            </section>
+
+            <div>
+                <Section title="Account" desc="Your password and signed-in sessions.">
+                    <AccountPanel me={me} />
+                </Section>
+
+                {canAdmin && (
+                    <Section title="Users and roles" desc="Viewers read dashboards. Operators run feeds and zones. Admins manage users and security.">
+                        <UserManagementPanel />
+                    </Section>
+                )}
+
+                <Section title="Appearance" desc="Saved in this browser.">
+                    <div className="panel">
+                        <div className="panel-body">
+                            <div className="adm-row">
+                                <div>
+                                    <div className="adm-row-label" id="theme-label">Theme</div>
+                                    <div className="adm-row-sub">Video tiles stay black in both themes.</div>
+                                </div>
+                                <div className="seg adm-seg" role="group" aria-labelledby="theme-label">
+                                    {THEMES.map(({ id, label, Icon }) => (
+                                        <button key={id} type="button" aria-pressed={theme === id} onClick={() => setTheme(id)}>
+                                            <Icon size={14} strokeWidth={1.75} /> {label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </Section>
+            </div>
         </div>
     );
 }

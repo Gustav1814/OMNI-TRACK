@@ -7,7 +7,6 @@ into a unified "Store Vibe Score" (0–100).
 import time
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
-from loguru import logger
 
 
 @dataclass

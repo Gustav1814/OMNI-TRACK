@@ -5,9 +5,58 @@
 
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { ShieldCheck, Video, Activity, Sparkles } from 'lucide-react';
-import { authAPI, tokenStore } from '../services/api';
+import { apiErrorMessage, authAPI, tokenStore } from '../services/api';
+
+const CAPABILITIES = [
+    'Person detection and tracking',
+    'Cross-camera re-identification',
+    'Zones, queues and dwell',
+    'Fire and smoke detection',
+    'Alerts with evidence clips',
+    'Video synopsis',
+];
+
+/** Static "viewfinder" brand panel shared by sign-in and sign-up. No live data. */
+export function AuthBrand() {
+    return (
+        <aside className="auth-brand vf vf--on-media" aria-label="OmniTrack">
+            <div className="auth-thirds" aria-hidden="true"><i /><i /><i /><i /></div>
+            <div className="osd-strip" aria-hidden="true">
+                <span><i className="auth-osd-mark" /><strong>OmniTrack</strong></span>
+                <span>Retail video analytics</span>
+            </div>
+
+            <div className="auth-hero">
+                <svg className="auth-mark" viewBox="0 0 32 32" aria-hidden="true">
+                    <path fill="currentColor" d="M4 4h8v3H7v5H4zM28 4v8h-3V7h-5V4zM4 28v-8h3v5h5v3zM28 28h-8v-3h5v-5h3z" />
+                    <circle cx="16" cy="16" r="4.5" fill="var(--accent-fill)" />
+                </svg>
+                <div>
+                    <p className="auth-wordmark">OmniTrack</p>
+                </div>
+                <p className="auth-tagline">
+                    Store analytics from the cameras you already run: who comes in, where they go, how long they wait.
+                </p>
+            </div>
+
+            <div>
+                <ul className="auth-caps">
+                    {CAPABILITIES.map((c, i) => (
+                        <li key={c}>
+                            <span className="osd">{String(i + 1).padStart(2, '0')}</span>
+                            {c}
+                        </li>
+                    ))}
+                </ul>
+                <div className="osd-strip auth-foot-strip">
+                    <span>JWT sessions</span>
+                    <span>AES-256-GCM at rest</span>
+                    <span>HMAC audit chain</span>
+                </div>
+            </div>
+        </aside>
+    );
+}
 
 export default function LoginPage({ onLogin }) {
     const [username, setUsername] = useState('');
@@ -34,109 +83,63 @@ export default function LoginPage({ onLogin }) {
             navigate('/');
         } catch (err) {
             const status = err?.response?.status;
-            const detail = err?.response?.data?.detail || err?.message;
             if (status === 401) setError('Invalid username or password.');
             else if (status === 403) setError('Account is inactive.');
-            else setError(detail || 'Login failed — is the backend reachable?');
+            else setError(apiErrorMessage(err, 'Login failed — is the backend reachable?'));
         } finally {
             setLoading(false);
         }
     };
 
     return (
-        <div className="login-page">
-            <div className="login-bg-orb login-bg-orb-1" />
-            <div className="login-bg-orb login-bg-orb-2" />
-            <motion.div
-                className="login-card"
-                initial={{ opacity: 0, y: 24, scale: 0.98 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
-                whileHover={{ boxShadow: '0 28px 64px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.08), 0 0 80px -16px rgba(99,102,241,0.25)' }}
-            >
-                <div className="login-layout">
-                    <div className="login-showcase">
-                        <motion.div
-                            className="login-logo"
-                            initial={{ scale: 0.8, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            transition={{ delay: 0.15, type: 'spring', stiffness: 300, damping: 20 }}
+        <div className="auth">
+            <AuthBrand />
+            <main className="auth-main">
+                <div className="auth-card">
+                    <h1 className="auth-title">Sign in</h1>
+                    <p className="auth-sub">Use the account your administrator gave you.</p>
+
+                    {error && <div className="alert-banner danger" role="alert">{error}</div>}
+
+                    <form className="auth-form" onSubmit={handleSubmit}>
+                        <div className="form-group">
+                            <label className="form-label" htmlFor="login-username">Username</label>
+                            <input
+                                id="login-username"
+                                className="form-input"
+                                type="text"
+                                autoComplete="username"
+                                value={username}
+                                onChange={(e) => setUsername(e.target.value)}
+                                required
+                            />
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label" htmlFor="login-password">Password</label>
+                            <input
+                                id="login-password"
+                                className="form-input"
+                                type="password"
+                                autoComplete="current-password"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                required
+                            />
+                        </div>
+                        <button
+                            className="btn btn-primary btn-lg btn-block auth-submit"
+                            type="submit"
+                            disabled={loading || !username || !password}
                         >
-                            O
-                        </motion.div>
-                        <h1 className="login-title">OmniTrack</h1>
-                        <p className="login-subtitle">
-                            Elegant retail intelligence from live and uploaded video feeds.
-                        </p>
+                            {loading ? 'Signing in…' : 'Sign in'}
+                        </button>
+                    </form>
 
-                        <div className="login-points">
-                            <div><Video size={14} /> Video-first monitoring workspace</div>
-                            <div><Activity size={14} /> Real-time store pulse and traffic insights</div>
-                            <div><ShieldCheck size={14} /> Secure access and audit trail</div>
-                        </div>
-
-                        <div className="login-showcase-pill">
-                            <Sparkles size={14} />
-                            Production-ready visual command center
-                        </div>
-                    </div>
-
-                    <div className="login-form-wrap">
-                        <h2 className="login-form-title">Welcome back</h2>
-                        <p className="login-form-subtitle">Sign in to continue to your live dashboard.</p>
-
-                        {error && (
-                            <motion.div className="alert-banner danger" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                                {error}
-                            </motion.div>
-                        )}
-
-                        <form onSubmit={handleSubmit}>
-                            <div className="form-group">
-                                <label className="form-label">Username</label>
-                                <input
-                                    className="form-input"
-                                    type="text"
-                                    autoComplete="username"
-                                    value={username}
-                                    onChange={(e) => setUsername(e.target.value)}
-                                    placeholder="Enter username"
-                                    required
-                                />
-                            </div>
-                            <div className="form-group">
-                                <label className="form-label">Password</label>
-                                <input
-                                    className="form-input"
-                                    type="password"
-                                    autoComplete="current-password"
-                                    value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
-                                    placeholder="Enter password"
-                                    required
-                                />
-                            </div>
-                            <motion.button
-                                className="btn btn-primary"
-                                type="submit"
-                                disabled={loading || !username || !password}
-                                style={{ width: '100%', justifyContent: 'center', padding: '12px', marginTop: 8 }}
-                                whileHover={{ scale: loading ? 1 : 1.02 }}
-                                whileTap={{ scale: loading ? 1 : 0.98 }}
-                            >
-                                {loading ? 'Signing in…' : 'Sign In'}
-                            </motion.button>
-                        </form>
-
-                        <p className="login-register-note">
-                            New here?{' '}
-                            <Link to="/register" style={{ color: 'var(--accent-secondary)', fontWeight: 600 }}>
-                                Create an account
-                            </Link>
-                        </p>
-                    </div>
+                    <p className="auth-foot">
+                        No account yet? <Link to="/register">Create one</Link>
+                    </p>
                 </div>
-            </motion.div>
+            </main>
         </div>
     );
 }

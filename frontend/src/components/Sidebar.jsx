@@ -1,136 +1,120 @@
 /**
- * OmniTrack AI — Premium Sidebar
- * Animated nav items, hover glow, smooth transitions.
+ * OmniTrack AI — sidebar: brand mark, role-filtered navigation, theme switch, sign out.
  */
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import {
-    LayoutDashboard, Users, Scan, Video, ShoppingBag,
-    Flame, UsersRound, ShoppingCart,
-    Activity, TrendingUp, BarChart3, Settings, Smile, ShieldCheck, ClipboardList,
-    SlidersHorizontal, Store
-} from 'lucide-react';
+import { LogOut, Sun, Moon } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
-import { tokenStore } from '../services/api';
+import { alertsAPI, logout, tokenStore } from '../services/api';
 import useUserRole from '../hooks/useUserRole';
+import useLivePoll from '../hooks/useLivePoll';
+import { ALERTS_CHANGED_EVENT } from './alerts/alertFormat';
+import { visibleNav } from '../nav';
 
-const navItems = [
-    { section: 'Command Center' },
-    { path: '/', icon: LayoutDashboard, label: 'Live Overview', roles: ['admin', 'operator', 'viewer'] },
-    { path: '/vibe', icon: Activity, label: 'Store Pulse', roles: ['admin', 'operator', 'viewer'] },
-    { path: '/peak-hours', icon: TrendingUp, label: 'Rush Hours', roles: ['admin', 'operator', 'viewer'] },
-    { section: 'Operations' },
-    { path: '/detection', icon: Scan, label: 'Video Feeds', roles: ['admin', 'operator', 'viewer'] },
-    { path: '/reid', icon: Users, label: 'Cross-Feed Match', roles: ['admin', 'operator', 'viewer'] },
-    { path: '/synopsis', icon: Video, label: 'Highlights Reel', roles: ['admin', 'operator', 'viewer'] },
-    { section: 'Analytics' },
-    { path: '/shelf', icon: ShoppingBag, label: 'Shelf Activity', roles: ['admin', 'operator', 'viewer'] },
-    { path: '/crowd', icon: UsersRound, label: 'Footfall', roles: ['admin', 'operator', 'viewer'] },
-    { path: '/checkout', icon: ShoppingCart, label: 'Queue Insights', roles: ['admin', 'operator', 'viewer'] },
-    { path: '/emotion', icon: Smile, label: 'Mood Trends', roles: ['admin', 'operator', 'viewer'] },
-    { path: '/demographics', icon: BarChart3, label: 'Audience Mix', roles: ['admin', 'operator', 'viewer'] },
-    { path: '/fire', icon: Flame, label: 'Safety Watch', roles: ['admin', 'operator', 'viewer'] },
-    { section: 'Smart Commerce' },
-    { path: '/humanless', icon: Store, label: 'Smart Store', roles: ['admin', 'operator', 'viewer'] },
-    { section: 'Administration' },
-    { path: '/setup', icon: SlidersHorizontal, label: 'Store Setup', roles: ['admin', 'operator'] },
-    { path: '/audit', icon: ClipboardList, label: 'Activity Log', roles: ['admin', 'operator'] },
-    { path: '/security', icon: ShieldCheck, label: 'Model Health', roles: ['admin', 'operator'] },
-    { path: '/settings', icon: Settings, label: 'Appearance', roles: ['admin', 'operator', 'viewer'] },
-];
-
-function visibleNavItems(role) {
-    return navItems.reduce((items, item, index) => {
-        if (item.section) {
-            const hasVisibleChild = navItems
-                .slice(index + 1)
-                .some((candidate) => candidate.section || candidate.roles?.includes(role));
-            if (hasVisibleChild) items.push(item);
-            return items;
-        }
-        if (item.roles?.includes(role)) items.push(item);
-        return items;
-    }, []);
+/** Brand mark: viewfinder corners around a signal dot. */
+function BrandMark() {
+    return (
+        <svg viewBox="0 0 32 32" aria-hidden focusable="false">
+            <path fill="currentColor" d="M4 4h8v3H7v5H4zM28 4v8h-3V7h-5V4zM4 28v-8h3v5h5v3zM28 28h-8v-3h5v-5h3z" />
+            <circle cx="16" cy="16" r="4.5" fill="var(--accent-fill)" />
+        </svg>
+    );
 }
+
+
+const ALERT_BADGE_POLL_MS = 30000;
+
+/** Unacknowledged alert count for the nav badge; stops polling if the server has no alerts API. */
+function useUnackedAlerts() {
+    const [unsupported, setUnsupported] = useState(false);
+    const { data, error, refresh } = useLivePoll(() => alertsAPI.facets(), {
+        intervalMs: ALERT_BADGE_POLL_MS,
+        enabled: !unsupported,
+    });
+    useEffect(() => {
+        const status = error?.response?.status;
+        if (status === 404 || status === 405) setUnsupported(true);
+    }, [error]);
+    useEffect(() => {
+        const onChange = () => refresh();
+        window.addEventListener(ALERTS_CHANGED_EVENT, onChange);
+        return () => window.removeEventListener(ALERTS_CHANGED_EVENT, onChange);
+    }, [refresh]);
+    const n = Number(data?.unacked);
+    return !unsupported && !error && Number.isFinite(n) ? n : null;
+}
+
 
 export default function Sidebar() {
     const navigate = useNavigate();
     const location = useLocation();
-    const { theme, toggleTheme } = useTheme();
+    const { theme, setTheme } = useTheme();
     const { role } = useUserRole();
 
     const user = tokenStore.getUser();
-    const filteredNavItems = visibleNavItems(role);
+    const filteredNavItems = visibleNav(role);
+    const badges = { unackedAlerts: useUnackedAlerts() };
 
     return (
-        <motion.aside
-            className="sidebar"
-            initial={{ x: -20, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            transition={{ duration: 0.35, ease: [0.25, 0.46, 0.45, 0.94] }}
-        >
+        <aside className="sidebar" aria-label="Primary">
             <div className="sidebar-header">
-                <motion.div
-                    className="sidebar-logo"
-                    whileHover={{ scale: 1.03 }}
-                    whileTap={{ scale: 0.98 }}
-                    transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-                >
-                    OT
-                </motion.div>
+                <div className="sidebar-logo"><BrandMark /></div>
                 <div>
                     <div className="sidebar-title">OmniTrack</div>
                     <div className="sidebar-subtitle">
-                        {user?.username ? `@${user.username}` : 'Retail Intelligence'}
+                        {user?.username ? `@${user.username}` : 'Retail intelligence'}
                     </div>
                 </div>
             </div>
 
             <nav className="sidebar-nav">
-                {filteredNavItems.map((item, i) => {
+                {filteredNavItems.map((item) => {
                     if (item.section) {
-                        return (
-                            <motion.div
-                                key={i}
-                                className="nav-section-label"
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                transition={{ delay: i * 0.02 }}
-                            >
-                                {item.section}
-                            </motion.div>
-                        );
+                        return <div key={`s-${item.section}`} className="nav-section-label">{item.section}</div>;
                     }
                     const Icon = item.icon;
-                    const isActive = location.pathname === item.path;
+                    const isActive = location.pathname === item.path
+                        || (item.path !== '/' && location.pathname.startsWith(`${item.path}/`));
+                    const badge = item.badge ? badges[item.badge] : null;
                     return (
-                        <motion.div
+                        <button
                             key={item.path}
-                            className={`nav-item ${isActive ? 'active' : ''}`}
+                            type="button"
+                            className={`nav-item${isActive ? ' active' : ''}`}
                             onClick={() => navigate(item.path)}
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            transition={{ delay: i * 0.02 }}
-                            whileHover={{ x: 2 }}
-                            whileTap={{ scale: 0.99 }}
+                            aria-current={isActive ? 'page' : undefined}
                         >
-                            <Icon size={15} />
+                            <Icon size={16} strokeWidth={1.75} />
                             <span>{item.label}</span>
-                        </motion.div>
+                            {badge > 0 && (
+                                <span className="nav-item-badge" title={`${badge} unacknowledged alert${badge === 1 ? '' : 's'}`}>
+                                    {badge > 99 ? '99+' : badge}
+                                </span>
+                            )}
+                        </button>
                     );
                 })}
             </nav>
 
             <div className="sidebar-footer">
-                <motion.button type="button" className="theme-toggle" onClick={toggleTheme} whileTap={{ scale: 0.99 }} aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
-                    <span className={`theme-toggle-track ${theme === 'dark' ? 'dark' : 'light'}`}>
-                        <motion.span className="theme-toggle-knob" layout transition={{ type: 'spring', stiffness: 420, damping: 30 }} />
-                    </span>
-                    <span className="theme-toggle-text">{theme === 'dark' ? 'Dark' : 'Light'}</span>
-                </motion.button>
+                <div className="theme-toggle" role="group" aria-label="Colour theme">
+                    <button type="button" aria-pressed={theme === 'light'} onClick={() => setTheme('light')}>
+                        <Sun size={13} /> Light
+                    </button>
+                    <button type="button" aria-pressed={theme === 'dark'} onClick={() => setTheme('dark')}>
+                        <Moon size={13} /> Dark
+                    </button>
+                </div>
+                <button
+                    type="button"
+                    className="nav-item"
+                    onClick={async () => { await logout(); navigate('/login'); }}
+                >
+                    <LogOut size={16} strokeWidth={1.75} />
+                    <span>Sign out</span>
+                </button>
             </div>
-        </motion.aside>
+        </aside>
     );
 }

@@ -1,9 +1,0 @@
-# OmniTrack AI — Frontend Docker ignore
-node_modules
-dist
-.git
-.gitignore
-*.md
-.env*
-npm-debug.log*
-.DS_Store

@@ -5,9 +5,8 @@ Queue monitoring: lane-based counting, service time, throughput (customers/hr).
 
 import time
 from typing import List, Dict, Any, Optional
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from collections import defaultdict
-from loguru import logger
 
 
 @dataclass

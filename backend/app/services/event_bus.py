@@ -11,7 +11,7 @@ import asyncio
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable, Dict, Optional
+from typing import Any, Awaitable, Callable, Dict
 
 from loguru import logger
 
@@ -189,3 +189,38 @@ class KafkaBus(EventBus):
                     pass
         if self._producer is not None:
             await self._producer.stop()
+
+
+# ---------------------------------------------------------------------------
+# In-process topics (no broker needed). Used for control-plane notifications
+# inside one backend process, e.g. "zones_changed" {camera_id} so the pipeline
+# reloads a camera's zones. Handlers are plain callables and must be cheap and
+# thread-safe; a failing handler is logged and does not affect the others.
+# ---------------------------------------------------------------------------
+
+LocalHandler = Callable[[Dict[str, Any]], None]
+_local_handlers: Dict[str, list] = {}
+
+
+def subscribe_local(topic: str, handler: LocalHandler) -> None:
+    handlers = _local_handlers.setdefault(topic, [])
+    if handler not in handlers:
+        handlers.append(handler)
+
+
+def unsubscribe_local(topic: str, handler: LocalHandler) -> None:
+    handlers = _local_handlers.get(topic, [])
+    if handler in handlers:
+        handlers.remove(handler)
+
+
+def publish_local(topic: str, payload: Dict[str, Any]) -> int:
+    """Call every handler of `topic` with `payload`; returns how many ran."""
+    ran = 0
+    for handler in list(_local_handlers.get(topic, [])):
+        try:
+            handler(payload)
+            ran += 1
+        except Exception as e:
+            logger.error(f"In-process handler for {topic!r} failed: {e}")
+    return ran

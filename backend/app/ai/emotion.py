@@ -1,70 +1,161 @@
 """
-OmniTrack AI - lightweight emotion summary module.
+OmniTrack AI - facial emotion module.
 
-The module keeps the existing emotion APIs available with OpenCV face
-sampling, and uses mock output only when ALLOW_MOCK_AI=true.
+Pipeline per frame: YOLO face detector (face11n) -> largest faces above
+EMOTION_MIN_FACE_PX -> HSEmotion EfficientNet-B0 (AffectNet, 8 classes)
+on ONNX Runtime, batched on CPU. If either model is missing the module
+reports no data (`available` is False). There is no mock mode.
+
+Model choice / optimisation notes (benchmarked on this repo's CAVIAR clips):
+  - fp32 ONNX Runtime with full graph optimisation: ~8-12 ms per face on CPU.
+  - Static INT8 (QDQ, per-channel, FER2013-calibrated) was rejected: on 1,800
+    labelled FER2013 faces every variant was slower than fp32 (b1 11.9-19.3 ms
+    vs 8.8 ms) and less accurate (43.7-44.7% vs 46.5%, 79-89% agreement).
+  - The face detector dominates cost; its input size adapts to the frame so a
+    min-size face stays >=12 px (320 for CCTV-size frames: ~12 ms vs ~29 ms at 640).
+  - Faces under ~40 px give near-uniform, "neutral"-biased output, so they
+    are skipped instead of being counted.
 """
 
+import threading
 from collections import defaultdict
-from typing import Any, Dict, List
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 import cv2
 import numpy as np
+from loguru import logger
 
 from app.config import settings
 
+# HSEmotion enet_b0_8 output order -> dashboard labels
+_MODEL_LABELS = ["angry", "contempt", "disgust", "fear", "happy", "neutral", "sad", "surprise"]
+_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+_INPUT_SIZE = 224
+_FACE_CONF = 0.4
+_CROP_MARGIN = 0.15
+_FACE_MIN_DET_PX = 12
+
 
 class EmotionRecognizer:
-    """
-    Lightweight face sampling for sentiment dashboards.
+    """Facial emotion classification for sentiment dashboards."""
 
-    Without a dedicated emotion classifier, detected faces are reported as
-    neutral samples. This avoids pretending to infer affect while preserving
-    the dashboard contract.
-    """
+    EMOTIONS = list(_MODEL_LABELS)
 
-    EMOTIONS = ["happy", "sad", "angry", "surprise", "neutral", "fear", "disgust"]
-
-    def __init__(self, backend: str = "opencv", detector_backend: str = "opencv"):
+    def __init__(self, backend: str = "onnx", detector_backend: str = "yolo"):
         self.backend = backend
         self.detector_backend = detector_backend
         self.zone_aggregation: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-        cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-        self.face_cascade = cv2.CascadeClassifier(cascade_path)
+        self.min_face_px = max(8, int(settings.EMOTION_MIN_FACE_PX))
+        self.max_faces = max(1, int(settings.EMOTION_MAX_FACES_PER_FRAME))
+        self._face_model = None
+        self._session = None
+        self._input_name = "input"
+        self._face_half = False
+        self._face_lock = threading.Lock()  # ultralytics predict is not thread-safe
+        self.available = self._load_models()
+
+    def _load_models(self) -> bool:
+        face_path = Path(settings.FACE_MODEL_PATH)
+        emo_path = Path(settings.EMOTION_MODEL_PATH)
+        missing = [str(p) for p in (face_path, emo_path) if not p.is_file()]
+        if missing:
+            logger.error(f"EmotionRecognizer: missing weights {missing}; emotion analytics report no data.")
+            return False
+        try:
+            import onnxruntime as ort
+            from ultralytics import YOLO
+
+            opts = ort.SessionOptions()
+            opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+            opts.intra_op_num_threads = max(1, int(settings.EMOTION_THREADS))
+            opts.inter_op_num_threads = 1
+            providers = ["CPUExecutionProvider"]
+            if settings.DEVICE in ("auto", "cuda") and "CUDAExecutionProvider" in ort.get_available_providers():
+                providers.insert(0, "CUDAExecutionProvider")  # needs onnxruntime-gpu
+            self._session = ort.InferenceSession(str(emo_path), opts, providers=providers)
+            self._input_name = self._session.get_inputs()[0].name
+            self._face_model = YOLO(str(face_path), task="detect")
+            try:
+                import torch
+                self._face_half = settings.DEVICE in ("auto", "cuda") and torch.cuda.is_available()
+            except ImportError:
+                self._face_half = False
+        except Exception as e:
+            logger.error(f"EmotionRecognizer: failed to load models ({e}); emotion analytics report no data.")
+            self._session = self._face_model = None
+            return False
+        logger.info(
+            f"EmotionRecognizer ready: faces={face_path.name} emotion={emo_path.name} "
+            f"min_face={self.min_face_px}px max_faces={self.max_faces} threads={settings.EMOTION_THREADS} "
+            f"providers={self._session.get_providers()} face_fp16={self._face_half}"
+        )
+        return True
+
+    def _detect_faces(self, frame: np.ndarray) -> List[List[int]]:
+        """Face boxes (x1, y1, x2, y2) large enough to classify, largest first."""
+        h, w = frame.shape[:2]
+        # Smallest detector input that keeps a min_face_px face at >=12 px (detector misses <~10 px).
+        imgsz = int(min(640, max(320, -(-_FACE_MIN_DET_PX * max(h, w) // self.min_face_px // 32) * 32)))
+        with self._face_lock:
+            res = self._face_model.predict(frame, conf=_FACE_CONF, imgsz=imgsz, half=self._face_half, verbose=False)[0]
+        boxes = []
+        for x1, y1, x2, y2 in res.boxes.xyxy.cpu().numpy():
+            bw, bh = x2 - x1, y2 - y1
+            if min(bw, bh) < self.min_face_px:
+                continue
+            boxes.append([
+                int(max(0, x1 - _CROP_MARGIN * bw)), int(max(0, y1 - _CROP_MARGIN * bh)),
+                int(min(w, x2 + _CROP_MARGIN * bw)), int(min(h, y2 + _CROP_MARGIN * bh)),
+            ])
+        boxes.sort(key=lambda b: (b[2] - b[0]) * (b[3] - b[1]), reverse=True)
+        return boxes[: self.max_faces]
+
+    @staticmethod
+    def _preprocess(crops: List[np.ndarray]) -> np.ndarray:
+        batch = np.empty((len(crops), 3, _INPUT_SIZE, _INPUT_SIZE), dtype=np.float32)
+        for i, crop in enumerate(crops):
+            rgb = cv2.cvtColor(cv2.resize(crop, (_INPUT_SIZE, _INPUT_SIZE)), cv2.COLOR_BGR2RGB)
+            batch[i] = ((rgb.astype(np.float32) / 255.0 - _MEAN) / _STD).transpose(2, 0, 1)
+        return batch
+
+    def classify_faces(self, crops: List[np.ndarray]) -> Optional[np.ndarray]:
+        """Softmax probabilities (N x 8) for BGR face crops, one batched run."""
+        if not crops or self._session is None:
+            return None
+        logits = self._session.run(None, {self._input_name: self._preprocess(crops)})[0]
+        logits = logits - logits.max(axis=1, keepdims=True)
+        exp = np.exp(logits)
+        return exp / exp.sum(axis=1, keepdims=True)
 
     def analyze_frame(
         self, frame: np.ndarray, camera_id: int = 0, zone: str = None
     ) -> List[Dict[str, Any]]:
-        """Analyze a frame and return neutral face samples."""
-        if settings.ALLOW_MOCK_AI:
-            return self._mock_analyze(camera_id, zone)
-
-        if frame is None or self.face_cascade.empty():
+        """Detect faces and classify their emotion. [] when unavailable or no usable faces."""
+        if not self.available or frame is None or frame.ndim != 3:
             return []
 
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
-        faces = self.face_cascade.detectMultiScale(
-            gray,
-            scaleFactor=1.1,
-            minNeighbors=5,
-            minSize=(36, 36),
-        )
+        boxes = self._detect_faces(frame)
+        crops = [frame[y1:y2, x1:x2] for x1, y1, x2, y2 in boxes]
+        probs = self.classify_faces(crops)
+        if probs is None:
+            return []
 
-        emotions: List[Dict[str, Any]] = []
-        frame_area = max(float(frame.shape[0] * frame.shape[1]), 1.0)
-        for _x, _y, w, h in faces[:8]:
-            confidence = min(0.95, max(0.35, float(w * h) / frame_area * 8))
+        results: List[Dict[str, Any]] = []
+        for box, p in zip(boxes, probs):
+            k = int(p.argmax())
             result = {
-                "dominant_emotion": "neutral",
-                "confidence": round(confidence, 3),
-                "all_emotions": {"neutral": 1.0},
+                "dominant_emotion": _MODEL_LABELS[k],
+                "confidence": round(float(p[k]), 3),
+                "all_emotions": {lbl: round(float(v), 3) for lbl, v in zip(_MODEL_LABELS, p)},
+                "bbox": box,
                 "camera_id": camera_id,
                 "zone": zone,
             }
-            emotions.append(result)
+            results.append(result)
             self._remember_zone_sample(zone, result)
-
-        return emotions
+        return results
 
     def analyze_frame_summary(
         self,
@@ -99,12 +190,6 @@ class EmotionRecognizer:
             "emotion_distribution": distribution,
             "sentiment_score": round(sentiment, 3),
         }
-
-    def analyze_demographics(self, frame: np.ndarray) -> List[Dict[str, Any]]:
-        """Demographics require a dedicated model; mock only when enabled."""
-        if settings.ALLOW_MOCK_AI:
-            return self._mock_demographics()
-        return []
 
     def get_zone_summary(self, zone: str) -> Dict[str, Any]:
         """Get aggregated emotion summary for a zone."""
@@ -163,31 +248,9 @@ class EmotionRecognizer:
             + emotion_counts.get("angry", 0)
             + emotion_counts.get("fear", 0)
             + emotion_counts.get("disgust", 0)
+            + emotion_counts.get("contempt", 0)
         )
         return (positive - negative) / max(total, 1)
-
-    def _mock_analyze(self, camera_id: int, zone: str = None) -> List[Dict[str, Any]]:
-        emotions = np.random.dirichlet(np.ones(7))
-        emotion_map = dict(zip(self.EMOTIONS, [round(float(e), 3) for e in emotions]))
-        dominant = max(emotion_map, key=emotion_map.get)
-        result = {
-            "dominant_emotion": dominant,
-            "confidence": emotion_map[dominant],
-            "all_emotions": emotion_map,
-            "camera_id": camera_id,
-            "zone": zone,
-        }
-        self._remember_zone_sample(zone, result)
-        return [result]
-
-    def _mock_demographics(self) -> List[Dict[str, Any]]:
-        return [{
-            "estimated_age": float(np.random.randint(18, 65)),
-            "estimated_gender": np.random.choice(["Man", "Woman"]),
-            "gender_confidence": round(float(np.random.uniform(0.7, 0.99)), 3),
-            "dominant_emotion": np.random.choice(self.EMOTIONS),
-            "emotion_scores": dict(zip(self.EMOTIONS, [round(float(x), 3) for x in np.random.dirichlet(np.ones(7))])),
-        }]
 
     def reset(self):
         self.zone_aggregation.clear()

@@ -1,8 +1,9 @@
 import React from 'react';
 
-export default function SegmentedControl({ options, value, onChange, size = 'sm' }) {
+/** Segmented pill toggle (`.seg`): active option is ink-filled and `aria-pressed`. */
+export default function SegmentedControl({ options, value, onChange, size = 'sm', ariaLabel = undefined }) {
     return (
-        <div className={`ui-segmented ui-segmented--${size}`} role="tablist">
+        <div className={`seg ui-segmented ui-segmented--${size}`} role="group" aria-label={ariaLabel}>
             {options.map((opt) => {
                 const id = typeof opt === 'string' ? opt : opt.value;
                 const label = typeof opt === 'string' ? opt : opt.label;
@@ -11,9 +12,8 @@ export default function SegmentedControl({ options, value, onChange, size = 'sm'
                     <button
                         key={id}
                         type="button"
-                        role="tab"
-                        aria-selected={active}
-                        className={`ui-segmented-item ${active ? 'active' : ''}`}
+                        aria-pressed={active}
+                        className={`ui-segmented-item ${active ? 'active' : ''}`.trim()}
                         onClick={() => onChange(id)}
                     >
                         {label}

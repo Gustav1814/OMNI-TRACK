@@ -1,0 +1,208 @@
+/*
+ * OmniTrack design tokens — the ONLY place raw colour / type / spacing values live.
+ * Components and pages use var(--…) only. JS reads these through lib/tokens.js.
+ *
+ * Identity "Viewfinder": AMOLED black / paper white, hairline structure,
+ * one amber signal accent (CCTV on-screen-display heritage), mono OSD labels.
+ */
+
+:root {
+    /* Type */
+    --font-sans: 'Geist Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: 'Geist Mono Variable', ui-monospace, 'SFMono-Regular', 'Cascadia Mono', Consolas, monospace;
+    --text-2xs: 0.6875rem;   /* 11px — OSD labels */
+    --text-xs: 0.75rem;      /* 12px */
+    --text-sm: 0.8125rem;    /* 13px — dense UI */
+    --text-md: 0.875rem;     /* 14px — body */
+    --text-lg: 1rem;
+    --text-xl: 1.25rem;
+    --text-2xl: 1.625rem;
+    --text-3xl: 2.5rem;      /* KPI numbers */
+    --text-4xl: 3rem;
+    --text-hero: clamp(3.5rem, 2rem + 4vw, 6rem); /* the one hero metric per page */
+    --text-display: clamp(2.25rem, 1.5rem + 2vw, 3.25rem); /* page titles */
+    --text-panel-title: clamp(1.25rem, 1rem + 0.7vw, 1.75rem); /* panel titles */
+    --empty-min-h: 220px;    /* empty chart frame keeps the loaded footprint */
+    --leading-tight: 1.15;
+    --leading: 1.5;
+    --tracking-tight: -0.022em;
+    --tracking-osd: 0.08em;
+    --weight-regular: 400;
+    --weight-medium: 500;
+    --weight-semibold: 600;
+
+    /* Space (4px grid) */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+    --space-8: 32px;
+    --space-10: 40px;
+    --space-12: 48px;
+
+    /* Shape */
+    --radius-xs: 6px;
+    --radius-sm: 10px;       /* controls */
+    --radius-md: 16px;       /* inner cards */
+    --radius-lg: 22px;       /* panels */
+    --radius-full: 999px;
+    --hairline: 1px;
+
+    /* Layout */
+    --sidebar-w: 248px;
+    --topbar-h: 56px;
+    --content-max: 1680px;
+    --gutter: var(--space-6);
+
+    /* Motion */
+    --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+    --dur-fast: 120ms;
+    --dur: 180ms;
+    --dur-slow: 280ms;
+
+    /* Layers */
+    --z-sticky: 20;
+    --z-sidebar: 30;
+    --z-overlay: 60;
+    --z-modal: 70;
+    --z-toast: 80;
+}
+
+/* ── Light: paper white ─────────────────────────────────────────── */
+:root,
+:root.light {
+    color-scheme: light;
+    --bg: #ffffff;
+    --surface: #ffffff;
+    --surface-2: #f6f6f6;      /* insets, table heads, hover */
+    --surface-3: #ececec;      /* pressed / selected */
+    --panel: #f5f5f5;          /* tonal panel on white page */
+    --panel-border: transparent;
+    --raised: #ffffff;         /* chip / inner card floating on a panel */
+    --raised-border: #ebebeb;
+    --overlay: rgb(0 0 0 / 0.4);
+    --line: #e8e8e8;
+    --line-strong: #d4d4d4;
+    --text: #0a0a0a;
+    --text-2: #525252;         /* 7.8:1 on white */
+    --text-3: #6b6b6b;         /* 5.3:1 on white — smallest allowed ink */
+    --ink: #0a0a0a;            /* primary button fill */
+    --ink-text: #ffffff;
+    --on-accent: #000000;      /* text on accent / status fills */
+    --on-status: #ffffff;
+
+    --accent: #b45309;         /* amber, text-safe on white (5.0:1) */
+    --accent-strong: #92400e;
+    --accent-fill: #f59e0b;    /* marks, dots, indicators */
+    --accent-soft: #fff7e6;
+    --accent-line: #fbd38d;
+    --accent-2: #5b5fe0;       /* periwinkle: selection / comparison (5.4:1) */
+    --accent-2-soft: #eef0ff;
+
+    --danger: #c81e1e;
+    --danger-soft: #fdecec;
+    --danger-line: #f5b5b5;
+    --warn: #b45309;
+    --warn-soft: #fff4e5;
+    --warn-line: #f8cc8f;
+    --success: #15803d;
+    --success-soft: #eaf7ef;
+    --success-line: #a7dcb9;
+    --info: #0b63b6;
+    --info-soft: #eaf3fc;
+    --info-line: #a9cdf0;
+    --rec: #e5252a;            /* live / recording dot */
+
+    --focus: #0a0a0a;
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.05);
+    --shadow-lg: 0 12px 40px -12px rgb(0 0 0 / 0.18), 0 2px 6px rgb(0 0 0 / 0.06);
+    --scrim-video: #000000;    /* camera letterbox stays black in both themes */
+    --on-media: #ffffff;       /* text / brackets over video, both themes */
+
+    /* Charts — validated categorical order (dataviz validator, surface #fff) */
+    --chart-1: #2a78d6;
+    --chart-2: #eb6834;
+    --chart-3: #1baf7a;
+    --chart-4: #eda100;
+    --chart-5: #e87ba4;
+    --chart-6: #008300;
+    --chart-7: #6250d6;
+    --chart-8: #e34948;
+    --chart-neutral: #dcdcdc;   /* non-highlighted bars */
+    --chart-highlight: #f59e0b;
+    --chart-grid: #e6e6e6;
+    --chart-axis: #6b6b6b;
+    --chart-tooltip-bg: #0a0a0a;
+    --chart-tooltip-text: #ffffff;
+    --chart-seq-lo: #cde2fb;
+    --chart-seq-hi: #184f95;
+}
+
+/* ── Dark: AMOLED black ─────────────────────────────────────────── */
+:root.dark {
+    color-scheme: dark;
+    --bg: #000000;
+    --surface: #000000;
+    --surface-2: #0d0d0d;
+    --surface-3: #171717;
+    --panel: #0a0a0a;
+    --panel-border: #1a1a1a;
+    --raised: #141414;
+    --raised-border: #222222;
+    --overlay: rgb(0 0 0 / 0.72);
+    --line: #1f1f1f;
+    --line-strong: #2e2e2e;
+    --text: #f5f5f5;
+    --text-2: #a3a3a3;         /* 8.6:1 on black */
+    --text-3: #808080;         /* 5.3:1 on black */
+    --ink: #f5f5f5;
+    --ink-text: #000000;
+    --on-accent: #000000;
+    --on-status: #000000;
+
+    --accent: #ffb224;
+    --accent-strong: #ffc451;
+    --accent-fill: #ffb224;
+    --accent-soft: #1f1606;
+    --accent-line: #4d3609;
+    --accent-2: #8b90ff;
+    --accent-2-soft: #12132b;
+
+    --danger: #ff5f57;
+    --danger-soft: #220b0a;
+    --danger-line: #4f1a17;
+    --warn: #ff9f0a;
+    --warn-soft: #201303;
+    --warn-line: #4a2d06;
+    --success: #32d74b;
+    --success-soft: #07190b;
+    --success-line: #154320;
+    --info: #5ac8fa;
+    --info-soft: #06161f;
+    --info-line: #123b4f;
+    --rec: #ff3b30;
+
+    --focus: #ffb224;
+    --shadow-sm: none;
+    --shadow-lg: 0 0 0 1px var(--line-strong), 0 24px 64px -16px rgb(0 0 0 / 0.9);
+
+    /* Charts — validated categorical order (surface #0a0a0a) */
+    --chart-1: #3987e5;
+    --chart-2: #d95926;
+    --chart-3: #199e70;
+    --chart-4: #c98500;
+    --chart-5: #d55181;
+    --chart-6: #0ca30c;
+    --chart-7: #9085e9;
+    --chart-8: #e66767;
+    --chart-neutral: #2a2a2a;
+    --chart-highlight: #ffb224;
+    --chart-grid: #1a1a1a;
+    --chart-axis: #808080;
+    --chart-tooltip-bg: #f5f5f5;
+    --chart-tooltip-text: #000000;
+    --chart-seq-lo: #184f95;
+    --chart-seq-hi: #9ec5f4;
+}

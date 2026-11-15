@@ -11,7 +11,8 @@ This is the main file that starts everything:
   6. Handles WebSocket connections for live dashboard
 
 TO RUN:
-  uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+  uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --timeout-graceful-shutdown 3
+  (live MJPEG streams never end on their own; without the timeout a reload or Ctrl+C waits forever)
 
 WHAT YOU NEED RUNNING:
   - PostgreSQL (with pgvector extension)
@@ -20,8 +21,6 @@ WHAT YOU NEED RUNNING:
 """
 
 import asyncio
-import logging
-import os
 import warnings
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -29,7 +28,6 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPExcept
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from loguru import logger
-import sys
 import time
 from datetime import datetime, timezone
 
@@ -41,7 +39,7 @@ warnings.filterwarnings(
 )
 
 # Database
-from app.database import engine, get_db, AsyncSessionLocal
+from app.database import engine, AsyncSessionLocal
 from app.db.maintenance import ensure_database_ready, get_database_health
 
 # Middleware
@@ -55,20 +53,23 @@ from app.middleware import (
 from app.services.cache import RedisCache
 from app.services.broadcast import BroadcastService
 from app.services.pipeline import ProcessingPipeline
-from app.services.export import ExportService
 from app.services.persistence import PersistencePipelineCallback
 from app.services import model_selection as model_select
 
 # Routers
 from app.routers import auth, cameras, detection, reid, footage, model, humanless, setup
-from app.routers.analytics import (
-    synopsis_router,
+from app.routers.pipeline_health import router as pipeline_health_router
+from app.routers import zones as zones_routes
+from app.routers import alerts as alerts_routes, evidence as evidence_routes, export as export_routes
+from app.routers.evaluation import router as evaluation_router
+from app.routers.security import security_router, audit_router, audit_verify_loop
+from app.routers.synopsis import router as synopsis_router
+from app.routers.zone_analytics import (
     shelf_router,
     fire_router,
     crowd_router,
     checkout_router,
     emotion_router,
-    audit_router,
     vibe_router,
     demographics_router,
     peak_hours_router,
@@ -78,9 +79,11 @@ from app.routers.analytics import (
 # Config
 from app.config import settings
 from app.plugins import PluginContext, PluginManager
-from app.security.adversarial_eval import get_robustness_status
-from app.security.dependencies import get_current_user, get_user_from_token
-from app.models.user import User
+from app.security.dependencies import get_current_user, get_user_from_token, require_role
+from app.security.input_safety import UnsafeInputError, validate_camera_source, validate_model_name
+from app.security.route_policy import enforce_route_policy, public_endpoint
+from app.security.secrets_check import check_secrets_or_raise
+from app.models.user import User, UserRole
 from app.admin import setup_admin
 
 
@@ -92,18 +95,12 @@ from app.admin import setup_admin
 cache = RedisCache(settings.REDIS_URL)
 broadcast = BroadcastService()
 pipeline = ProcessingPipeline(
-    detector_model=settings.YOLO_MODEL,
-    reid_model=settings.REID_MODEL,
-    fire_model=getattr(settings, "FIRE_MODEL_PATH", settings.FIRE_MODEL),
-    confidence=settings.DETECTION_CONFIDENCE,
     device=settings.DEVICE,
     processing_fps=settings.PROCESSING_FPS,
     max_cameras=settings.MAX_CAMERAS,
     frame_buffer_size=settings.FRAME_BUFFER_SIZE,
-    default_skip_frames=settings.DEFAULT_SKIP_FRAMES,
-    reid_threshold=getattr(settings, "REID_SIMILARITY_THRESHOLD", 0.6),
-    reid_embeddings_per_id=getattr(settings, "REID_EMBEDDINGS_PER_ID", 5),
-)
+)  # detector / Re-ID / specialist weights and thresholds come from settings
+pipeline.attach_broadcast(broadcast)
 
 # Persistence callback — bridges every pipeline tick into PostgreSQL + pgvector
 # + AES-256 / SHA-256 audit chain. This is what makes the backend PRODUCTION
@@ -111,7 +108,7 @@ pipeline = ProcessingPipeline(
 # journey legs, and fire alerts all flow into the database here.
 persistence_callback = PersistencePipelineCallback(
     pipeline=pipeline,
-    model_version=getattr(settings, "REID_MODEL", "osnet_x1_0"),
+    model_version=settings.reid_model_version,
 )
 
 # Optional trusted integrations. Plugins are explicitly enabled via
@@ -151,6 +148,23 @@ async def lifespan(app: FastAPI):
     logger.info("  OmniTrack AI — Starting Up")
     logger.info("═" * 60)
 
+    # 0a. Refuse to start with default/short secrets (JWT, AES, audit HMAC, DB password).
+    try:
+        check_secrets_or_raise(settings)
+    except RuntimeError as e:
+        logger.error(f"❌ {e}")
+        raise
+
+    # 0. Fail loudly if any configured weight file is missing (no silent mocks).
+    try:
+        settings.check_weights_or_raise()
+    except RuntimeError as e:
+        logger.error(f"❌ {e}")
+        raise
+    if settings.ALLOW_MOCK_AI:
+        logger.warning("⚠️  ALLOW_MOCK_AI=true — unavailable models will return FAKE output. Never use this outside tests.")
+    logger.info(f"✅ Model weights present: {[str(p) for p in settings.configured_weight_paths().values()]}")
+
     # 1. Enterprise DB setup: wait, migrate, ANALYZE, retention
     db_info: dict = {}
     try:
@@ -163,7 +177,7 @@ async def lifespan(app: FastAPI):
         logger.error(f"❌ Database error: {e}")
         if settings.REQUIRE_DATABASE:
             raise
-        logger.warning("   → Running without database (using mock data)")
+        logger.warning("   → Running without database (nothing will be persisted)")
 
     # 2. Connect Redis (retries; raises if REQUIRE_REDIS and unavailable)
     redis_ok = await cache.connect()
@@ -173,7 +187,7 @@ async def lifespan(app: FastAPI):
         logger.warning("⚠️  Redis unavailable — using in-memory fallback")
 
     # 2b. Ensure storage dirs (local playback & exports)
-    for d in [Path(settings.FOOTAGE_DIR), Path(settings.EXPORT_DIR)]:
+    for d in [Path(settings.FOOTAGE_DIR), Path(settings.EXPORT_DIR), Path(settings.EVIDENCE_DIR)]:
         d.mkdir(parents=True, exist_ok=True)
         logger.info(f"✅ Storage dir ready: {d.resolve()}")
 
@@ -182,15 +196,19 @@ async def lifespan(app: FastAPI):
     # 3b. Warm Re-ID gallery from pgvector so cross-camera matching is
     #     warm across restarts (no cold-start false "new person" spikes).
     try:
-        restored = await persistence_callback.warm_reid_gallery_from_db(
-            max_rows=getattr(settings, "REID_GALLERY_WARM_LIMIT", 2000)
-        )
-        if restored:
-            logger.info(f"✅ Restored {restored} Re-ID embeddings from pgvector")
+        await persistence_callback.warm_reid_gallery_from_db(max_rows=settings.REID_WARM_START_ROWS)
+        await pipeline.load_reid_config_from_db()
     except Exception as e:
         if settings.REQUIRE_DATABASE:
             raise
         logger.warning(f"⚠️  Re-ID gallery warm-up skipped: {e}")
+
+    # 3b2. Load drawn zones into the zone analytics engine.
+    try:
+        n_zones = await zones_routes.sync_all_zones()
+        logger.info(f"✅ Zone analytics engine loaded {n_zones} zone(s)")
+    except Exception as e:
+        logger.error(f"❌ Could not load zones into the analytics engine: {e}")
 
     # 3c. Register persistence + lifecycle hooks so pipeline ticks
     #     (and camera/state transitions) are written to the DB.
@@ -218,6 +236,10 @@ async def lifespan(app: FastAPI):
         plugin_manager.register_pipeline_hooks(pipeline)
         logger.info(f"✅ Plugins active: {plugin_manager.loaded_names}")
 
+    # 5. Tamper-evident audit chain: verify at startup, then every
+    #    AUDIT_VERIFY_INTERVAL_HOURS; failures log an error + broadcast an alert.
+    audit_task = asyncio.create_task(audit_verify_loop(), name="audit-verify")
+
     elapsed = time.time() - startup_time
     logger.info(f"✅ OmniTrack AI ready in {elapsed:.2f}s")
     logger.info("═" * 60)
@@ -226,9 +248,11 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("🛑 Shutting down OmniTrack AI...")
+    audit_task.cancel()
     if plugin_manager.enabled:
         await plugin_manager.shutdown(plugin_context)
     await pipeline.stop()
+    pipeline.shutdown()
     await cache.disconnect()
     await engine.dispose()
     logger.info("Goodbye! 👋")
@@ -250,6 +274,9 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,
+    # Deny-by-default: every route needs a user; mutating routes need admin
+    # unless explicitly marked (see app/security/route_policy.py).
+    dependencies=[Depends(enforce_route_policy)],
 )
 
 if plugin_manager.enabled:
@@ -294,6 +321,12 @@ app.include_router(footage.router)
 app.include_router(model.router)
 app.include_router(humanless.router)
 app.include_router(setup.router)
+app.include_router(pipeline_health_router)
+app.include_router(zones_routes.router)
+app.include_router(alerts_routes.router)
+app.include_router(evidence_routes.router)
+app.include_router(export_routes.router)
+app.include_router(evaluation_router)
 # Analytics sub-routers (each has its own prefix in analytics.py)
 app.include_router(synopsis_router)
 app.include_router(shelf_router)
@@ -302,6 +335,7 @@ app.include_router(crowd_router)
 app.include_router(checkout_router)
 app.include_router(emotion_router)
 app.include_router(audit_router)
+app.include_router(security_router)
 app.include_router(vibe_router)
 app.include_router(demographics_router)
 app.include_router(peak_hours_router)
@@ -312,43 +346,10 @@ app.include_router(dashboard_router)
 # CORE ENDPOINTS
 # ═══════════════════════════════════════════════════════════════
 
-@app.get("/api/security/robustness", tags=["System"])
-async def security_robustness():
-    """
-    Adversarial robustness status (proposal: ART, FGSM, PGD, documented resilience).
-    Returns art_available, last_eval, and install hint. Run POST /api/security/robustness/run to execute eval.
-    """
-    return get_robustness_status()
-
-
-@app.post("/api/security/robustness/run", tags=["System"])
-async def security_robustness_run(
-    sample_size: int = 4,
-    eps_fgsm: float = 0.03,
-    eps_pgd: float = 0.03,
-    pgd_steps: int = 5,
-    image_dir: str | None = None,
-):
-    """
-    Run adversarial robustness evaluation (FGSM, PGD) via ART.
-    Requires: pip install adversarial-robustness-toolbox[torch]
-
-    If `image_dir` is provided, sample real images from that folder;
-    otherwise uses the configured `FOOTAGE_DIR`, or random noise as a last resort.
-    Returns YOLO person-detection counts before/after attacks.
-    """
-    from app.security.adversarial_eval import run_detector_robustness_eval
-    result = run_detector_robustness_eval(
-        sample_size=sample_size,
-        eps_fgsm=eps_fgsm,
-        eps_pgd=eps_pgd,
-        pgd_steps=pgd_steps,
-        image_dir=image_dir,
-    )
-    return result
-
+# Adversarial robustness: /api/security/robustness[/run] live in app/routers/security.py.
 
 @app.get("/api/health", tags=["System"])
+@public_endpoint
 async def health_check():
     """
     Comprehensive health check.
@@ -395,7 +396,7 @@ async def get_pipeline_status(current_user: User = Depends(get_current_user)):
 
 
 @app.post("/api/pipeline/start", tags=["Pipeline"])
-async def start_pipeline(current_user: User = Depends(get_current_user)):
+async def start_pipeline(current_user: User = Depends(require_role(UserRole.ADMIN))):
     """Start the multi-camera processing pipeline."""
     await cache.invalidate_pipeline_state()
     if pipeline.state.value == "running":
@@ -413,7 +414,7 @@ async def start_pipeline(current_user: User = Depends(get_current_user)):
 
 
 @app.post("/api/pipeline/stop", tags=["Pipeline"])
-async def stop_pipeline(current_user: User = Depends(get_current_user)):
+async def stop_pipeline(current_user: User = Depends(require_role(UserRole.ADMIN))):
     """Stop the processing pipeline."""
     await cache.invalidate_pipeline_state()
     await pipeline.stop()
@@ -435,18 +436,27 @@ async def add_pipeline_camera(
     model_mode: str = "manual",
     enable_reid: bool = True,
     tracker: str = "bytetrack",
-    current_user: User = Depends(get_current_user),
+    loop: bool = False,
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
 ):
     """
-    Add a camera to the live processing pipeline.
-    
-    Example sources:
-      - RTSP: rtsp://admin:password@192.168.1.100:554/stream
-      - File:  /path/to/test_video.mp4
-      - Webcam: 0  (device index)
+    Add a camera to the live processing pipeline (admin). ``loop`` replays video files.
+
+    Sources are validated (SSRF/path-traversal safe):
+      - RTSP: rtsp://user:pass@192.168.1.100:554/stream
+      - HTTP(S): only hosts in CAMERA_SOURCE_ALLOWLIST
+      - File: a video inside VIDEO_SOURCE_DIRS (realpath-checked)
+      - Webcam: 0 (device index; only when ALLOW_WEBCAM_SOURCES=true)
+    Model names are resolved inside model_weight/ only (model_selection).
     """
+    try:
+        source = validate_camera_source(source)
+    except UnsafeInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     mode = (model_mode or "manual").strip().lower()
     try:
+        # Phase 0: ensemble / auto_all modes are disabled -> 400.
+        model_select.ensure_model_mode_allowed(model_mode=mode, model=model, models=models)
         selected_models, effective_model_mode = model_select.select_model_names(
             model_mode=mode,
             model=model,
@@ -454,7 +464,10 @@ async def add_pipeline_camera(
             zone=zone,
             source=source,
         )
-        model_paths = model_select.resolve_model_paths(selected_models)
+        # Weights are pickles: only bare names that resolve inside model_weight/.
+        model_paths = [str(validate_model_name(n)) for n in (selected_models or [])]
+    except UnsafeInputError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -472,6 +485,7 @@ async def add_pipeline_camera(
             model_path=model_paths or None,
             enable_reid=enable_reid,
             tracker_mode=tracker,
+            loop=loop,
         )
         if pipeline.state.value != "running":
             await pipeline.start()
@@ -483,7 +497,7 @@ async def add_pipeline_camera(
         "status": "added",
         "camera_id": camera_id,
         "zone": zone,
-        "models": selected_models or [settings.DEFAULT_YOLO_MODEL],
+        "models": [pipeline.detector.name if pipeline.detector else model_select.person_model_name()],
         "model_mode": effective_model_mode,
         "requested_model_mode": mode,
         "reid_enabled": enable_reid,
@@ -518,11 +532,13 @@ async def stream_camera_live(
     Use in dashboard: <img src="/api/stream/camera/1/live?token=JWT" /> or Bearer header.
     """
     async def generate():
+        seq = 0
         while True:
-            jpeg = pipeline.get_latest_annotated_jpeg(camera_id)
-            if jpeg:
+            got = pipeline.get_latest_annotated_jpeg_seq(camera_id, seq)
+            if got:
+                seq, jpeg = got
                 yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpeg + b"\r\n"
-            await asyncio.sleep(1 / max(pipeline.processing_fps, 1))
+            await asyncio.sleep(0.5 / max(pipeline.processing_fps, 1))
 
     return StreamingResponse(
         generate(),
@@ -531,31 +547,7 @@ async def stream_camera_live(
     )
 
 
-# ═══════════════════════════════════════════════════════════════
-# EXPORT ENDPOINTS
-# ═══════════════════════════════════════════════════════════════
-
-@app.get("/api/export/detections", tags=["Export"])
-async def export_detections(format: str = "csv"):
-    """Export detection logs as CSV or JSON."""
-    # TODO: Pull real data from DB via CRUD service
-    sample = [
-        {"id": 1, "camera_id": 1, "timestamp": "2026-02-21T09:00:00", "class_name": "person",
-         "confidence": 0.92, "track_id": "T-001", "zone": "Entrance"},
-    ]
-    if format == "json":
-        return ExportService.to_json(sample, "detections")
-    return ExportService.detection_report(sample)
-
-
-@app.get("/api/export/traffic", tags=["Export"])
-async def export_traffic(format: str = "csv"):
-    """Export foot traffic report."""
-    sample = [{"date": "2026-02-21", "hour": 9, "zone": "Entrance", "person_count": 42,
-               "direction_in": 35, "direction_out": 7}]
-    if format == "json":
-        return ExportService.to_json(sample, "traffic")
-    return ExportService.traffic_report(sample)
+# Export endpoints (/api/export/*) live in app/routers/export.py.
 
 
 # ═══════════════════════════════════════════════════════════════

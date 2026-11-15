@@ -1,65 +1,28 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useTheme } from '../../contexts/ThemeContext';
-import { getPresetMagicColor } from '../../lib/gradientPresets';
+import React from 'react';
 
 /**
- * Magic UI–style card — cursor-following radial spotlight, theme-aware.
+ * @deprecated Compatibility wrapper. Renders a plain `.panel`.
+ * Use `<section className="panel">` (or ContentCard) directly in new code.
+ * Colour / spotlight props (gradientSize, gradientColor, gradientOpacity, borderRadius) are ignored.
  */
 export default function MagicCard({
     children,
     className = '',
     innerClassName = '',
-    gradientSize = 280,
-    gradientColor,
-    gradientOpacity = 1,
-    borderRadius = 16,
-    as: Tag = 'div',
+    // eslint-disable-next-line no-unused-vars
+    gradientSize = undefined,
+    // eslint-disable-next-line no-unused-vars
+    gradientColor = undefined,
+    // eslint-disable-next-line no-unused-vars
+    gradientOpacity = undefined,
+    // eslint-disable-next-line no-unused-vars
+    borderRadius = undefined,
+    as = 'div',
 }) {
-    const cardRef = useRef(null);
-    const { theme, gradientPreset } = useTheme();
-    const [pos, setPos] = useState({ x: 0, y: 0 });
-    const [active, setActive] = useState(false);
-
-    const spotColor = gradientColor ?? getPresetMagicColor(gradientPreset, theme);
-
-    const onMove = useCallback((e) => {
-        const el = cardRef.current;
-        if (!el) return;
-        const r = el.getBoundingClientRect();
-        setPos({ x: e.clientX - r.left, y: e.clientY - r.top });
-    }, []);
-
-    useEffect(() => {
-        const el = cardRef.current;
-        if (!el) return undefined;
-        el.addEventListener('mousemove', onMove);
-        return () => el.removeEventListener('mousemove', onMove);
-    }, [onMove]);
-
-    const innerRadius = Math.max(borderRadius - 1, 0);
-
+    const Tag = /** @type {any} */ (as);
     return (
-        <Tag
-            ref={cardRef}
-            className={`magic-card ${className}`.trim()}
-            style={{ '--magic-radius': `${borderRadius}px`, borderRadius: `${borderRadius}px` }}
-            onMouseEnter={() => setActive(true)}
-            onMouseLeave={() => setActive(false)}
-        >
-            <div
-                className="magic-card-spotlight"
-                aria-hidden
-                style={{
-                    opacity: active ? gradientOpacity : 0,
-                    background: `radial-gradient(${gradientSize}px circle at ${pos.x}px ${pos.y}px, ${spotColor}, transparent 100%)`,
-                }}
-            />
-            <div
-                className={`magic-card-inner ${innerClassName}`.trim()}
-                style={{ borderRadius: `${innerRadius}px` }}
-            >
-                {children}
-            </div>
+        <Tag className={`panel ${className}`.trim()}>
+            {innerClassName ? <div className={innerClassName}>{children}</div> : children}
         </Tag>
     );
 }

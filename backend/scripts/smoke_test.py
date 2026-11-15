@@ -24,7 +24,6 @@ Exit code:
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 import time
 from pathlib import Path
@@ -64,7 +63,11 @@ def _make_test_video(path: Path, seconds: int = 4, fps: int = 15) -> None:
 
 
 async def _run() -> int:
+    from app.config import settings
     from app.services.pipeline import ProcessingPipeline
+
+    # Same fail-loud weight check the API runs at startup.
+    settings.check_weights_or_raise()
 
     failures = []
 
@@ -75,9 +78,9 @@ async def _run() -> int:
 
     # 2. Pipeline boot
     pipeline = ProcessingPipeline(
-        detector_model="yolov8n.pt",
+        detector_model=settings.YOLO_MODEL,
         reid_model="osnet_x1_0",
-        fire_model="fire_smoke.pt",
+        fire_model=settings.FIRE_MODEL_PATH,
         confidence=0.3,
         device="cpu",
         processing_fps=8,

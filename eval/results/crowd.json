@@ -1,0 +1,111 @@
+{
+  "schema": 1,
+  "id": "crowd",
+  "title": "Crowd density",
+  "criterion": "Crowd level > 85% accuracy",
+  "status": "measured",
+  "primary": {
+    "metric": "Level accuracy",
+    "value": 0.144,
+    "target": 0.85,
+    "op": ">",
+    "unit": "ratio",
+    "passed": false
+  },
+  "metrics": {
+    "primary": {
+      "model": "yolo11s.pt",
+      "imgsz": 960,
+      "level_accuracy": 0.144,
+      "count_mae": 16.258,
+      "count_rmse": 17.223,
+      "count_bias": -16.258,
+      "gt_mean_count": 31.17,
+      "n_frames": 500,
+      "ms_per_frame": 239.3
+    },
+    "variants": [
+      {
+        "model": "yolo11s.pt",
+        "imgsz": 960,
+        "level_accuracy": 0.144,
+        "count_mae": 16.258,
+        "count_rmse": 17.223,
+        "count_bias": -16.258,
+        "gt_mean_count": 31.17,
+        "n_frames": 500,
+        "ms_per_frame": 239.3
+      },
+      {
+        "model": "yolo11s.pt",
+        "imgsz": 640,
+        "level_accuracy": 0.018,
+        "count_mae": 20.68,
+        "count_rmse": 21.922,
+        "count_bias": -20.68,
+        "gt_mean_count": 31.17,
+        "n_frames": 500,
+        "ms_per_frame": 97.6
+      }
+    ],
+    "capacity": 50,
+    "thresholds": {
+      "low": 5,
+      "medium": 15,
+      "high": 30,
+      "critical": 45
+    },
+    "gt_level_support": {
+      "empty": 0,
+      "low": 2,
+      "medium": 208,
+      "high": 270,
+      "critical": 20
+    },
+    "count_conf": 0.5
+  },
+  "dataset": {
+    "name": "Mall dataset (Chen et al. 2012), 2,000 annotated frames",
+    "split": "every 4th frame",
+    "source": "https://personal.ie.cuhk.edu.hk/~ccloy/downloads_mall_dataset.html",
+    "license": "Mall dataset: research use with citation",
+    "manifest": "eval/manifests/mall_crowd.json",
+    "manifest_sha256": "08bf3e351af28e1579f4d707db8e91b6e6afc8d7735d57f219f63476a617e3b5",
+    "n_items": 500
+  },
+  "model": {
+    "imgsz": 960,
+    "conf": 0.5,
+    "classes": [
+      0
+    ],
+    "name": "yolo11s.pt",
+    "sha256": "85a76fe86dd8afe384648546b56a7a78580c7cb7b404fc595f97969322d502d5"
+  },
+  "hardware": {
+    "cpu": "12th Gen Intel(R) Core(TM) i5-1245U",
+    "logical_cores": 12,
+    "threads_used": 4,
+    "os": "Linux 7.0.0-43-generic",
+    "python": "3.12.16",
+    "device": "cpu",
+    "gpu": null,
+    "ram_gb": 15.8,
+    "torch": "2.15.0+cpu"
+  },
+  "git": {
+    "commit": "31c93786f870f23cc3676e793e2cc3ec326b7de5",
+    "branch": "main",
+    "dirty": true
+  },
+  "script": "eval/crowd.py",
+  "command": "crowd.py",
+  "created_at": "2026-11-14T23:16:53+00:00",
+  "duration_s": 2175.1,
+  "peak_rss_mb": 882.7,
+  "notes": [
+    "Level = app.ai.crowd_density classifier on the count (thresholds 10/30/60/90% of capacity); the GT level uses the same classifier on the GT head count.",
+    "Mall is a dense overhead-ish mall view with heavy occlusion; detector-based counting undercounts occluded people (see count_bias)."
+  ],
+  "passed": false
+}

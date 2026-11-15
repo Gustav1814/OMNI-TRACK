@@ -1,20 +1,19 @@
 /**
- * OmniTrack AI — App Component
- * Premium dashboard: custom cursor, animated layout, React Router
- * Light/dark theme via ThemeProvider (main.jsx) and toggle in Sidebar.
+ * OmniTrack AI — app shell: sidebar, top bar, routed pages.
+ * Theme (light / AMOLED dark) lives in ThemeProvider; all styling comes from styles/tokens.css.
  */
 
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { RefreshCw, PlayCircle, Check, Radio, StopCircle } from 'lucide-react';
+import { RefreshCw, Play, Square, Menu } from 'lucide-react';
 import Sidebar from './components/Sidebar';
-import CustomCursor from './components/CustomCursor';
 import CommandPalette from './components/ui/CommandPalette';
 import useLivePoll from './hooks/useLivePoll';
 import useUserRole from './hooks/useUserRole';
-import { pipelineAPI, systemAPI, AUTH_CHANGE_EVENT } from './services/api';
+import { pipelineAPI, systemAPI, startSessionKeeper, AUTH_CHANGE_EVENT } from './services/api';
 import { useTheme } from './contexts/ThemeContext';
+import HubPage from './pages/HubPage';
+import { LEGACY_REDIRECTS, titleFor } from './nav';
 
 // Lazy-load heavy and route-level modules to reduce initial bundle cost.
 const LoginPage = lazy(() => import('./pages/LoginPage'));
@@ -29,45 +28,38 @@ const CrowdPage = lazy(() => import('./pages/CrowdPage'));
 const CheckoutPage = lazy(() => import('./pages/CheckoutPage'));
 const EmotionPage = lazy(() => import('./pages/EmotionPage'));
 const AuditPage = lazy(() => import('./pages/AuditPage'));
-const VibePage = lazy(() => import('./pages/VibePage'));
 const PeakHoursPage = lazy(() => import('./pages/PeakHoursPage'));
 const DemographicsPage = lazy(() => import('./pages/DemographicsPage'));
 const SecurityPage = lazy(() => import('./pages/SecurityPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const SetupPage = lazy(() => import('./pages/SetupPage'));
-const HumanlessStorePage = lazy(() => import('./pages/HumanlessStorePage'));
+const EvaluationPage = lazy(() => import('./pages/EvaluationPage'));
+const AlertsPage = lazy(() => import('./pages/AlertsPage'));
+const CapturesPage = lazy(() => import('./pages/CapturesPage'));
+const FloorHeatmap = lazy(() => import('./components/FloorHeatmap'));
 
-const pageTitles = {
-    '/': 'Live Overview',
-    '/detection': 'Video Feeds',
-    '/reid': 'Cross-Feed Matching',
-    '/synopsis': 'Highlights Reel',
-    '/trim': 'Highlights Reel',
-    '/shelf': 'Shelf Activity',
-    '/fire': 'Safety Watch',
-    '/crowd': 'Footfall',
-    '/checkout': 'Queue Insights',
-    '/emotion': 'Mood Trends',
-    '/audit': 'Activity Log',
-    '/vibe': 'Store Pulse',
-    '/peak-hours': 'Rush Hours',
-    '/demographics': 'Audience Mix',
-    '/security': 'Model Health',
-    '/settings': 'Settings',
-    '/setup': 'Store Setup',
-    '/setup/products': 'Store Setup',
-    '/setup/zones': 'Store Setup',
-    '/setup/cameras': 'Store Setup',
-    '/setup/models': 'Store Setup',
-    '/setup/integrations': 'Store Setup',
-    '/setup/users': 'Store Setup',
-    '/humanless': 'Smart Store',
-};
+/** Old URL → new home, keeping ?query and #hash (alert deep links use them). */
+function LegacyRedirect({ to }) {
+    const { search, hash } = useLocation();
+    return <Navigate to={`${to}${search}${hash}`} replace />;
+}
 
-function TopBar() {
+const HUBS = [
+    { path: '/incidents', subtitle: 'Alerts to act on, the evidence behind them, and fire and smoke watch.',
+        views: { alerts: AlertsPage, captures: CapturesPage, fire: FirePage } },
+    { path: '/floor', subtitle: 'How people use the floor: where they spend time, when they come, queues and shelves.',
+        views: { heatmap: FloorHeatmap, footfall: CrowdPage, 'rush-hours': PeakHoursPage, queues: CheckoutPage, shelves: ShelfPage } },
+    { path: '/shoppers', subtitle: 'Mood and audience mix from faces the models can read; small samples are held back.',
+        views: { mood: EmotionPage, audience: DemographicsPage } },
+    { path: '/system', subtitle: 'Security posture, activity log, measured model accuracy and your account.',
+        views: { security: SecurityPage, activity: AuditPage, evaluation: EvaluationPage, account: SettingsPage } },
+];
+
+
+function TopBar({ onMenu }) {
     const location = useLocation();
     const { canOperate } = useUserRole();
-    const title = pageTitles[location.pathname] || 'OmniTrack AI';
+    const title = titleFor(location.pathname);
     const { data: health, refresh: refreshHealth } = useLivePoll(() => systemAPI.health(), { intervalMs: 10000 });
     const { data: pipeline, refresh: refreshPipeline } = useLivePoll(() => pipelineAPI.status(), { intervalMs: 5000 });
     const [busy, setBusy] = useState(false);
@@ -82,67 +74,78 @@ function TopBar() {
         try {
             if (pipeline?.state === 'running') await pipelineAPI.stop();
             else await pipelineAPI.start();
-            await refreshAll();
         } catch {
-            await refreshAll();
+            /* status poll below reflects the real state */
         } finally {
+            await refreshAll();
             setBusy(false);
         }
     };
 
-    const healthOk = health?.status === 'healthy';
-    const wsCount = health?.components?.websocket?.active_connections ?? 0;
+    const healthStatus = health?.status;
+    const healthDot = !healthStatus ? '' : healthStatus === 'healthy' ? 'is-ok' : healthStatus === 'degraded' ? 'is-warn' : 'is-bad';
+    const wsCount = health?.components?.websocket?.active_connections;
     const running = pipeline?.state === 'running';
     const hasFeeds = Number(pipeline?.cameras?.total || 0) > 0;
-    const sessionLabel = running ? 'Stop Session' : 'Start Session';
+    const sessionLabel = running ? 'Stop session' : 'Start session';
 
     return (
-        <motion.header
-            className="topbar"
-            initial={{ opacity: 0, y: -8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3 }}
-        >
+        <header className="topbar">
             <div className="topbar-left">
+                <button type="button" className="btn btn-ghost btn-icon topbar-menu" onClick={onMenu} aria-label="Open navigation">
+                    <Menu size={18} />
+                </button>
                 <h1 className="topbar-title">{title}</h1>
-                <span className="topbar-live-chip">
-                    <i className="live-dot" />
-                    LIVE
+                <span className="topbar-status" title={running ? 'Analysis session is running' : 'No analysis session running'}>
+                    <i className={`live-dot ${running ? 'is-live' : ''}`} aria-hidden />
+                    {running ? 'Rec' : 'Idle'}
                 </span>
             </div>
             <div className="topbar-actions">
-                <motion.span className="topbar-pill" whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }}>
-                    <Radio size={12} />
-                    {wsCount} channel{wsCount === 1 ? '' : 's'}
-                </motion.span>
-                <motion.span className={`topbar-pill ${healthOk ? 'topbar-pill-good' : ''}`} whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }}>
-                    <Check size={12} />
-                    {health?.status || 'Checking'}
-                </motion.span>
-                <motion.button type="button" className="topbar-pill topbar-pill-button" onClick={refreshAll} disabled={busy} whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }}>
-                    <RefreshCw size={12} />
-                    Refresh
-                </motion.button>
-                <motion.button
+                <span className="topbar-status topbar-hide-sm" title="System health">
+                    <i className={`live-dot ${healthDot}`} aria-hidden />
+                    {healthStatus || 'checking'}
+                </span>
+                {Number.isFinite(wsCount) && (
+                    <span className="topbar-status topbar-hide-sm" title="Live update channels">
+                        {wsCount} ch
+                    </span>
+                )}
+                <span className="topbar-sep topbar-hide-sm" aria-hidden />
+                <button type="button" className="btn btn-ghost btn-sm" onClick={refreshAll} disabled={busy} aria-label="Refresh status">
+                    <RefreshCw size={14} className={busy ? 'spin' : undefined} />
+                    <span className="topbar-hide-sm">Refresh</span>
+                </button>
+                <button
                     type="button"
-                    className="topbar-pill topbar-pill-primary"
+                    className={`btn btn-sm ${running ? 'btn-outline' : 'btn-primary'}`}
                     onClick={togglePipeline}
                     disabled={!canOperate || busy || (!running && !hasFeeds)}
-                    title={!running && !hasFeeds ? 'Add a video feed before starting the session' : sessionLabel}
-                    whileHover={{ y: -2 }}
-                    whileTap={{ scale: 0.97 }}
+                    title={!running && !hasFeeds ? 'Add a video feed before starting a session' : sessionLabel}
                 >
-                    {running ? <StopCircle size={12} /> : <PlayCircle size={12} />}
+                    {running ? <Square size={12} /> : <Play size={12} />}
                     {sessionLabel}
-                </motion.button>
+                </button>
             </div>
-        </motion.header>
+        </header>
     );
 }
 
 function ProtectedLayout() {
     const location = useLocation();
     const { toggleTheme } = useTheme();
+    const [navOpen, setNavOpen] = useState(false);
+
+    // Keep the 15-minute access token fresh (rotating refresh token) while signed in.
+    useEffect(() => startSessionKeeper(), []);
+    // Close the mobile drawer on navigation.
+    useEffect(() => { setNavOpen(false); }, [location.pathname]);
+    useEffect(() => {
+        if (!navOpen) return undefined;
+        const onKey = (e) => { if (e.key === 'Escape') setNavOpen(false); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [navOpen]);
 
     const handleCommand = async (action) => {
         if (action === 'refresh') await Promise.allSettled([systemAPI.health(), pipelineAPI.status()]);
@@ -152,54 +155,37 @@ function ProtectedLayout() {
     };
 
     return (
-        <div className="app-layout">
-            <CustomCursor />
-            <div className="ambient-bg" aria-hidden>
-                <div className="ambient-blob ambient-blob-a" />
-                <div className="ambient-blob ambient-blob-b" />
-                <div className="ambient-blob ambient-blob-c" />
-                <div className="ambient-sheen" />
-                <div className="ambient-mesh ambient-mesh-fine" />
-                <div className="ambient-mesh ambient-mesh-wide" />
-                <div className="ambient-vignette" />
-            </div>
+        <div className={`app-layout${navOpen ? ' nav-open' : ''}`}>
             <Sidebar />
+            <button type="button" className="sidebar-scrim" aria-label="Close navigation" onClick={() => setNavOpen(false)} tabIndex={navOpen ? 0 : -1} />
             <CommandPalette onAction={handleCommand} />
             <div className="main-content">
-                <TopBar />
-                <div className="page-content">
-                    <motion.div
-                        key={location.pathname}
-                        initial={{ opacity: 0, y: 6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.25, ease: [0.25, 0.46, 0.45, 0.94] }}
-                        style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
-                    >
-                        <Suspense fallback={<div className="dashboard-empty-note">Loading page...</div>}>
-                            <Routes>
-                                <Route path="/" element={<DashboardPage />} />
-                                <Route path="/detection" element={<DetectionPage />} />
-                                <Route path="/reid" element={<ReIDPage />} />
-                                <Route path="/synopsis" element={<SynopsisPage />} />
-                                <Route path="/trim" element={<Navigate to="/synopsis" replace />} />
-                                <Route path="/shelf" element={<ShelfPage />} />
-                                <Route path="/fire" element={<FirePage />} />
-                                <Route path="/crowd" element={<CrowdPage />} />
-                                <Route path="/checkout" element={<CheckoutPage />} />
-                                <Route path="/emotion" element={<EmotionPage />} />
-                                <Route path="/audit" element={<AuditPage />} />
-                                <Route path="/vibe" element={<VibePage />} />
-                                <Route path="/peak-hours" element={<PeakHoursPage />} />
-                                <Route path="/demographics" element={<DemographicsPage />} />
-                                <Route path="/humanless" element={<HumanlessStorePage />} />
-                                <Route path="/security" element={<SecurityPage />} />
-                                <Route path="/setup/*" element={<SetupPage />} />
-                                <Route path="/settings" element={<SettingsPage />} />
-                                <Route path="*" element={<Navigate to="/" />} />
-                            </Routes>
-                        </Suspense>
-                    </motion.div>
-                </div>
+                <TopBar onMenu={() => setNavOpen(true)} />
+                <main className="page-content">
+                    <div className="page-scroll">
+                        <div key={location.pathname} className="page-frame">
+                            <Suspense fallback={<div className="app-loading osd">Loading</div>}>
+                                <Routes>
+                                    <Route path="/" element={<DashboardPage />} />
+                                    <Route path="/detection" element={<DetectionPage />} />
+                                    <Route path="/reid" element={<ReIDPage />} />
+                                    <Route path="/synopsis" element={<SynopsisPage />} />
+                                    <Route path="/setup/*" element={<SetupPage />} />
+                                    {HUBS.map((h) => (
+                                        <React.Fragment key={h.path}>
+                                            <Route path={h.path} element={<HubPage {...h} />} />
+                                            <Route path={`${h.path}/:section`} element={<HubPage {...h} />} />
+                                        </React.Fragment>
+                                    ))}
+                                    {Object.entries(LEGACY_REDIRECTS).map(([from, to]) => (
+                                        <Route key={from} path={from} element={<LegacyRedirect to={to} />} />
+                                    ))}
+                                    <Route path="*" element={<Navigate to="/" />} />
+                                </Routes>
+                            </Suspense>
+                        </div>
+                    </div>
+                </main>
             </div>
         </div>
     );
@@ -221,7 +207,7 @@ export default function App() {
 
     return (
         <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-            <Suspense fallback={<div className="dashboard-empty-note">Loading...</div>}>
+            <Suspense fallback={<div className="app-loading osd">Loading</div>}>
                 <Routes>
                     <Route path="/login" element={<LoginPage onLogin={() => setIsAuth(true)} />} />
                     <Route path="/register" element={<RegisterPage onRegister={() => setIsAuth(true)} />} />

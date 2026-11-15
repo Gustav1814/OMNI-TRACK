@@ -5,11 +5,9 @@ Identifies top-selling zones by customer engagement levels.
 """
 
 import time
-import numpy as np
 from typing import List, Dict, Any, Optional, Tuple
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from collections import defaultdict
-from loguru import logger
 
 
 @dataclass

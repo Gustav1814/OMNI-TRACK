@@ -7,9 +7,8 @@ Managers love spreadsheets — this gives them what they want.
 import csv
 import json
 import io
-from typing import Dict, Any, List, Optional
-from datetime import datetime, timezone, timedelta
-from loguru import logger
+from typing import Dict, Any, List
+from datetime import datetime, timezone
 
 
 class ExportService:
@@ -88,15 +87,6 @@ class ExportService:
                 d_in, d_out, d_in - d_out,
             ])
         return ExportService.to_csv(headers, rows, "foot_traffic_report")
-
-    @staticmethod
-    def demographics_report(demo_data: List[Dict]) -> dict:
-        """Export demographics data as CSV."""
-        headers = ["Date", "Zone", "Age Group", "Gender", "Count"]
-        rows = [[d.get("date", ""), d.get("zone", ""),
-                 d.get("age_group", ""), d.get("gender", ""),
-                 d.get("count", 0)] for d in demo_data]
-        return ExportService.to_csv(headers, rows, "demographics_report")
 
     @staticmethod
     def checkout_report(checkout_data: List[Dict]) -> dict:

@@ -1,12 +1,12 @@
 import React from 'react';
 
-export function Skeleton({ className = '', style }) {
+export function Skeleton({ className = '', style = undefined }) {
     return <div className={`ui-skeleton ${className}`.trim()} style={style} aria-hidden="true" />;
 }
 
 export function SkeletonKpiGrid({ count = 6, cols = 6 }) {
     return (
-        <div className="ui-skeleton-kpi-grid" style={{ '--sk-cols': cols }}>
+        <div className="ui-skeleton-kpi-grid" style={/** @type {React.CSSProperties} */ ({ '--sk-cols': cols })}>
             {Array.from({ length: count }).map((_, i) => (
                 <div key={i} className="ui-skeleton-kpi">
                     <Skeleton className="ui-skeleton-icon" />

@@ -1,112 +1,164 @@
 /**
- * OmniTrack AI — Shelf Engagement (live)
- * Polls /api/shelf/engagement + /api/shelf/top-zones.
+ * OmniTrack AI — Shelf
+ * Vision only: per shelf zone, passers-by, visits (>= 3 s), engaged visits
+ * (> 10 s), dwell percentiles and an attention score, from
+ * /api/shelf/engagement. Nothing here is about products or stock.
  */
 
-import React from 'react';
-import { ShoppingBag, Clock, Award } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
 import {
-    BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid,
+    Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import { shelfAPI } from '../services/api';
 import useLivePoll from '../hooks/useLivePoll';
-import StatCard from '../components/ui/StatCard';
-import ContentCard from '../components/ui/ContentCard';
+import Metric from '../components/ui/Metric';
+import { useTokens, withAlpha } from '../lib/tokens';
+import { rechartsTheme } from '../lib/chartTheme';
+import {
+    AnalyticsPage, DASH, Definitions, FeatureCard, HeroRow, NoData, Panel, WindowSelect, fmtDuration, fmtNum, fmtPct, isNum,
+} from '../components/zones/analyticsUi';
 
-const CORAL = '#f97316';
+export default function ShelfPage({ embedded = false }) {
+    const [win, setWin] = useState('');
+    const { data, error, refresh } = useLivePoll(() => shelfAPI.engagement(win || undefined), { intervalMs: 10000 });
+    useEffect(() => { refresh(); }, [win, refresh]);
+    const t = useTokens();
+    const th = rechartsTheme(t);
 
-export default function ShelfPage() {
-    const { data: engagement } = useLivePoll(() => shelfAPI.engagement(), { intervalMs: 5000 });
-    const { data: topZones } = useLivePoll(() => shelfAPI.topZones(), { intervalMs: 10000 });
-
-    const zones = Array.isArray(engagement) ? engagement : [];
-    const chartData = zones.slice(0, 10).map((z) => ({
+    const zones = data?.zones || [];
+    const measured = zones.filter((z) => z.measured);
+    const totals = data?.totals;
+    const top = measured.find((z) => z.attention_score != null && (z.visits || 0) > 0);
+    const dwellValues = measured.map((z) => z.median_dwell_s).filter((v) => v != null);
+    const chartData = measured.slice(0, 12).map((z) => ({
         name: z.zone_name,
-        score: z.engagement_score,
-        dwell: z.avg_dwell_time,
+        passers: z.passers_by || 0,
+        visits: z.visits || 0,
+        engaged: z.engaged_visits || 0,
     }));
-
-    const topZonesList = Array.isArray(topZones) ? topZones : (topZones?.top_zones || []);
+    const stopRate = totals && isNum(totals.visits) && totals.passers_by > 0 ? totals.visits / totals.passers_by : null;
+    const windowLabel = data?.window?.label || 'this window';
 
     return (
-        <div className="page-scroll">
-            <div className="page-header">
-                <div>
-                    <h1 className="page-title">Shelf Engagement</h1>
-                    <p className="page-subtitle">Dwell time · visits · top-selling zones</p>
-                </div>
+        <AnalyticsPage
+            embedded={embedded}
+            title="Shelf"
+            subtitle="Who walks past, who stops, and who stays in each shelf zone."
+            controls={<WindowSelect value={win} onChange={setWin} />}
+        >
+            {error && <div className="alert-banner danger">Unable to reach shelf analytics.</div>}
+
+            <HeroRow
+                hero={{
+                    label: `Visits, ${windowLabel}`,
+                    value: totals ? totals.visits : null,
+                    foot: stopRate != null ? `${fmtPct(stopRate)} of passers-by stopped for 3 s or more` : 'A visit is 3 s or more inside a shelf zone',
+                }}
+            >
+                <Metric label="Passers-by" value={totals ? totals.passers_by : null} />
+                <Metric label="Zones measured" value={data ? measured.length : null} unit={data ? `of ${zones.length}` : undefined} />
+                <Metric label="Most attention" value={top ? top.zone_name : null} size="sm" sub={top ? `score ${fmtNum(top.attention_score)}` : undefined} />
+            </HeroRow>
+
+            <div className="an-grid an-grid--feature">
+                <FeatureCard
+                    label="Engaged visits"
+                    value={totals ? totals.engaged_visits ?? null : null}
+                    sub={totals && isNum(totals.engaged_visits) ? `Stayed over 10 s, ${windowLabel}` : 'A visit over 10 s in a shelf zone'}
+                />
+            {zones.length === 0 ? (
+                <Panel title="Shelf zones">
+                    <NoData title="No shelf zones configured" setupLink>
+                        Draw a shelf zone over the floor in front of each display. Visits and dwell are measured only inside zones.
+                    </NoData>
+                    <Definitions items={data?.definitions} />
+                </Panel>
+            ) : measured.length === 0 ? (
+                <Panel title="Shelf zones">
+                    <NoData title={`No shelf activity measured (${windowLabel})`}>
+                        {data?.configured_zones} shelf zone(s) are configured, but no camera covering them has been analysed in this window.
+                        Start a session on a feed that covers them.
+                    </NoData>
+                    <Definitions items={data?.definitions} />
+                </Panel>
+            ) : (
+                    <Panel title="Stops vs passers-by" sub={`Top ${chartData.length} zones, ${windowLabel}`}>
+                        <div className="legend an-legend">
+                            <span className="legend-item"><span className="swatch swatch-neutral" />Passers-by</span>
+                            <span className="legend-item"><span className="swatch swatch-mid" />Visits (3 s or more)</span>
+                            <span className="legend-item"><span className="swatch swatch-highlight" />Engaged (over 10 s)</span>
+                        </div>
+                        <div className="an-chart">
+                            <ResponsiveContainer>
+                                <BarChart data={chartData} barGap={2} barCategoryGap="24%" margin={{ top: 8, right: 0, left: -8, bottom: 0 }}>
+                                    <CartesianGrid {...th.grid} />
+                                    <XAxis dataKey="name" {...th.xAxis} interval={0} />
+                                    <YAxis {...th.yAxis} allowDecimals={false} />
+                                    <Tooltip {...th.tooltip} cursor={{ fill: withAlpha(t.text, 0.04) }} />
+                                    <Bar dataKey="passers" name="Passers-by" fill={t.neutral} radius={[4, 4, 0, 0]} maxBarSize={20} />
+                                    <Bar dataKey="visits" name="Visits" fill={t.text3} radius={[4, 4, 0, 0]} maxBarSize={20} />
+                                    <Bar dataKey="engaged" name="Engaged" fill={t.highlight} radius={[4, 4, 0, 0]} maxBarSize={20} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </Panel>
+            )}
             </div>
 
-            <div className="stats-grid">
-                <StatCard icon={ShoppingBag} label="Zones Tracked" value={zones.length} accent="teal" />
-                <StatCard
-                    icon={Clock}
-                    label="Avg Dwell"
-                    value={zones.length ? (zones.reduce((a, z) => a + (z.avg_dwell_time || 0), 0) / zones.length).toFixed(1) : 0}
-                    suffix="s"
-                    accent="cyan"
-                />
-                <StatCard
-                    icon={Award}
-                    label="Top Zone"
-                    value={zones[0]?.zone_name || '—'}
-                    accent="coral"
-                />
-                <StatCard
-                    icon={ShoppingBag}
-                    label="Total Visits"
-                    value={zones.reduce((a, z) => a + (z.visit_count || 0), 0)}
-                    accent="emerald"
-                />
-            </div>
-
-            <ContentCard title="Engagement Score by Zone" subtitle="Top 10 shelves" accent="coral">
-                {chartData.length === 0 ? (
-                    <div className="page-empty-hint">
-                        No engagement data yet — run the pipeline on a clip with a shelf camera.
-                    </div>
-                ) : (
-                    <div style={{ height: 340 }}>
-                        <ResponsiveContainer>
-                            <BarChart data={chartData} layout="vertical">
-                                <CartesianGrid stroke="rgba(255,255,255,0.05)" />
-                                <XAxis type="number" stroke="#71717a" fontSize={11} />
-                                <YAxis dataKey="name" type="category" stroke="#71717a" fontSize={11} width={120} />
-                                <Tooltip contentStyle={{ background: '#111', border: '1px solid #222' }} />
-                                <Bar dataKey="score" fill={CORAL} radius={[0, 6, 6, 0]} />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </div>
-                )}
-            </ContentCard>
-
-            <div className="two-col">
-                <ContentCard title="All Zones" accent="teal">
-                    <div className="ui-feed-list" style={{ maxHeight: 360, overflow: 'auto' }}>
-                        {zones.map((z) => (
-                            <div
-                                key={z.zone_id}
-                                className="ui-lane-row"
-                                style={{ gridTemplateColumns: '40px 1fr 80px 80px 80px' }}
-                            >
-                                <span className="pill pill-info" style={{ justifyContent: 'center' }}>#{z.rank}</span>
-                                <span className="ui-lane-row-title">{z.zone_name}</span>
-                                <span style={{ fontSize: 12 }}>{z.visit_count} visits</span>
-                                <span style={{ fontSize: 12 }}>{z.avg_dwell_time?.toFixed(1)}s</span>
-                                <span style={{ fontSize: 12, fontWeight: 600, color: CORAL }}>
-                                    {z.engagement_score?.toFixed(1)}
-                                </span>
-                            </div>
-                        ))}
-                    </div>
-                </ContentCard>
-
-                <ContentCard title="Top Zones" subtitle="From /shelf/top-zones" accent="sky">
-                    <pre className="ui-code-block">
-                        {topZonesList.length ? JSON.stringify(topZonesList, null, 2) : '—'}
-                    </pre>
-                </ContentCard>
-            </div>
-        </div>
+            {measured.length > 0 ? (
+                    <Panel
+                        title="Shelf zones"
+                        sub={dwellValues.length ? 'Ranked by attention score (100 = top shelf in this window)' : undefined}
+                    >
+                        <div className="table-scroll">
+                            <table className="data-table an-table">
+                                <thead>
+                                    <tr>
+                                        <th>Zone</th>
+                                        <th className="num">Passers</th>
+                                        <th className="num">Visits</th>
+                                        <th className="num">Engaged</th>
+                                        <th className="num">Stop rate</th>
+                                        <th className="num">Median dwell</th>
+                                        <th className="num">P90 dwell</th>
+                                        <th className="num">Attention</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {zones.map((z) => (
+                                        <tr key={z.zone_id}>
+                                            <td>
+                                                <div className="rank-name">{z.zone_name}</div>
+                                                <div className="rank-sub">
+                                                    Camera {z.camera_id}{z.present_now != null ? ` · ${z.present_now} here now` : ''}
+                                                </div>
+                                            </td>
+                                            <td className="num">{fmtNum(z.passers_by)}</td>
+                                            <td className="num">{fmtNum(z.visits)}</td>
+                                            <td className="num">{fmtNum(z.engaged_visits)}</td>
+                                            <td className="num">{fmtPct(z.stop_rate)}</td>
+                                            <td className="num">{fmtDuration(z.median_dwell_s)}</td>
+                                            <td className="num">{fmtDuration(z.p90_dwell_s)}</td>
+                                            <td className="num">
+                                                {isNum(z.attention_score) ? (
+                                                    <span className="an-cell-meter">
+                                                        <span className={`meter${top && top.zone_id === z.zone_id ? ' meter--accent' : ''}`}>
+                                                            <span className="meter-track">
+                                                                <span className="meter-fill" style={{ '--value': `${Math.max(0, Math.min(100, z.attention_score))}%` }} />
+                                                            </span>
+                                                        </span>
+                                                        {fmtNum(z.attention_score)}
+                                                    </span>
+                                                ) : DASH}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                        <Definitions items={data?.definitions} />
+                    </Panel>
+            ) : null}
+        </AnalyticsPage>
     );
 }

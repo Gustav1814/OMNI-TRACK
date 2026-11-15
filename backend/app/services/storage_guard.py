@@ -20,7 +20,6 @@ class StorageGuard:
 
     def _disk_free_mb(self) -> float:
         self.footage_dir.mkdir(parents=True, exist_ok=True)
-        st = self.footage_dir.stat()
         # On Windows statvfs is unavailable; use shutil.
         import shutil
 

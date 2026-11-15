@@ -1,0 +1,69 @@
+{
+  "schema": 1,
+  "id": "reid",
+  "title": "Person re-identification",
+  "criterion": "Re-ID Rank-1 > 70% on Market-1501",
+  "status": "measured",
+  "primary": {
+    "metric": "Rank-1",
+    "value": 0.6992,
+    "target": 0.7,
+    "op": ">",
+    "unit": "ratio",
+    "passed": false
+  },
+  "metrics": {
+    "rank1": 0.6992,
+    "rank5": 0.8403,
+    "rank10": 0.8839,
+    "mAP": 0.4328,
+    "n_valid_queries": 3368,
+    "n_query": 3368,
+    "n_gallery": 15913,
+    "ms_per_crop": 179.33
+  },
+  "dataset": {
+    "name": "Market-1501 (v15.09.15) query / bounding_box_test",
+    "split": "standard test protocol: 3,368 query vs 15,913 gallery (junk removed)",
+    "source": "https://huggingface.co/datasets/Lekim89/market1501 @ c9782d6d810364cd0d344a6bfe01d459713eeb51",
+    "license": "Market-1501: research use only, no redistribution",
+    "manifest": "eval/manifests/market1501_test.json",
+    "manifest_sha256": "8b36810e50624e26c877e3600acda4ecd65063ed588f0e20ac6a72d034a24380",
+    "n_items": 19281
+  },
+  "model": {
+    "arch": "osnet_ain_x1_0",
+    "trained_on": "MSMT17",
+    "input": "256x128",
+    "distance": "cosine",
+    "name": "osnet_ain_x1_0_msmt17.pth",
+    "sha256": "8a07e8da38946f7cee37f4561617bf8b6d2fe8f3a4027852893ea092e46d919f"
+  },
+  "hardware": {
+    "cpu": "12th Gen Intel(R) Core(TM) i5-1245U",
+    "logical_cores": 12,
+    "threads_used": 4,
+    "os": "Linux 7.0.0-43-generic",
+    "python": "3.12.16",
+    "device": "cpu",
+    "gpu": null,
+    "ram_gb": 15.8,
+    "torch": "2.15.0+cpu"
+  },
+  "git": {
+    "commit": "31c93786f870f23cc3676e793e2cc3ec326b7de5",
+    "branch": "main",
+    "dirty": true
+  },
+  "script": "eval/reid.py",
+  "command": "reid.py --refreeze",
+  "created_at": "2026-11-14T20:53:01+00:00",
+  "duration_s": 3467.4,
+  "peak_rss_mb": 1170.5,
+  "notes": [
+    "Cross-domain: weights trained on MSMT17 only, never on Market-1501.",
+    "Single query, no re-ranking, no flip augmentation - same features the live pipeline stores.",
+    "torchreid model zoo reference for this checkpoint: ~70.1% Rank-1 / ~43.3% mAP (MSMT17 -> Market)."
+  ],
+  "passed": false
+}

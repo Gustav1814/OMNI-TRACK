@@ -1,13 +1,16 @@
 /**
  * OmniTrack AI — Sign up
- * POST /api/auth/register (UserCreate), then signs you in with the same password.
+ * GET /api/auth/bootstrap decides the mode:
+ *   - no users yet          -> "create the first admin" (bootstraps as admin)
+ *   - public registration   -> self sign-up (viewer role)
+ *   - otherwise             -> closed; accounts are created by an admin.
+ * POST /api/auth/register, then signs you in with the same password.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { ShieldCheck, Video, Activity, Sparkles } from 'lucide-react';
-import { authAPI, tokenStore } from '../services/api';
+import { apiErrorMessage, authAPI, tokenStore } from '../services/api';
+import { AuthBrand } from './LoginPage';
 
 export default function RegisterPage({ onRegister }) {
     const [username, setUsername] = useState('');
@@ -17,7 +20,19 @@ export default function RegisterPage({ onRegister }) {
     const [confirm, setConfirm] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+    const [boot, setBoot] = useState(null); // {needs_bootstrap, public_registration, password_min_length}
     const navigate = useNavigate();
+
+    useEffect(() => {
+        let alive = true;
+        authAPI.bootstrap()
+            .then((r) => alive && setBoot(r.data))
+            .catch(() => alive && setBoot({ needs_bootstrap: false, public_registration: false, unreachable: true }));
+        return () => { alive = false; };
+    }, []);
+
+    const minLen = boot?.password_min_length || 10;
+    const open = !!boot && (boot.needs_bootstrap || boot.public_registration);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -26,8 +41,8 @@ export default function RegisterPage({ onRegister }) {
             setError('Username must be at least 3 characters.');
             return;
         }
-        if (password.length < 6) {
-            setError('Password must be at least 6 characters.');
+        if (password.length < minLen) {
+            setError(`Password must be at least ${minLen} characters.`);
             return;
         }
         if (password !== confirm) {
@@ -53,71 +68,38 @@ export default function RegisterPage({ onRegister }) {
             onRegister && onRegister();
             navigate('/');
         } catch (err) {
-            const status = err?.response?.status;
-            const detail = err?.response?.data?.detail;
-            if (status === 400 && typeof detail === 'string') setError(detail);
-            else if (status === 422 && Array.isArray(detail)) {
-                setError(detail.map((d) => d.msg || d.message || JSON.stringify(d)).join(' · '));
-            } else if (status === 422 && detail) setError(String(detail));
-            else setError(detail || err?.message || 'Sign up failed — is the backend and database running?');
+            setError(apiErrorMessage(err, 'Sign up failed — is the backend and database running?'));
         } finally {
             setLoading(false);
         }
     };
 
-    const canSubmit = username.trim().length >= 3 && email.includes('@') && password.length >= 6 && password === confirm;
+    const canSubmit = open && username.trim().length >= 3 && email.includes('@') && password.length >= minLen && password === confirm;
 
     return (
-        <div className="login-page">
-            <div className="login-bg-orb login-bg-orb-1" />
-            <div className="login-bg-orb login-bg-orb-2" />
-            <motion.div
-                className="login-card"
-                initial={{ opacity: 0, y: 24, scale: 0.98 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
-                whileHover={{ boxShadow: '0 28px 64px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.08), 0 0 80px -16px rgba(99,102,241,0.25)' }}
-            >
-                <div className="login-layout">
-                    <div className="login-showcase">
-                        <motion.div
-                            className="login-logo"
-                            initial={{ scale: 0.8, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            transition={{ delay: 0.1, type: 'spring', stiffness: 300, damping: 20 }}
-                        >
-                            O
-                        </motion.div>
-                        <h1 className="login-title">Create your workspace</h1>
-                        <p className="login-subtitle">
-                            Start with secure access, then track store activity from one elegant dashboard.
-                        </p>
+        <div className="auth">
+            <AuthBrand />
+            <main className="auth-main">
+                <div className="auth-card">
+                    <h1 className="auth-title">
+                        {boot?.needs_bootstrap ? 'Create the first admin' : 'Create account'}
+                    </h1>
+                    <p className="auth-sub">
+                        {!boot && 'Checking registration status…'}
+                        {boot?.needs_bootstrap && 'No accounts exist yet — this account becomes the administrator.'}
+                        {boot && !boot.needs_bootstrap && boot.public_registration && 'New accounts start with read-only (viewer) access.'}
+                        {boot && !open && !boot.unreachable && 'Self-registration is disabled. Ask an administrator to create your account.'}
+                        {boot?.unreachable && 'Cannot reach the server.'}
+                    </p>
 
-                        <div className="login-points">
-                            <div><Video size={14} /> Turn uploaded videos into live feeds</div>
-                            <div><Activity size={14} /> Get instant traffic and engagement insights</div>
-                            <div><ShieldCheck size={14} /> Privacy-aware access and event history</div>
-                        </div>
+                    {error && <div className="alert-banner danger" role="alert">{error}</div>}
 
-                        <div className="login-showcase-pill">
-                            <Sparkles size={14} />
-                            Modern monitoring experience
-                        </div>
-                    </div>
-                    <div className="login-form-wrap">
-                        <h2 className="login-form-title">Create account</h2>
-                        <p className="login-form-subtitle">Set up your profile to access the dashboard.</p>
-
-                        {error && (
-                            <motion.div className="alert-banner danger" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                                {error}
-                            </motion.div>
-                        )}
-
-                        <form onSubmit={handleSubmit}>
+                    <form className="auth-form" onSubmit={handleSubmit}>
+                        <div className="form-row">
                             <div className="form-group">
-                                <label className="form-label">Username</label>
+                                <label className="form-label" htmlFor="reg-username">Username</label>
                                 <input
+                                    id="reg-username"
                                     className="form-input"
                                     type="text"
                                     autoComplete="username"
@@ -125,79 +107,80 @@ export default function RegisterPage({ onRegister }) {
                                     maxLength={50}
                                     value={username}
                                     onChange={(e) => setUsername(e.target.value)}
-                                    placeholder="At least 3 characters"
+                                    disabled={!open}
                                     required
                                 />
                             </div>
                             <div className="form-group">
-                                <label className="form-label">Email</label>
+                                <label className="form-label" htmlFor="reg-name">Full name <span className="form-hint">optional</span></label>
                                 <input
-                                    className="form-input"
-                                    type="email"
-                                    autoComplete="email"
-                                    value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
-                                    placeholder="you@store.com"
-                                    required
-                                />
-                            </div>
-                            <div className="form-group">
-                                <label className="form-label">Full name (optional)</label>
-                                <input
+                                    id="reg-name"
                                     className="form-input"
                                     type="text"
                                     autoComplete="name"
                                     value={fullName}
                                     onChange={(e) => setFullName(e.target.value)}
-                                    placeholder="Display name"
+                                    disabled={!open}
                                 />
                             </div>
-                            <div className="form-group">
-                                <label className="form-label">Password</label>
-                                <input
-                                    className="form-input"
-                                    type="password"
-                                    autoComplete="new-password"
-                                    minLength={6}
-                                    value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
-                                    placeholder="At least 6 characters"
-                                    required
-                                />
-                            </div>
-                            <div className="form-group">
-                                <label className="form-label">Confirm password</label>
-                                <input
-                                    className="form-input"
-                                    type="password"
-                                    autoComplete="new-password"
-                                    value={confirm}
-                                    onChange={(e) => setConfirm(e.target.value)}
-                                    placeholder="Repeat password"
-                                    required
-                                />
-                            </div>
-                            <motion.button
-                                className="btn btn-primary"
-                                type="submit"
-                                disabled={loading || !canSubmit}
-                                style={{ width: '100%', justifyContent: 'center', padding: '12px', marginTop: 8 }}
-                                whileHover={{ scale: loading ? 1 : 1.02 }}
-                                whileTap={{ scale: loading ? 1 : 0.98 }}
-                            >
-                                {loading ? 'Creating account…' : 'Create account'}
-                            </motion.button>
-                        </form>
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label" htmlFor="reg-email">Email</label>
+                            <input
+                                id="reg-email"
+                                className="form-input"
+                                type="email"
+                                autoComplete="email"
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                                disabled={!open}
+                                required
+                            />
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label" htmlFor="reg-password">Password</label>
+                            <input
+                                id="reg-password"
+                                className="form-input"
+                                type="password"
+                                autoComplete="new-password"
+                                minLength={minLen}
+                                maxLength={128}
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                aria-describedby="reg-password-hint"
+                                disabled={!open}
+                                required
+                            />
+                            <span className="form-hint" id="reg-password-hint">At least {minLen} characters.</span>
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label" htmlFor="reg-confirm">Confirm password</label>
+                            <input
+                                id="reg-confirm"
+                                className="form-input"
+                                type="password"
+                                autoComplete="new-password"
+                                value={confirm}
+                                onChange={(e) => setConfirm(e.target.value)}
+                                disabled={!open}
+                                required
+                            />
+                        </div>
+                        <button
+                            className="btn btn-primary btn-lg btn-block auth-submit"
+                            type="submit"
+                            disabled={loading || !canSubmit}
+                        >
+                            {loading ? 'Creating account…' : 'Create account'}
+                        </button>
+                    </form>
 
-                        <p className="login-register-note">
-                            Already have an account?{' '}
-                            <Link to="/login" style={{ color: 'var(--accent-secondary)', fontWeight: 600 }}>
-                                Sign in
-                            </Link>
-                        </p>
-                    </div>
+                    <p className="auth-foot">
+                        Already have an account? <Link to="/login">Sign in</Link>
+                    </p>
                 </div>
-            </motion.div>
+            </main>
         </div>
     );
 }

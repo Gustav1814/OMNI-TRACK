@@ -9,10 +9,11 @@ WHY THIS EXISTS:
 """
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, func, and_, desc, text
-from sqlalchemy.orm import selectinload
+from sqlalchemy import select, func, and_, desc, text
+from sqlalchemy import event as sa_event
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 from loguru import logger
 from app.config import settings
 
@@ -23,13 +24,13 @@ from app.models.detection import Detection
 from app.models.embedding import Embedding
 from app.models.audit_log import AuditLog
 from app.models.analytics import (
-    FootTraffic, CustomerJourney, DemographicSnapshot,
-    StoreVibeScore, PeakHoursData,
+    FootTraffic, CustomerJourney,
+    StoreVibeScore,
 )
 
 # Security
 from app.security.jwt_handler import hash_password
-from app.security.hashing import compute_hash, verify_chain
+from app.security import audit_chain
 from app.security.encryption import encrypt_data
 
 
@@ -283,9 +284,7 @@ class DetectionService:
         if not objects:
             return []
         db.add_all(objects)
-        await db.flush()
-        for obj in objects:
-            await db.refresh(obj)
+        await db.flush()  # primary keys come back via RETURNING; no per-row refresh
         return objects
 
     @staticmethod
@@ -329,7 +328,7 @@ class EmbeddingService:
         global_id: Optional[str] = None,
         track_id: Optional[int] = None,
         confidence: Optional[float] = None,
-        model_version: str = "osnet_x1_0",
+        model_version: Optional[str] = None,
     ) -> Embedding:
         emb = Embedding(
             detection_id=detection_id,
@@ -338,7 +337,7 @@ class EmbeddingService:
             global_id=global_id,
             vector=list(embedding_vector),
             confidence=confidence,
-            model_version=model_version,
+            model_version=model_version or settings.reid_model_version,
         )
         db.add(emb)
         await db.flush()
@@ -348,7 +347,7 @@ class EmbeddingService:
     async def store_batch(
         db: AsyncSession,
         rows: List[Dict[str, Any]],
-        model_version: str = "osnet_x1_0",
+        model_version: Optional[str] = None,
     ) -> int:
         """
         Batch-insert embedding rows. Each row: {
@@ -367,7 +366,7 @@ class EmbeddingService:
                 global_id=r.get("global_id"),
                 vector=list(vec),
                 confidence=r.get("confidence"),
-                model_version=model_version,
+                model_version=model_version or settings.reid_model_version,
             ))
         if not objs:
             return 0
@@ -379,35 +378,42 @@ class EmbeddingService:
     async def list_recent_gallery(
         db: AsyncSession,
         max_rows: int = 2000,
+        model_version: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
+        """Most recent identity-tagged embeddings, newest first, for gallery warm-up.
+
+        Only vectors from the same weights are comparable, so callers pass
+        ``model_version`` (defaults to the configured Re-ID weights).
+        Rows: ``{global_id, vector, timestamp (epoch s), camera_id}``.
         """
-        Warm up the in-memory Re-ID gallery from the most recent embeddings.
-        Survives backend restart without losing cross-camera identities.
-        """
+        version = model_version or settings.reid_model_version
         result = await db.execute(
-            select(Embedding)
+            select(Embedding.global_id, Embedding.vector, Embedding.timestamp, Embedding.camera_id)
+            .where(Embedding.model_version == version, Embedding.global_id.isnot(None))
             .order_by(Embedding.timestamp.desc())
             .limit(max_rows)
         )
-        rows = result.scalars().all()
         out = []
-        for r in rows:
-            if r.global_id and r.vector is not None:
-                out.append({
-                    "global_id": r.global_id,
-                    "vector": list(r.vector),
-                    "timestamp": r.timestamp,
-                })
+        for gid, vec, ts, cam in result.all():
+            if vec is None:
+                continue
+            out.append({
+                "global_id": gid,
+                "vector": [float(x) for x in vec],
+                "timestamp": ts.timestamp() if ts is not None else 0.0,
+                "camera_id": cam,
+            })
         return out
 
     @staticmethod
     async def get_by_global_id(
-        db: AsyncSession, global_id: str
+        db: AsyncSession, global_id: str, limit: int = 200
     ) -> List[Embedding]:
         result = await db.execute(
             select(Embedding)
             .where(Embedding.global_id == global_id)
             .order_by(Embedding.timestamp.desc())
+            .limit(limit)
         )
         return result.scalars().all()
 
@@ -417,29 +423,224 @@ class EmbeddingService:
         query_vector: list,
         top_k: int = 10,
         threshold: Optional[float] = None,
+        model_version: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
+        """Nearest stored embeddings by cosine similarity (HNSW, per partition).
+
+        ``threshold`` is a minimum cosine *similarity*. Rows carry
+        ``similarity`` and ``distance`` (= 1 - similarity).
         """
-        Cosine similarity search (proposal: sub-100ms retrieval, IVFFlat/HNSW).
-        Returns list of dicts with id, camera_id, track_id, global_id, confidence, timestamp, distance.
-        """
-        try:
-            # pgvector cosine distance operator <=>; ordered by distance ascending
-            qv = "[" + ",".join(str(float(x)) for x in query_vector) + "]"
-            stmt = text(
-                "SELECT id, camera_id, track_id, global_id, confidence, timestamp, "
-                "(vector <=> :qv::vector) AS distance FROM embeddings "
-                "ORDER BY vector <=> :qv::vector LIMIT :k"
-            )
-            result = await db.execute(stmt, {"qv": qv, "k": top_k})
-            rows = result.mappings().all()
-            out = [dict(r) for r in rows]
-            if threshold is not None:
-                # cosine distance 0 = identical; filter by max distance
-                out = [r for r in out if r.get("distance") is not None and r["distance"] <= threshold]
-            return out
-        except Exception as e:
-            logger.warning(f"pgvector search_similar failed: {e}")
-            return []
+        qv = _vector_literal(query_vector)
+        version = model_version or settings.reid_model_version
+        stmt = text(
+            "SELECT id, camera_id, track_id, global_id, confidence, timestamp, "
+            "(vector <=> CAST(:qv AS vector)) AS distance FROM embeddings "
+            "WHERE model_version = :mv "
+            "ORDER BY vector <=> CAST(:qv AS vector) LIMIT :k"
+        )
+        result = await db.execute(stmt, {"qv": qv, "mv": version, "k": int(top_k)})
+        out = []
+        for r in result.mappings().all():
+            row = dict(r)
+            row["similarity"] = 1.0 - float(row["distance"])
+            if threshold is None or row["similarity"] >= threshold:
+                out.append(row)
+        return out
+
+
+def _vector_literal(vec) -> str:
+    return "[" + ",".join(repr(float(x)) for x in vec) + "]"
+
+
+# ═══════════════════════════════════════════════════════════════
+# RE-ID IDENTITIES / TOPOLOGY / CALIBRATION
+# ═══════════════════════════════════════════════════════════════
+
+class ReIDIdentityService:
+    """Identity centroids (one row per global id) kept in step with the coordinator."""
+
+    @staticmethod
+    async def upsert_batch(
+        db: AsyncSession,
+        identities: List[Dict[str, Any]],
+        model_version: Optional[str] = None,
+    ) -> int:
+        """Rows: ``{global_id, centroid, n_views, first_seen, last_seen, last_camera_id}``
+        with epoch-second timestamps (the coordinator's ``drain_dirty_identities``)."""
+        version = model_version or settings.reid_model_version
+        n = 0
+        stmt = text(
+            "INSERT INTO reid_identities (global_id, model_version, centroid, n_views, "
+            "first_seen, last_seen, last_camera_id, updated_at) "
+            "VALUES (:gid, :mv, CAST(:c AS vector), :n, :fs, :ls, "
+            "(SELECT id FROM cameras WHERE id = :cam), now()) "
+            "ON CONFLICT (global_id) DO UPDATE SET model_version = EXCLUDED.model_version, "
+            "centroid = EXCLUDED.centroid, n_views = EXCLUDED.n_views, "
+            "first_seen = LEAST(reid_identities.first_seen, EXCLUDED.first_seen), "
+            "last_seen = GREATEST(reid_identities.last_seen, EXCLUDED.last_seen), "
+            "last_camera_id = COALESCE(EXCLUDED.last_camera_id, reid_identities.last_camera_id), "
+            "updated_at = now()"
+        )
+        for ident in identities:
+            centroid = ident.get("centroid")
+            gid = ident.get("global_id")
+            if centroid is None or not gid:
+                continue
+            await db.execute(stmt, {
+                "gid": str(gid)[:100],
+                "mv": version,
+                "c": _vector_literal(centroid),
+                "n": int(ident.get("n_views") or 1),
+                "fs": _epoch_to_dt(ident.get("first_seen")),
+                "ls": _epoch_to_dt(ident.get("last_seen")),
+                "cam": ident.get("last_camera_id"),
+            })
+            n += 1
+        return n
+
+    @staticmethod
+    async def search(
+        db: AsyncSession,
+        query_vector: list,
+        top_k: int = 10,
+        threshold: Optional[float] = None,
+        model_version: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Nearest identities by centroid cosine similarity (HNSW)."""
+        stmt = text(
+            "SELECT global_id, n_views, first_seen, last_seen, last_camera_id, "
+            "(centroid <=> CAST(:qv AS vector)) AS distance FROM reid_identities "
+            "WHERE model_version = :mv ORDER BY centroid <=> CAST(:qv AS vector) LIMIT :k"
+        )
+        result = await db.execute(stmt, {
+            "qv": _vector_literal(query_vector),
+            "mv": model_version or settings.reid_model_version,
+            "k": int(top_k),
+        })
+        out = []
+        for r in result.mappings().all():
+            row = dict(r)
+            row["similarity"] = 1.0 - float(row["distance"])
+            if threshold is None or row["similarity"] >= threshold:
+                out.append(row)
+        return out
+
+    @staticmethod
+    async def list_recent(
+        db: AsyncSession, limit: int = 100, model_version: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        result = await db.execute(
+            text(
+                "SELECT global_id, n_views, first_seen, last_seen, last_camera_id "
+                "FROM reid_identities WHERE model_version = :mv "
+                "ORDER BY last_seen DESC LIMIT :k"
+            ),
+            {"mv": model_version or settings.reid_model_version, "k": int(limit)},
+        )
+        return [dict(r) for r in result.mappings().all()]
+
+    @staticmethod
+    async def count(db: AsyncSession, model_version: Optional[str] = None) -> int:
+        result = await db.execute(
+            text("SELECT count(*) FROM reid_identities WHERE model_version = :mv"),
+            {"mv": model_version or settings.reid_model_version},
+        )
+        return int(result.scalar() or 0)
+
+
+def _epoch_to_dt(value) -> datetime:
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if value is None:
+        return datetime.now(timezone.utc)
+    return datetime.fromtimestamp(float(value), tz=timezone.utc)
+
+
+class ReIDConfigService:
+    """Camera topology links and floor-plane calibrations."""
+
+    @staticmethod
+    async def list_links(db: AsyncSession) -> List[Dict[str, Any]]:
+        """Links in the shape ``track_coordinator.parse_links`` accepts (directed rows)."""
+        from app.models.embedding import CameraLink
+
+        result = await db.execute(select(CameraLink).order_by(CameraLink.id))
+        return [
+            {
+                "from": link.from_camera_id,
+                "to": link.to_camera_id,
+                "min_s": float(link.min_s or 0.0),
+                "max_s": float(link.max_s),
+                "overlapping": bool(link.overlapping),
+                "bidirectional": False,
+            }
+            for link in result.scalars().all()
+        ]
+
+    @staticmethod
+    async def replace_links(db: AsyncSession, links: List[Dict[str, Any]]) -> int:
+        """Replace the whole topology. ``bidirectional`` links are stored as two rows."""
+        from sqlalchemy import delete as sa_delete
+        from app.models.embedding import CameraLink
+
+        rows: Dict[tuple, CameraLink] = {}
+        for link in links:
+            a, b = int(link["from"]), int(link["to"])
+            if a == b:
+                raise ValueError("a camera cannot link to itself")
+            min_s = float(link.get("min_s") or 0.0)
+            max_s = float(link["max_s"])
+            if min_s < 0 or max_s < min_s:
+                raise ValueError(f"invalid transit window {min_s}..{max_s} for {a}->{b}")
+            pairs = [(a, b), (b, a)] if link.get("bidirectional") else [(a, b)]
+            for f, t in pairs:
+                rows[(f, t)] = CameraLink(
+                    from_camera_id=f, to_camera_id=t, min_s=min_s, max_s=max_s,
+                    overlapping=bool(link.get("overlapping")),
+                )
+        await db.execute(sa_delete(CameraLink))
+        db.add_all(list(rows.values()))
+        await db.flush()
+        return len(rows)
+
+    @staticmethod
+    async def list_calibrations(db: AsyncSession) -> List[Dict[str, Any]]:
+        from app.models.embedding import CameraCalibration
+
+        result = await db.execute(select(CameraCalibration))
+        return [
+            {"camera_id": c.camera_id, "homography": c.homography, "points": c.points, "rmse_m": c.rmse_m,
+             "updated_at": c.updated_at.isoformat() if c.updated_at else None}
+            for c in result.scalars().all()
+        ]
+
+    @staticmethod
+    async def set_calibration(
+        db: AsyncSession, camera_id: int, homography: List[List[float]],
+        points: Optional[List[Dict[str, Any]]] = None, rmse_m: Optional[float] = None,
+    ) -> None:
+        from app.models.embedding import CameraCalibration
+
+        row = await db.get(CameraCalibration, camera_id)
+        if row is None:
+            db.add(CameraCalibration(camera_id=camera_id, homography=homography, points=points, rmse_m=rmse_m))
+        else:
+            row.homography = homography
+            row.points = points
+            row.rmse_m = rmse_m
+            row.updated_at = datetime.now(timezone.utc)
+        await db.flush()
+
+    @staticmethod
+    async def delete_calibration(db: AsyncSession, camera_id: int) -> bool:
+        from app.models.embedding import CameraCalibration
+
+        row = await db.get(CameraCalibration, camera_id)
+        if row is None:
+            return False
+        await db.delete(row)
+        await db.flush()
+        return True
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -448,41 +649,12 @@ class EmbeddingService:
 
 class AuditService:
     """
+    Tamper-evident audit trail (see app/security/audit_chain.py).
 
-    @staticmethod
-    def _hash_payload(
-        event_type: str,
-        user_id: Optional[int],
-        description: Optional[str],
-        timestamp: datetime,
-        encrypted_metadata: Optional[str] = None,
-        ip_address: Optional[str] = None,
-        user_agent: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        return {
-            "event_type": event_type,
-            "user_id": user_id,
-            "description": description,
-            "timestamp": timestamp.isoformat(),
-            "encrypted_metadata": encrypted_metadata,
-            "ip_address": ip_address,
-            "user_agent": user_agent,
-        }
-
-    @staticmethod
-    def _legacy_hash_payload(entry: AuditLog) -> Dict[str, Any]:
-        timestamp = entry.timestamp.isoformat() if entry.timestamp else None
-        return {
-            "event_type": entry.event_type,
-            "user_id": entry.user_id,
-            "description": entry.description,
-            "timestamp": timestamp,
-        }
-    Tamper-evident audit trail operations.
-    
-    Each new entry is cryptographically chained to the previous one
-    using SHA-256. If anyone modifies a past entry, the chain breaks.
-    Metadata is encrypted with AES-256.
+    Each entry is HMAC-SHA256-chained to the previous one with a server-held
+    key (AUDIT_HMAC_KEY); metadata is AES-256-GCM encrypted before hashing.
+    Editing, deleting or reordering any row breaks ``verify_integrity``;
+    deleting the newest rows is caught by the signed anchor file.
     """
 
     @staticmethod
@@ -493,37 +665,30 @@ class AuditService:
         description: str,
         metadata: Optional[Dict] = None,
         ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None,
     ) -> AuditLog:
         # Serialize chain extension per transaction. Without this, concurrent
         # writers can read the same previous_hash and create an invalid fork.
         if settings.DATABASE_URL.startswith("postgresql"):
             await db.execute(text("SELECT pg_advisory_xact_lock(873245)"))
 
-        # Get the previous hash for chaining
         result = await db.execute(
-            select(AuditLog.current_hash)
-            .order_by(AuditLog.id.desc())
-            .limit(1)
+            select(AuditLog.current_hash).order_by(AuditLog.id.desc()).limit(1)
         )
         previous_hash = result.scalar_one_or_none()
-
         event_ts = datetime.now(timezone.utc)
-
-        # Encrypt metadata before hashing so tampering encrypted metadata breaks integrity.
         encrypted_meta = encrypt_data(metadata) if metadata else None
+        user_agent = (user_agent or None) and user_agent[:300]
+        ip_address = (ip_address or None) and ip_address[:45]
 
-        # Build payload for hashing
-        payload = {
-            "event_type": event_type,
-            "user_id": user_id,
-            "description": description,
-            "timestamp": event_ts.isoformat(),
-            "encrypted_metadata": encrypted_meta,
-            "ip_address": ip_address,
-            "user_agent": None,
-        }
-        current_hash = compute_hash(payload, previous_hash)
-
+        current_hash = audit_chain.compute_hmac(
+            audit_chain.canonical_payload(
+                event_type, user_id, description, event_ts,
+                encrypted_meta, ip_address, user_agent,
+            ),
+            previous_hash,
+            audit_chain.audit_key_bytes(),
+        )
         entry = AuditLog(
             event_type=event_type,
             user_id=user_id,
@@ -532,67 +697,82 @@ class AuditService:
             previous_hash=previous_hash,
             encrypted_metadata=encrypted_meta,
             ip_address=ip_address,
+            user_agent=user_agent,
             timestamp=event_ts,
+            hash_alg=audit_chain.HMAC_ALG,
         )
         db.add(entry)
         await db.flush()
-        await db.refresh(entry)
+        AuditService._anchor_after_commit(db, entry.id, current_hash)
         return entry
+
+    @staticmethod
+    def _anchor_after_commit(db: AsyncSession, entry_id: int, entry_hash: str) -> None:
+        """Advance the signed anchor only once the row is durably committed."""
+        sync_session = db.sync_session
+        pending = sync_session.info.setdefault("audit_anchor_pending", [])
+        pending.append((entry_id, entry_hash))
+        if sync_session.info.get("audit_anchor_hooked"):
+            return
+        sync_session.info["audit_anchor_hooked"] = True
+
+        def _after_commit(session) -> None:
+            items = session.info.pop("audit_anchor_pending", [])
+            if not items:
+                return
+            last_id, last_hash = max(items)
+            try:
+                audit_chain.advance_anchor(
+                    Path(settings.AUDIT_ANCHOR_PATH), last_id, last_hash, audit_chain.audit_key_bytes()
+                )
+            except Exception as e:  # anchor is defence in depth; never fail the request
+                logger.error(f"Audit anchor update failed: {e}")
+
+        def _after_rollback(session) -> None:
+            session.info.pop("audit_anchor_pending", None)
+
+        sa_event.listen(sync_session, "after_commit", _after_commit)
+        sa_event.listen(sync_session, "after_soft_rollback", lambda s, prev: _after_rollback(s))
 
     @staticmethod
     async def get_logs(
         db: AsyncSession,
         limit: int = 100,
         event_type: Optional[str] = None,
+        offset: int = 0,
     ) -> List[AuditLog]:
-        query = select(AuditLog).order_by(AuditLog.timestamp.desc())
+        query = select(AuditLog).order_by(AuditLog.id.desc())
         if event_type:
             query = query.where(AuditLog.event_type == event_type)
-        query = query.limit(limit)
-        result = await db.execute(query)
+        result = await db.execute(query.offset(offset).limit(limit))
         return result.scalars().all()
 
     @staticmethod
-    async def verify_integrity(db: AsyncSession) -> Dict[str, Any]:
-        """Verify the entire hash chain is intact."""
-        result = await db.execute(
-            select(AuditLog).order_by(AuditLog.id.asc())
+    async def load_chain(db: AsyncSession) -> List["audit_chain.ChainEntry"]:
+        rows = await db.stream(
+            select(AuditLog).order_by(AuditLog.id.asc()).execution_options(yield_per=2000)
         )
-        entries = result.scalars().all()
+        entries: List[audit_chain.ChainEntry] = []
+        async for row in rows.scalars():
+            entries.append(audit_chain.ChainEntry.from_row(row))
+        return entries
 
-        for i, entry in enumerate(entries):
-            expected_prev = entries[i - 1].current_hash if i > 0 else None
-            if entry.previous_hash != expected_prev:
-                return {
-                    "valid": False,
-                    "broken_at": entry.id,
-                    "total": len(entries),
-                    "message": f"Chain broken at entry #{entry.id}",
-                }
-            payload = AuditService._hash_payload(
-                entry.event_type,
-                entry.user_id,
-                entry.description,
-                entry.timestamp,
-                entry.encrypted_metadata,
-                entry.ip_address,
-                entry.user_agent,
-            )
-            recomputed = compute_hash(payload, entry.previous_hash)
-            if recomputed != entry.current_hash:
-                legacy = compute_hash(
-                    AuditService._legacy_hash_payload(entry),
-                    entry.previous_hash,
-                )
-                if legacy != entry.current_hash:
-                    return {
-                        "valid": False,
-                        "broken_at": entry.id,
-                        "total": len(entries),
-                        "message": f"Entry #{entry.id} content hash mismatch",
-                    }
-
-        return {"valid": True, "broken_at": None, "total": len(entries)}
+    @staticmethod
+    async def verify_integrity(db: AsyncSession) -> Dict[str, Any]:
+        """Verify the entire chain plus the signed tail anchor."""
+        key = audit_chain.audit_key_bytes()
+        entries = await AuditService.load_chain(db)
+        anchor = audit_chain.read_anchor(Path(settings.AUDIT_ANCHOR_PATH), key)
+        result = audit_chain.verify_entries(entries, key, anchor)
+        result["checked_at"] = datetime.now(timezone.utc).isoformat()
+        result["message"] = (
+            (f"Chain intact ({result['hmac_entries']} keyed entries"
+             + (f"; {result['excluded_legacy']} pre-HMAC legacy rows excluded by signed base"
+                if result.get("excluded_legacy") else "")
+             + ")") if result["valid"]
+            else f"Chain broken at entry #{result['broken_at']}: {result['reason']}"
+        )
+        return result
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -643,32 +823,6 @@ class AnalyticsService:
             foot_traffic_score=float(foot_traffic_score),
             vibe_label=label,
             breakdown=breakdown,
-        )
-        db.add(entry)
-        await db.flush()
-        return entry
-
-    @staticmethod
-    async def save_demographics(
-        db: AsyncSession,
-        camera_id: int,
-        zone: Optional[str],
-        age_group: Optional[str] = None,
-        gender: Optional[str] = None,
-        count: int = 1,
-        estimated_age: Optional[float] = None,
-        estimated_gender: Optional[str] = None,
-        confidence: Optional[float] = None,
-    ) -> DemographicSnapshot:
-        entry = DemographicSnapshot(
-            camera_id=camera_id,
-            zone=zone,
-            age_group=age_group,
-            gender=gender or estimated_gender,
-            estimated_age=estimated_age,
-            estimated_gender=estimated_gender or gender,
-            count=count,
-            confidence=confidence,
         )
         db.add(entry)
         await db.flush()
@@ -775,45 +929,3 @@ class AnalyticsService:
         )
         return result.scalars().all()
 
-    @staticmethod
-    async def get_demographics_breakdown(
-        db: AsyncSession,
-        hours: int = 24,
-        zone: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """
-        Aggregate demographic snapshots across the given window into
-        age/gender histograms for the current dashboard.
-        """
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=max(1, hours))
-        query = (
-            select(
-                DemographicSnapshot.age_group,
-                DemographicSnapshot.gender,
-                func.sum(DemographicSnapshot.count).label("total"),
-            )
-            .where(DemographicSnapshot.timestamp >= cutoff)
-        )
-        if zone:
-            query = query.where(DemographicSnapshot.zone == zone)
-        query = query.group_by(DemographicSnapshot.age_group, DemographicSnapshot.gender)
-        result = await db.execute(query)
-        rows = result.all()
-        age_dist: Dict[str, int] = {}
-        gender_dist: Dict[str, int] = {}
-        total = 0
-        for row in rows:
-            n = int(row.total or 0)
-            total += n
-            if row.age_group:
-                age_dist[row.age_group] = age_dist.get(row.age_group, 0) + n
-            if row.gender:
-                gender_dist[str(row.gender).lower()] = (
-                    gender_dist.get(str(row.gender).lower(), 0) + n
-                )
-        return {
-            "age_distribution": age_dist,
-            "gender_distribution": gender_dist,
-            "total_count": total,
-            "zone": zone,
-        }
